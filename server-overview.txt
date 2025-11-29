@@ -1,98 +1,120 @@
-## Detailed Systems Design for `sabs-parent/server` Project (Laravel API)
+## Detailed Systems Design for `sabs-parent/server` Project (Laravel API & Web)
 
-This document outlines the system design for the `sabs-parent/server` project, focusing on its role as a Laravel API backend for the `sabsv3` React Native mobile application. It covers the component, functional, and people views to provide a comprehensive understanding for both technical and non-technical stakeholders.
+This document outlines the system design for the `sabs-parent/server` project, focusing on its role as a comprehensive Laravel backend serving both a RESTful API for the `sabsv3` React Native mobile application and a web interface. It covers the component, functional, and people views to provide a comprehensive understanding for both technical and non-technical stakeholders, specifically highlighting features exposed via defined routes.
 
 ### 1. Introduction
 
-The `sabs-parent/server` project is a Laravel-based backend application designed to provide API services primarily to the `sabsv3` Expo React Native mobile application. It acts as a central hub for data management, business logic execution, and integration with various external services such as payment gateways (PayPal, Stripe) and potentially real-time communication (Chatify). The system appears to manage financial transactions, user accounts, loans, savings, and other related services within a CRM-like context.
+The `sabs-parent/server` project is a Laravel-based backend application designed to provide API services primarily to the `sabsv3` Expo React Native mobile application, alongside a full-featured web interface. It acts as a central hub for data management, business logic execution, and integration with various external services such as payment gateways (PayPal, Stripe) and other utilities. The system manages financial transactions, user accounts, loans, savings, and other related services within a CRM-like context.
 
 ### 2. Functional View
 
-The system offers a wide range of functionalities, primarily exposed through a RESTful API. Key functional areas include:
+The system offers a wide range of functionalities, exposed through both a RESTful API and a traditional web interface. Key functional areas include:
 
 #### 2.1. User and Authentication Management
-*   **User Registration:** Allows new users (customers, agents, system users) to register.
-*   **User Authentication (Login):** Secure login using API tokens.
-*   **User Profiles:** Retrieval and update of user-specific information.
-*   **Role-Based Access Control (RBAC):** Leverages `spatie/laravel-permission` to manage user roles and permissions, ensuring secure access to specific API endpoints and functionalities.
+*   **User Registration:** Allows new users (customers, agents, system users) to register via both web forms and API endpoints.
+*   **User Authentication (Login):** Secure login via web forms (session-based) and API tokens (token-based). Includes password reset functionality.
+*   **User Profiles:** Retrieval and update of user-specific information via web and API.
+*   **Role-Based Access Control (RBAC):** Leverages `spatie/laravel-permission` to manage user roles and permissions, ensuring secure access to specific functionalities across both web and API interfaces.
 *   **Session Management:** Standard Laravel session handling for web routes, and API token-based authentication for API routes.
 
 #### 2.2. Customer and Account Management
-*   **Customer Listings:** Retrieve lists of customers and agents.
-*   **Customer Details:** Get detailed information for a specific customer.
-*   **Customer Search:** Search customers by various criteria, including account number.
-*   **Account Types:** Manage different types of accounts (e.g., savings, loans).
-*   **Account Operations:** Deposits, withdrawals, and reversals for various account types.
-*   **Susu Accounts:** Specific functionalities for managing "Susu" (informal savings/credit) accounts, including checking status, retrieving details, initiating deposits/withdrawals, and completing cycles.
+*   **Customer Listings:** Retrieve lists of customers and agents via web (grid views) and API.
+*   **Customer Details:** Get detailed information for a specific customer via web and API.
+*   **Customer Search:** Search customers by various criteria, including account number, via web and API.
+*   **Account Types:** Manage different types of accounts (e.g., savings, loans) via web and API.
+*   **Account Operations:** Deposits, withdrawals, and reversals for various account types via web and API.
+*   **Susu Accounts:** Specific functionalities for managing "Susu" (informal savings/credit) accounts, including checking status, retrieving details, initiating deposits/withdrawals, and completing cycles, primarily via API.
 
 #### 2.3. Loan Management
-*   **Loan Requests:** Manage incoming loan applications.
-*   **Loan Accounts:** Administer individual loan accounts.
-*   **Loan Migrations:** Functionality related to migrating loan data.
-*   **Loan Purposes:** Manage predefined reasons or categories for loans.
-*   **Loan Repayments:** Process and track loan repayment transactions.
+*   **Loan Requests:** Manage incoming loan applications via web and API.
+*   **Loan Accounts:** Administer individual loan accounts via web and API.
+*   **Loan Migrations:** Functionality related to migrating loan data via web and API.
+*   **Loan Purposes:** Manage predefined reasons or categories for loans via web and API.
+*   **Loan Repayments:** Process and track loan repayment transactions via web and API.
 
-#### 2.4. Transaction Management and Reporting
-*   **Transaction History:** Retrieve detailed transaction logs for users and accounts.
-*   **Dashboard Analytics:** Provide aggregated data for various timeframes (today, this week, this month, this year, all time) covering deposits, withdrawals, loan requests, etc.
-*   **Daily Collections:** Track daily deposit and withdrawal activities.
-*   **Agent Mobilization Reports:** Analyze agent performance by products for both deposits and withdrawals.
-*   **System Reports:** Generate various system-wide reports.
-*   **Printed Statements:** Functionality to retrieve data for printing statements, transactions, deposits, withdrawals, and account balances.
+#### 2.4. CRM Modules (Web Interface Focused)
+*   **Contact Management:** Create, view, edit, and delete contacts.
+*   **Lead Management:** Track and manage leads, including conversion to accounts and lead ordering.
+*   **Opportunity Management:** Manage sales opportunities through various stages.
+*   **Case Management:** Handle common cases and inquiries.
+*   **Activity Management:** Schedule and track meetings, calls, and tasks.
+*   **Document Management:** Organize and manage documents within folders.
+*   **Campaign Management:** Plan and execute marketing campaigns.
+*   **Target List Management:** Create and manage targeted lists.
+*   **Product Catalog:** Manage products, categories, brands, and taxes.
+*   **Sales Orders:** Create, manage, preview, and generate PDFs for sales orders.
+*   **Invoicing:** Generate, manage, preview, and create PDFs for invoices.
+*   **Quotes:** Create, manage, preview, and generate PDFs for quotes.
 
-#### 2.5. Company Information and Utilities
-*   **Company Profile:** Manage and update company-specific information.
-*   **SMS Services:** Functionality for company SMS transactions.
-*   **Product/Service Management:** Retrieve system products/services for clients.
-*   **Monthly Deductions:** Process monthly deductions.
-*   **Confirmation Codes:** Send confirmation codes (e.g., for transactions or verifications).
+#### 2.5. Transaction Management and Reporting
+*   **Transaction History:** Retrieve detailed transaction logs for users and accounts via web and API.
+*   **Dashboard Analytics:** Provide aggregated data for various timeframes (today, this week, this month, this year, all time) covering deposits, withdrawals, loan requests, etc., via web and API.
+*   **Daily Collections:** Track daily deposit and withdrawal activities via web and API.
+*   **Agent Mobilization Reports:** Analyze agent performance by products for both deposits and withdrawals via web and API.
+*   **System Reports:** Generate various system-wide reports (leads, invoices, sales orders, quotes analytics) via web and API.
+*   **Printed Statements:** Functionality to retrieve data for printing statements, transactions, deposits, withdrawals, and account balances via API.
+*   **Export Functionality:** Export transaction data to CSV.
 
-#### 2.6. Integrations
-*   **Payment Gateways:** Integration with PayPal and Stripe for payment processing (indicated by Composer dependencies).
-*   **Real-time Chat:** Integration with `munafio/chatify` suggests real-time communication capabilities (though specific API routes for this were not evident in `api.php`, it implies such a feature exists or is planned).
-*   **mymtn endpoint:** Suggests an integration with MTN (a mobile network operator, likely for mobile money or other services).
+#### 2.6. System Configuration and Utilities
+*   **Company Information:** Manage and update company-specific information via web and API.
+*   **System Settings:** Configure various business, company, email, system, and payment settings via the web interface. Includes email testing utility.
+*   **Language Management:** Change and manage application languages via web interface.
+*   **Subscription Plans:** Manage and upgrade user subscription plans via web.
+*   **Form Builder:** Create, manage, and respond to custom forms via web, with public form links.
+*   **SMS Services:** Functionality for company SMS transactions via API.
+*   **Product/Service Management:** Retrieve system products/services for clients via API.
+*   **Monthly Deductions:** Process monthly deductions via API.
+*   **Confirmation Codes:** Send confirmation codes (e.g., for transactions or verifications) via API.
+*   **Financial Details:** Retrieve account balance, commission values, and account balance with charges via API.
+*   **Calendar:** A calendar feature accessible via web.
+*   **Change Mode:** A utility to change user mode.
+
+#### 2.7. Integrations
+*   **Stripe Payment Gateway:** Integrated for processing payments (as per `StripePaymentController` and related routes).
+*   **PayPal Payment Gateway:** Integrated for processing plan payments (as per `PaypalController` and related routes).
+*   **mymtn endpoint:** Suggests a custom integration with MTN (a mobile network operator, likely for mobile money or other services) via API.
 
 ### 3. Component View
 
-The system is built on the Laravel framework and follows a Model-View-Controller (MVC) architectural pattern, though the API primarily exposes the Model and Controller layers.
+The system is built on the Laravel framework and primarily follows a Model-View-Controller (MVC) architectural pattern.
 
 #### 3.1. Core Framework and Language
 *   **Laravel 7:** The foundational PHP framework providing structure, ORM (Eloquent), routing, middleware, and other essential services.
 *   **PHP 7.2.5+:** The core programming language.
 
 #### 3.2. Data Layer
-*   **Eloquent ORM:** Laravel's built-in Object-Relational Mapper, used extensively for interacting with the database. Each `.php` file in the `app/` directory (e.g., `User.php`, `Account.php`, `Loanrequests.php`) likely represents an Eloquent model, mapping to a corresponding database table.
-*   **Database:** The choice of database is not explicitly stated in `composer.json` or `routes/api.php`, but `doctrine/dbal` suggests compatibility with various relational databases (MySQL, PostgreSQL, etc.).
+*   **Eloquent ORM:** Laravel's built-in Object-Relational Mapper, used extensively for interacting with the database. Each `.php` file in the `app/` directory (e.g., `User.php`, `Account.php`, `Loanrequests.php`) represents an Eloquent model, mapping to a corresponding database table.
+*   **Database:** The choice of database is not explicitly stated, but `doctrine/dbal` in `composer.json` suggests compatibility with various relational databases (e.g., MySQL, PostgreSQL).
 
-#### 3.3. API Layer
-*   **Routing (`routes/api.php`):** Defines all API endpoints, mapping HTTP methods (GET, POST) to specific controller actions.
-*   **Controllers (`app/Http/Controllers`):** Handle incoming API requests, process data, interact with models/services, and return appropriate API responses.
-    *   `ApiUsersController`: The central controller for a vast majority of the API endpoints, handling user, customer, account, transaction, and reporting logic.
-    *   `AuthController`: Specifically handles user login and potentially registration.
-    *   Numerous other controllers (e.g., `AccountController`, `LoanRequestsController`, `InvoiceController`) exist, likely serving a web interface or specific admin functionalities, potentially sharing underlying model logic with `ApiUsersController`.
+#### 3.3. Application Layer (Controllers, Views, Routes, Middleware)
+*   **Routing (`routes/api.php`, `routes/web.php`):** Defines all API and web endpoints, mapping HTTP methods (GET, POST, DELETE, PUT/PATCH) to specific controller actions.
+*   **Controllers (`app/Http/Controllers`):** Handle incoming requests (both API and web), process data, interact with models/services, and return appropriate responses (JSON for API, Blade views for web).
+    *   `ApiUsersController`: Central to API functionalities, handling user, customer, account, transaction, and reporting logic for the mobile app.
+    *   `AuthController`: Manages user authentication (login, registration).
+    *   Numerous other controllers (e.g., `AccountController`, `LoanRequestsController`, `InvoiceController`, `UserController`, `ReportController`, `SettingController`) provide logic for specific web-based modules and administrative functions, often complementing or sharing logic with API functionalities.
+*   **Views (`resources/views`):** Blade templates are used to render the web interface.
 *   **Middleware (`app/Http/Kernel.php`):**
-    *   **Authentication Middleware (`auth:api`):** Verifies API tokens for protected routes.
+    *   **Authentication Middleware (`auth`, `auth:api`):** Verifies user sessions for web routes and API tokens for protected API routes.
     *   **CORS Middleware (`Fruitcake\Cors\HandleCors`):** Manages Cross-Origin Resource Sharing, allowing the mobile app to communicate with the API.
-    *   **Rate Limiting (`throttle`):** Prevents abuse by limiting the number of requests per minute (e.g., 60 req/min).
-    *   **Authorization Middleware (`can`):** Integrates with Spatie permissions for fine-grained access control.
-    *   **Custom Middleware (`XSS`):** Provides additional security against Cross-Site Scripting attacks.
+    *   **Rate Limiting (`throttle`):** Limits API requests per minute (e.g., 60 req/min).
+    *   **Authorization Middleware (`can`):** Integrates with Spatie permissions for fine-grained access control on both web and API.
+    *   **Security Middleware (`XSS`):** Provides protection against Cross-Site Scripting attacks.
+    *   **Standard Web Middleware:** Includes cookie encryption, session management, CSRF protection, etc., for the web interface.
 
-#### 3.4. External Services/Libraries (via Composer)
-*   `fruitcake/laravel-cors`: For handling CORS headers.
-*   `guzzlehttp/guzzle`: An HTTP client for making requests to external services.
-*   `munafio/chatify`: Chat functionality.
-*   `paypal/rest-api-sdk-php`: PayPal integration.
-*   `spatie/laravel-permission`: Robust role and permission management.
-*   `stripe/stripe-php`: Stripe payment integration.
-*   `mymtn` endpoint suggests a custom integration with MTN.
+#### 3.4. External Services/Libraries (Actively Used via Routes)
+*   `fruitcake/laravel-cors`: For handling CORS headers for API access.
+*   `guzzlehttp/guzzle`: An HTTP client likely used for making requests to external services like payment gateways (Stripe/PayPal APIs) or MTN integration.
+*   `paypal/rest-api-sdk-php`: Integrated for PayPal payment processing via `PaypalController`.
+*   `spatie/laravel-permission`: Robust role and permission management, evident in `PermissionController` and `RoleController` routes and `can` middleware.
+*   `stripe/stripe-php`: Integrated for Stripe payment processing via `StripePaymentController`.
 
 #### 3.5. Application Structure
 *   **`app/`:** Contains core application logic: Models, Http (Controllers, Middleware), Providers, etc.
 *   **`config/`:** Configuration files for various services and application settings.
 *   **`database/`:** Database migrations, seeders, and factories.
 *   **`public/`:** The web server's entry point, containing `index.php` and public assets.
-*   **`resources/`:** Contains views (for web interface), language files, and uncompiled assets.
-*   **`routes/`:** Defines all web and API routes.
+*   **`resources/`:** Contains views (Blade templates for the web interface), language files, and uncompiled assets.
+*   **`routes/`:** Defines all web (`web.php`) and API (`api.php`) routes.
 *   **`storage/`:** Stores compiled Blade templates, file uploads, logs, and other generated files.
 *   **`.env`:** Environment configuration for sensitive data and application settings.
 
@@ -100,12 +122,15 @@ The system is built on the Laravel framework and follows a Model-View-Controller
 
 This section describes the different roles involved in the development, maintenance, and interaction with the `sabs-parent/server` project.
 
-*   **API Developers:**
-    *   **Responsibilities:** Develop, maintain, and extend API endpoints; implement business logic; ensure API security and performance; write unit and integration tests.
-    *   **Key Skills:** PHP, Laravel, RESTful API design, database (SQL), security best practices.
+*   **Backend Developers (Laravel):**
+    *   **Responsibilities:** Develop, maintain, and extend API endpoints and web functionalities; implement business logic; ensure API/web security and performance; manage database interactions; write unit and integration tests.
+    *   **Key Skills:** PHP, Laravel, RESTful API design, MVC patterns, database (SQL), security best practices.
 *   **Mobile App Developers (React Native):**
     *   **Responsibilities:** Consume the API endpoints to build and maintain the `sabsv3` mobile application; provide feedback on API design and functionality.
     *   **Key Skills:** JavaScript/TypeScript, React Native, understanding of RESTful APIs, mobile development best practices.
+*   **Frontend Developers (Web):**
+    *   **Responsibilities:** Develop and maintain the web-based user interface; ensure responsive design and user experience.
+    *   **Key Skills:** HTML, CSS, JavaScript, Blade templating, frontend frameworks (if any).
 *   **Database Administrators (DBAs):**
     *   **Responsibilities:** Manage the underlying database; ensure data integrity, performance, and security; perform backups and recovery.
     *   **Key Skills:** SQL, database management systems (MySQL, PostgreSQL, etc.), database optimization.
@@ -113,12 +138,12 @@ This section describes the different roles involved in the development, maintena
     *   **Responsibilities:** Deploy and manage the server application; ensure server health, scalability, and security; configure web servers (Apache/Nginx); manage environment variables.
     *   **Key Skills:** Linux/Windows Server administration, web server configuration, CI/CD, cloud platforms.
 *   **Business Analysts/Product Owners:**
-    *   **Responsibilities:** Define functional requirements; ensure the API meets business needs; prioritize features; understand the overall purpose and value of the system.
+    *   **Responsibilities:** Define functional requirements; ensure the system (API and web) meets business needs; prioritize features; understand the overall purpose and value of the system.
     *   **Key Skills:** Domain knowledge (financial services, CRM), requirements gathering, project management.
 *   **Security Auditors:**
-    *   **Responsibilities:** Review the API for vulnerabilities; ensure compliance with security standards.
+    *   **Responsibilities:** Review the API and web application for vulnerabilities; ensure compliance with security standards.
     *   **Key Skills:** Web security, penetration testing, secure coding practices.
 
 ### 5. Conclusion
 
-The `sabs-parent/server` project serves as a robust Laravel API backend, offering extensive functionalities for a financial/CRM application. Its architecture, built on Laravel 7, provides a clear separation of concerns, robust routing, and comprehensive middleware for security and performance. The integration with various payment and communication services further enhances its capabilities. This detailed system design should enable any individual or agent to understand the project's core components, functional scope, and the roles involved in its ecosystem.
+The `sabs-parent/server` project serves as a robust Laravel backend, offering extensive functionalities for a financial/CRM application through both API and web interfaces. Its architecture, built on Laravel 7, provides a clear separation of concerns, robust routing, and comprehensive middleware for security and performance. The explicit routing for payment gateways (Stripe, PayPal) and MTN integration confirms their active use. This revised system design accurately reflects the actively exposed functionalities and their supporting components, enabling any individual or agent to understand the project's core components, functional scope, and the roles involved in its ecosystem.
