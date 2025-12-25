@@ -131,3 +131,5 @@ Route::middleware(['auth:api'])->group(function () {
 Route::post('login', [AuthController::class, 'login']);
 Route::get('insertcompanyinfo', [ApiUsersController::class, 'insertcompanyinfo']);
 Route::get('mymtn', [ApiUsersController::class, 'mymtn']);
+
+require __DIR__ . '/loans.php';
