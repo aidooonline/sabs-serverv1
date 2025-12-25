@@ -730,3 +730,7 @@ Route::post('/form_field_store/{id}', 'FormBuilderController@bindStore')->name('
     ]
 );
 // end Form Builder
+
+// --- DEV TOOLS (Test Runner) ---
+Route::get('/dev/test-runner', 'TestRunnerController@index');
+Route::post('/dev/run-test', 'TestRunnerController@runTest');
