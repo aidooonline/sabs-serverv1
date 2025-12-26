@@ -51,7 +51,8 @@ class CapitalAccountController extends Controller
             // Auto-create if missing (failsafe)
             $pool = CentralLoanAccount::create(['name' => 'Main Loan Pool', 'balance' => 0]);
         }
-        return response()->json(['success' => true, 'data' => $pool], 200);
+        // The frontend expects a 'balance' property, not a nested 'data' object.
+        return response()->json(['success' => true, 'balance' => $pool->balance], 200);
     }
 
     /**
