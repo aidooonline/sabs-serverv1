@@ -9,6 +9,7 @@
     </Files>
 
     RewriteEngine On
+    RewriteBase /sabsv3-test/
 
     # Handle Authorization Header
     RewriteCond %{HTTP:Authorization} .
