@@ -32,6 +32,10 @@ class LoanTreasuryTest extends TestCase
             'created_by' => 1
         ]);
 
+        if ($response->status() !== 201) {
+            $response->dump();
+        }
+
         // 3. Assert
         $response->assertStatus(201)
                  ->assertJson(['success' => true]);
