@@ -25,6 +25,9 @@ class CapitalAccountController extends Controller
      */
     public function store(Request $request)
     {
+        // DEBUG: Verify we reached here
+        dump("CapitalAccountController@store REACHED");
+
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'type' => 'required|string',
