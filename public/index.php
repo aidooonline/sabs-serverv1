@@ -49,6 +49,15 @@ $app = require_once __DIR__.'/../bootstrap/app.php';
 |
 */
 
+// HOTFIX: Handle Subdirectory Deployment
+// Strip '/sabsv3-test' from the request URI so Laravel sees the correct route path
+if (isset($_SERVER['REQUEST_URI']) && strpos($_SERVER['REQUEST_URI'], '/sabsv3-test') === 0) {
+    $_SERVER['REQUEST_URI'] = substr($_SERVER['REQUEST_URI'], 12); // Length of '/sabsv3-test'
+    if (empty($_SERVER['REQUEST_URI'])) {
+        $_SERVER['REQUEST_URI'] = '/';
+    }
+}
+
 $kernel = $app->make(Illuminate\Contracts\Http\Kernel::class);
 
 $response = $kernel->handle(
