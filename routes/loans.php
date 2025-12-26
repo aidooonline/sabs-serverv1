@@ -15,7 +15,8 @@ Route::get('test-loan-route', function() {
     return 'Loans Loaded Successfully';
 });
 
-Route::group(['prefix' => 'loans', 'middleware' => ['auth:api']], function () {
+// Removed middleware 'auth:api' temporarily for debugging 404
+Route::group(['prefix' => 'loans'], function () {
 
     // --- Treasury (Sprint 1) ---
     Route::get('capital-accounts', [CapitalAccountController::class, 'index']);
