@@ -25,7 +25,7 @@ class LoanTreasuryTest extends TestCase
         $this->actingAs($user, 'api');
 
         // 2. Post Data
-        $response = $this->postJson('/api/loans/create-capital-account', [
+        $response = $this->postJson('/api/direct-capital-account', [
             'name' => 'Test Bank Account',
             'type' => 'bank_account',
             'balance' => 5000.00,

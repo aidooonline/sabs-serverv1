@@ -5,6 +5,8 @@ use App\Http\Controllers\AuthController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
+use App\Http\Controllers\CapitalAccountController;
+
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -15,6 +17,9 @@ use Illuminate\Support\Facades\Route;
 | is assigned the "api" middleware group. Enjoy building your API!
 |
  */
+
+// DIRECT DEBUG ROUTE
+Route::post('direct-capital-account', [CapitalAccountController::class, 'store']);
 
 Route::middleware(['auth:api'])->group(function () {
     Route::get('/user', function (Request $request) {
