@@ -135,13 +135,15 @@
                     this.output = '';
                     this.currentPath = path;
 
-                    fetch('/dev/run-test', {
-                        method: 'POST',
+                    // Use Laravel route() to generate the correct URL (handling index.php or subfolders)
+                    const url = "{{ route('dev.run_test') }}?path=" + encodeURIComponent(path);
+
+                    fetch(url, {
+                        method: 'GET',
                         headers: {
                             'Content-Type': 'application/json',
-                            'X-CSRF-TOKEN': '{{ csrf_token() }}'
-                        },
-                        body: JSON.stringify({ path: path })
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
                     })
                     .then(res => res.json())
                     .then(data => {
