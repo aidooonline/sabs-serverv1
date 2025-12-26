@@ -20,7 +20,13 @@ Route::group(['prefix' => 'loans'], function () {
 
     // --- Treasury (Sprint 1) ---
     Route::get('capital-accounts', [CapitalAccountController::class, 'index']);
-    Route::post('capital-accounts', [CapitalAccountController::class, 'store']);
+    
+    // DEBUG: Closure route to test POST availability
+    Route::post('capital-accounts', function() {
+        return response()->json(['message' => 'POST Route Works!']);
+    });
+    // Route::post('capital-accounts', [CapitalAccountController::class, 'store']);
+    
     Route::get('pool-balance', [CapitalAccountController::class, 'getPoolBalance']);
     Route::post('fund-transfer', [CapitalAccountController::class, 'transferToPool']);
 
