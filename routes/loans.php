@@ -10,6 +10,11 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
+// DEBUG ROUTE (Remove after verification)
+Route::get('test-loan-route', function() {
+    return 'Loans Loaded Successfully';
+});
+
 Route::group(['prefix' => 'loans', 'middleware' => ['auth:api']], function () {
 
     // --- Treasury (Sprint 1) ---
