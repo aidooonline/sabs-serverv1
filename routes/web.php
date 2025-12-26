@@ -747,15 +747,3 @@ Route::get('/dev/debug-routes', function() {
     }
     return response()->json($routes);
 });
-
-// DEBUG: Move Capital Account Route to WEB to bypass API prefix issues
-use App\Http\Controllers\CapitalAccountController;
-// DEBUG: Catch-All Route to diagnose 404s
-Route::any('{any}', function ($any) {
-    return response()->json([
-        'message' => 'Catch-All Route Hit', 
-        'url' => request()->url(), 
-        'path' => request()->path(),
-        'method' => request()->method()
-    ], 200);
-})->where('any', '.*');

@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 use App\Http\Controllers\CapitalAccountController;
+use App\Http\Controllers\LoanProductController;
 
 /*
 |--------------------------------------------------------------------------
@@ -18,9 +19,6 @@ use App\Http\Controllers\CapitalAccountController;
 |
  */
 
-// DIRECT DEBUG ROUTE
-Route::post('direct-capital-account', [CapitalAccountController::class, 'store']);
-
 Route::middleware(['auth:api'])->group(function () {
     Route::get('/user', function (Request $request) {
         return $request->user();
@@ -29,6 +27,24 @@ Route::middleware(['auth:api'])->group(function () {
     Route::get('usersapi', [ApiUsersController::class, 'getagents']);
     Route::get('customerssapi', [ApiUsersController::class, 'getcustomers']);
     Route::get('getcustomerbyid', [ApiUsersController::class, 'getcustomerbyid']);
+
+    // --- NEW LOAN SYSTEM ROUTES (Moved from loans.php) ---
+    Route::group(['prefix' => 'loans'], function () {
+        // Treasury
+        Route::get('capital-accounts', [CapitalAccountController::class, 'index']);
+        Route::post('capital-accounts', [CapitalAccountController::class, 'store']);
+        Route::get('pool-balance', [CapitalAccountController::class, 'getPoolBalance']);
+        Route::post('fund-transfer', [CapitalAccountController::class, 'transferToPool']);
+
+        // Products
+        Route::get('fees', [LoanProductController::class, 'getFees']);
+        Route::post('fees', [LoanProductController::class, 'storeFee']);
+        Route::get('products', [LoanProductController::class, 'index']);
+        Route::post('products', [LoanProductController::class, 'storeProduct']);
+    });
+    // ----------------------------------------------------
+
+    //Customer  Search
 
     //Customer  Search
     Route::get('searchcustomerssapi', [ApiUsersController::class, 'searchgetcustomers']);
@@ -136,5 +152,3 @@ Route::middleware(['auth:api'])->group(function () {
 Route::post('login', [AuthController::class, 'login']);
 Route::get('insertcompanyinfo', [ApiUsersController::class, 'insertcompanyinfo']);
 Route::get('mymtn', [ApiUsersController::class, 'mymtn']);
-
-require __DIR__ . '/loans.php';

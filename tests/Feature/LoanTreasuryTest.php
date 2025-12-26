@@ -27,20 +27,13 @@ class LoanTreasuryTest extends TestCase
         $user = new User(['id' => 1]); 
         $this->actingAs($user, 'api');
 
-        // DYNAMIC ROUTE DEFINITION (Bypassing web.php/api.php)
-        Route::post('/dynamic-capital-account', [CapitalAccountController::class, 'store']);
-
         // 2. Post Data
-        $response = $this->postJson('/dynamic-capital-account', [
+        $response = $this->postJson('/api/loans/capital-accounts', [
             'name' => 'Test Bank Account',
             'type' => 'bank_account',
             'balance' => 5000.00,
             'created_by' => 1
         ]);
-
-        if ($response->status() !== 201) {
-            $response->dump();
-        }
 
         // 3. Assert
         $response->assertStatus(201)
