@@ -734,3 +734,16 @@ Route::post('/form_field_store/{id}', 'FormBuilderController@bindStore')->name('
 // --- DEV TOOLS (Test Runner) ---
 Route::get('/dev/test-runner', 'TestRunnerController@index')->name('dev.test_runner');
 Route::get('/dev/run-test', 'TestRunnerController@runTest')->name('dev.run_test');
+
+Route::get('/dev/debug-routes', function() {
+    $routes = [];
+    foreach (Route::getRoutes() as $route) {
+        $routes[] = [
+            'method' => implode('|', $route->methods()),
+            'uri' => $route->uri(),
+            'name' => $route->getName(),
+            'action' => $route->getActionName(),
+        ];
+    }
+    return response()->json($routes);
+});
