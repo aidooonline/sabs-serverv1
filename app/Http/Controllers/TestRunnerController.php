@@ -23,6 +23,10 @@ class TestRunnerController extends Controller
             return response()->json(['output' => 'Security Error: Invalid path provided.']);
         }
 
+        // CLEAR ROUTE CACHE to ensure new routes are recognized
+        Artisan::call('route:clear');
+        Artisan::call('config:clear');
+
         // Construct command
         // We use 'php artisan test' which is available in Laravel 7+
         // We append --no-ansi to avoid color codes cluttering the raw output, 
