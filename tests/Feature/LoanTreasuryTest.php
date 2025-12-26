@@ -24,8 +24,8 @@ class LoanTreasuryTest extends TestCase
         $user = new User(['id' => 1]); 
         $this->actingAs($user, 'api');
 
-        // 2. Post Data
-        $response = $this->postJson('/api/direct-capital-account', [
+        // 2. Post Data (Hitting WEB route now)
+        $response = $this->postJson('/direct-capital-account', [
             'name' => 'Test Bank Account',
             'type' => 'bank_account',
             'balance' => 5000.00,

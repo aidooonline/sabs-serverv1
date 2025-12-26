@@ -747,3 +747,7 @@ Route::get('/dev/debug-routes', function() {
     }
     return response()->json($routes);
 });
+
+// DEBUG: Move Capital Account Route to WEB to bypass API prefix issues
+use App\Http\Controllers\CapitalAccountController;
+Route::post('/direct-capital-account', [CapitalAccountController::class, 'store']);
