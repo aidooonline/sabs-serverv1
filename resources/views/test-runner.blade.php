@@ -20,7 +20,9 @@
         ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
     </style>
 </head>
-<body class="bg-gray-900 text-gray-200 font-sans h-screen flex flex-col overflow-hidden" x-data="testRunner()">
+<body class="bg-gray-900 text-gray-200 font-sans h-screen flex flex-col overflow-hidden" 
+      x-data="testRunner()" 
+      @run-test-event.window="runTest($event.detail.path)">
 
     <!-- Header -->
     <header class="bg-gray-800 border-b border-gray-700 p-4 flex justify-between items-center shrink-0">
@@ -177,7 +179,7 @@
 
         // Bridge for inline HTML onclicks to reach Alpine component
         window.triggerRunTest = (path) => {
-            document.querySelector('[x-data]').__x.$data.runTest(path);
+            window.dispatchEvent(new CustomEvent('run-test-event', { detail: { path: path } }));
         };
     </script>
 </body>
