@@ -6,6 +6,9 @@ use Tests\TestCase;
 use App\User;
 use Illuminate\Foundation\Testing\WithoutMiddleware;
 
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\CapitalAccountController;
+
 class LoanTreasuryTest extends TestCase
 {
     // Use WithoutMiddleware to bypass auth if you just want to test logic, 
@@ -24,8 +27,11 @@ class LoanTreasuryTest extends TestCase
         $user = new User(['id' => 1]); 
         $this->actingAs($user, 'api');
 
-        // 2. Post Data (Hitting WEB route now)
-        $response = $this->postJson('/direct-capital-account', [
+        // DYNAMIC ROUTE DEFINITION (Bypassing web.php/api.php)
+        Route::post('/dynamic-capital-account', [CapitalAccountController::class, 'store']);
+
+        // 2. Post Data
+        $response = $this->postJson('/dynamic-capital-account', [
             'name' => 'Test Bank Account',
             'type' => 'bank_account',
             'balance' => 5000.00,
