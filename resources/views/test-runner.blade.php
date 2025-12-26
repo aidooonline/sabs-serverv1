@@ -49,10 +49,6 @@
             </div>
             
             <div class="flex-1 overflow-y-auto p-4 space-y-1">
-                <template x-for="item in structure" :key="item.path">
-                    <div x-html="renderItem(item)" class="text-sm"></div>
-                </template>
-                
                 <!-- Recursive Component Logic handled via JS helper below -->
                 <div id="file-tree" class="text-sm space-y-2">
                     <!-- Rendered by Alpine/JS -->
