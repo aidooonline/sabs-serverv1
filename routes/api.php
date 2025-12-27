@@ -33,6 +33,7 @@ Route::middleware(['auth:api'])->group(function () {
         // Treasury
         Route::get('capital-accounts', [CapitalAccountController::class, 'index']);
         Route::post('capital-accounts', [CapitalAccountController::class, 'store']);
+        Route::post('capital-accounts/add-funds', [CapitalAccountController::class, 'addFunds']);
         Route::get('pool-balance', [CapitalAccountController::class, 'getPoolBalance']);
         Route::post('fund-transfer', [CapitalAccountController::class, 'transferToPool']);
 

@@ -41,6 +41,31 @@ class CapitalAccountController extends Controller
     }
 
     /**
+     * Add funds to a capital account (e.g. new loan from bank).
+     */
+    public function addFunds(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'account_id' => 'required|exists:capital_accounts,id',
+            'amount' => 'required|numeric|min:0.01'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'message' => $validator->errors()], 400);
+        }
+
+        $account = CapitalAccount::find($request->account_id);
+        $account->balance += $request->amount;
+        $account->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Funds added successfully',
+            'new_balance' => $account->balance
+        ], 200);
+    }
+
+    /**
      * Get the Central Loan Pool balance.
      * (Assuming ID 1 is the main pool for now).
      */
