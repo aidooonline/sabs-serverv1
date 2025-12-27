@@ -75,4 +75,49 @@ class LoanProductController extends Controller
 
         return response()->json(['success' => true, 'data' => $fee, 'message' => 'Fee created successfully'], 201);
     }
+
+    /**
+     * Update an existing fee.
+     */
+    public function updateFee(Request $request, $id)
+    {
+        $fee = LoanFee::find($id);
+
+        if (!$fee) {
+            return response()->json(['success' => false, 'message' => 'Fee not found'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255',
+            'value' => 'required|numeric|min:0',
+            'type' => 'required|in:fixed,flat,percent'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'message' => $validator->errors()], 400);
+        }
+
+        $fee->update($request->all());
+
+        return response()->json(['success' => true, 'data' => $fee, 'message' => 'Fee updated successfully'], 200);
+    }
+
+    /**
+     * Delete a fee.
+     */
+    public function deleteFee($id)
+    {
+        $fee = LoanFee::find($id);
+
+        if (!$fee) {
+            return response()->json(['success' => false, 'message' => 'Fee not found'], 404);
+        }
+
+        // Optional: Check if fee is used by any product before deleting?
+        // For now, standard deletion (pivot table handles cleanup via foreign keys if defined, or manually).
+        $fee->products()->detach(); // Detach from all products first
+        $fee->delete();
+
+        return response()->json(['success' => true, 'message' => 'Fee deleted successfully'], 200);
+    }
 }
