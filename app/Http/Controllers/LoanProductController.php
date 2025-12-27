@@ -64,7 +64,7 @@ class LoanProductController extends Controller
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'value' => 'required|numeric|min:0',
-            'type' => 'required|in:fixed,percent'
+            'type' => 'required|in:fixed,flat,percent'
         ]);
 
         if ($validator->fails()) {
