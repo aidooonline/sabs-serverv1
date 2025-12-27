@@ -10,17 +10,12 @@ class LoanFee extends Model
 
     protected $fillable = [
         'name',
-        'type',
-        'value',
-        'is_default',
-        'description'
+        'amount',
+        'type'
     ];
 
-    /**
-     * Get the products that use this fee.
-     */
     public function products()
     {
-        return $this->belongsToMany('App\LoanProduct', 'loan_product_fees', 'loan_fee_id', 'loan_product_id');
+        return $this->belongsToMany(LoanProduct::class, 'loan_product_fees', 'loan_fee_id', 'loan_product_id');
     }
 }

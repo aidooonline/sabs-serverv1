@@ -11,35 +11,15 @@ class LoanProduct extends Model
     protected $fillable = [
         'name',
         'description',
-        'min_principal',
-        'max_principal',
-        'duration_options',
-        'repayment_frequency_options',
-        'is_active',
-        'created_by'
+        'interest_rate',
+        'duration',
+        'duration_unit',
+        'repayment_frequency',
+        'is_active'
     ];
 
-    /**
-     * Get the fees associated with this product.
-     */
     public function fees()
     {
-        return $this->belongsToMany('App\LoanFee', 'loan_product_fees', 'loan_product_id', 'loan_fee_id');
-    }
-
-    /**
-     * Accessor to get durations as an array
-     */
-    public function getDurationsAttribute()
-    {
-        return explode(',', $this->duration_options);
-    }
-
-    /**
-     * Accessor to get frequencies as an array
-     */
-    public function getFrequenciesAttribute()
-    {
-        return explode(',', $this->repayment_frequency_options);
+        return $this->belongsToMany(LoanFee::class, 'loan_product_fees', 'loan_product_id', 'loan_fee_id');
     }
 }
