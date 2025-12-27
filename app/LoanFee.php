@@ -10,7 +10,7 @@ class LoanFee extends Model
 
     protected $fillable = [
         'name',
-        'amount',
+        'value',
         'type'
     ];
 
