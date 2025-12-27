@@ -39,6 +39,7 @@ Route::middleware(['auth:api'])->group(function () {
         Route::post('capital-accounts/adjust-balance', [CapitalAccountController::class, 'adjustBalance']);
         Route::get('pool-balance', [CapitalAccountController::class, 'getPoolBalance']);
         Route::post('fund-transfer', [CapitalAccountController::class, 'transferToPool']);
+        Route::get('fund-transfer/history', [CapitalAccountController::class, 'getPoolTransferHistory']);
 
         // Products
         Route::get('fees', [LoanProductController::class, 'getFees']);

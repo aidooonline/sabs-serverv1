@@ -237,6 +237,20 @@ class CapitalAccountController extends Controller
     }
 
     /**
+     * Get history of transfers to the loan pool.
+     */
+    public function getPoolTransferHistory()
+    {
+        $history = FundTransfer::join('capital_accounts', 'fund_transfers.from_account_id', '=', 'capital_accounts.id')
+            ->select('fund_transfers.*', 'capital_accounts.name as source_name')
+            ->orderBy('fund_transfers.date', 'desc')
+            ->orderBy('fund_transfers.id', 'desc')
+            ->paginate(10);
+
+        return response()->json(['success' => true, 'data' => $history], 200);
+    }
+
+    /**
      * Transfer funds from a Capital Account to the Loan Pool.
      */
     public function transferToPool(Request $request)
