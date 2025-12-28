@@ -184,4 +184,18 @@ class LoanApplicationController extends Controller
 
         return response()->json(['success' => true, 'data' => $application, 'message' => 'Loan Application submitted successfully.'], 201);
     }
+
+    /**
+     * Display the specified loan application.
+     */
+    public function show(Request $request, $id)
+    {
+        $application = LoanApplication::with(['loan_product', 'customer'])->find($id);
+
+        if (!$application) {
+            return response()->json(['success' => false, 'message' => 'Loan application not found'], 404);
+        }
+
+        return response()->json(['success' => true, 'data' => $application], 200);
+    }
 }
