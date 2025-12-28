@@ -1,0 +1,36 @@
+<?php
+
+namespace App;
+
+use Illuminate\Database\Eloquent\Model;
+
+class LoanApplication extends Model
+{
+    protected $table = 'loan_applications';
+
+    protected $fillable = [
+        'customer_id',
+        'loan_product_id',
+        'created_by',
+        'amount',
+        'total_interest',
+        'total_fees',
+        'total_repayment',
+        'duration',
+        'repayment_frequency',
+        'fee_payment_method',
+        'status',
+        'repayment_start_date'
+    ];
+
+    public function product()
+    {
+        return $this->belongsTo(LoanProduct::class, 'loan_product_id');
+    }
+
+    public function customer()
+    {
+        // Assuming your user model is App\User or similar, linking via customer_id
+        return $this->belongsTo(User::class, 'customer_id', 'id'); // Adjust foreign key if needed based on legacy system
+    }
+}
