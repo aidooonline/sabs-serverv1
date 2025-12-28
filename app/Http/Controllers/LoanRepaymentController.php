@@ -40,22 +40,15 @@ class LoanRepaymentController extends Controller
         DB::beginTransaction();
 
         try {
-            $loan = LoanApplication::lockForUpdate()->find($loanId);
+            $loan = LoanApplication::with('customer')->lockForUpdate()->find($loanId);
             
-            // 1. Create Transaction Record in `nobs_transactions` (The Ledger)
-            // We need the customer's primary account number for reference
-            $customerAccount = UserAccountNumbers::where('account_number', function($query) use ($loan) {
-                $query->select('account_number')
-                      ->from('nobs_registration')
-                      ->where('id', $loan->customer_id) // Assuming customer_id matches nobs_registration.id? Or user_id? 
-                      // Verification needed: Accounts.php uses 'id'. LoanApplication uses 'customer_id'.
-                      // Let's assume customer_id is the ID of nobs_registration.
-                      ->limit(1);
-            })->first();
+            if (!$loan || !$loan->customer) {
+                throw new \Exception("Loan or Customer not found.");
+            }
 
-            // Fallback if not found (shouldn't happen if integrity is kept)
-            $accountNumber = $customerAccount ? $customerAccount->account_number : 'LOAN-' . $loanId;
-            $accountType = $customerAccount ? $customerAccount->account_type : 'Loan';
+            // 1. Create Transaction Record in `nobs_transactions` (The Ledger)
+            $accountNumber = $loan->customer->account_number;
+            $accountType = $loan->customer->account_types; // Assuming account_types is the correct field from Accounts model
 
             $randomCode = \Str::random(8);
             $myid = \Str::random(30);
@@ -67,35 +60,29 @@ class LoanRepaymentController extends Controller
             $transaction->account_type = $accountType;
             $transaction->created_at = $mydatey;
             $transaction->transaction_id = $randomCode;
-            // $transaction->phone_number = ... // Fetch from customer
             $transaction->det_rep_name_of_transaction = "Loan Repayment - App #" . $loanId;
             $transaction->amount = $amount;
             $transaction->agentname = $agentName;
             $transaction->name_of_transaction = 'Loan Repayment';
-            $transaction->users = $user->created_by_user; // The "Owner" or Supervisor ID usually
+            $transaction->users = $user->created_by_user; 
             $transaction->is_shown = 1;
             $transaction->is_loan = 1;
             $transaction->row_version = 2;
             $transaction->comp_id = $compId;
             
-            // Note: We are NOT calculating 'balance' here in the same way as savings 
-            // because Loan Balance decreases. 
-            // For now, we store the transaction. The balance logic in ApiUsersController
-            // sums 'Deposits' - 'Withdrawals'. 'Loan Repayment' is positive cash flow for the company,
-            // effectively a 'Deposit' into the company's hands, but it reduces the user's Debt.
-            // We'll leave 'balance' as 0 or the current Loan Balance if we want.
-            // Let's calculate the remaining loan balance.
-            
             $totalRepaid = LoanRepaymentSchedule::where('loan_application_id', $loanId)->sum('total_paid');
             $newTotalRepaid = $totalRepaid + $amount;
             $remainingDebt = $loan->total_repayment - $newTotalRepaid;
             
-            $transaction->balance = $remainingDebt; // Storing Remaining Debt as balance for context
+            $transaction->balance = $remainingDebt; 
             $transaction->save();
 
 
-            // 2. Distribute Payment to Schedules (Waterfall)
+            // 2. Distribute Payment to Schedules (Waterfall) and Update Accounts
             $remainingPayment = $amount;
+            $principalToPool = 0;
+            $interestToRevenue = 0;
+            $feesToRevenue = 0;
             
             // Get unpaid/partial schedules ordered by due date
             $schedules = LoanRepaymentSchedule::where('loan_application_id', $loanId)
@@ -106,21 +93,45 @@ class LoanRepaymentController extends Controller
             foreach ($schedules as $schedule) {
                 if ($remainingPayment <= 0) break;
 
-                $due = $schedule->total_due - $schedule->total_paid;
-                
-                if ($due <= 0) {
-                    // Should be marked paid, but just in case
+                $totalDueOnSchedule = $schedule->total_due - ($schedule->principal_paid + $schedule->interest_paid + $schedule->fees_paid);
+                if ($totalDueOnSchedule <= 0) {
                     $schedule->status = 'paid';
                     $schedule->save();
                     continue;
                 }
 
-                $payAmount = min($remainingPayment, $due);
+                $paymentAppliedToSchedule = min($remainingPayment, $totalDueOnSchedule);
+                $remainingPayment -= $paymentAppliedToSchedule;
                 
-                // Distribute to Principal/Interest/Fees (Pro-rated or hierarchy? Usually Fees -> Interest -> Principal)
-                // Simplified for now: Just track total_paid
-                $schedule->total_paid += $payAmount;
-                $remainingPayment -= $payAmount;
+                // Distribute payment for this schedule (Fees -> Interest -> Principal)
+                // Fees first
+                $feesRemaining = $schedule->fees_due - $schedule->fees_paid;
+                if ($feesRemaining > 0) {
+                    $payForFees = min($paymentAppliedToSchedule, $feesRemaining);
+                    $schedule->fees_paid += $payForFees;
+                    $paymentAppliedToSchedule -= $payForFees;
+                    $feesToRevenue += $payForFees;
+                }
+
+                // Interest next
+                $interestRemaining = $schedule->interest_due - $schedule->interest_paid;
+                if ($interestRemaining > 0 && $paymentAppliedToSchedule > 0) {
+                    $payForInterest = min($paymentAppliedToSchedule, $interestRemaining);
+                    $schedule->interest_paid += $payForInterest;
+                    $paymentAppliedToSchedule -= $payForInterest;
+                    $interestToRevenue += $payForInterest;
+                }
+
+                // Principal last
+                $principalRemaining = $schedule->principal_due - $schedule->principal_paid;
+                if ($principalRemaining > 0 && $paymentAppliedToSchedule > 0) {
+                    $payForPrincipal = min($paymentAppliedToSchedule, $principalRemaining);
+                    $schedule->principal_paid += $payForPrincipal;
+                    $paymentAppliedToSchedule -= $payForPrincipal;
+                    $principalToPool += $payForPrincipal;
+                }
+
+                $schedule->total_paid = $schedule->principal_paid + $schedule->interest_paid + $schedule->fees_paid;
 
                 if ($schedule->total_paid >= $schedule->total_due) {
                     $schedule->status = 'paid';
@@ -136,6 +147,24 @@ class LoanRepaymentController extends Controller
             }
             $loan->save();
 
+            // 4. Update Central Loan Account and Company Cash (Revenue)
+            if ($principalToPool > 0) {
+                $centralLoanAccount = \App\CentralLoanAccount::first(); // Assuming one central account
+                if ($centralLoanAccount) {
+                    $centralLoanAccount->balance += $principalToPool;
+                    $centralLoanAccount->save();
+                }
+            }
+
+            $totalRevenueFromPayment = $interestToRevenue + $feesToRevenue;
+            if ($totalRevenueFromPayment > 0) {
+                $companyInfo = \App\CompanyInfo::first(); // Assuming one company info record
+                if ($companyInfo) {
+                    $companyInfo->amount_in_cash += $totalRevenueFromPayment;
+                    $companyInfo->save();
+                }
+            }
+
             DB::commit();
 
             return response()->json([
@@ -143,7 +172,7 @@ class LoanRepaymentController extends Controller
                 'message' => 'Repayment processed successfully.',
                 'data' => [
                     'transaction_id' => $randomCode,
-                    'new_balance' => $remainingDebt
+                    'new_remaining_debt' => $remainingDebt
                 ]
             ], 201);
 
