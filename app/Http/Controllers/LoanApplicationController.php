@@ -14,7 +14,7 @@ class LoanApplicationController extends Controller
      */
     public function index(Request $request)
     {
-        $query = LoanApplication::with(['loanProduct', 'customer']);
+        $query = LoanApplication::with(['loan_product', 'customer']);
 
         if ($request->has('status')) {
             $query->where('status', $request->status);

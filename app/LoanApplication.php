@@ -23,7 +23,7 @@ class LoanApplication extends Model
         'repayment_start_date'
     ];
 
-    public function loanProduct()
+    public function loan_product()
     {
         return $this->belongsTo(LoanProduct::class, 'loan_product_id');
     }
@@ -31,6 +31,6 @@ class LoanApplication extends Model
     public function customer()
     {
         // Assuming your user model is App\User or similar, linking via customer_id
-        return $this->belongsTo(User::class, 'customer_id', 'id'); // Adjust foreign key if needed based on legacy system
+        return $this->belongsTo(Accounts::class, 'customer_id', 'id'); // Adjust foreign key if needed based on legacy system
     }
 }
