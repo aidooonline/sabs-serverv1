@@ -195,3 +195,7 @@ Route::post('/repay-loan', 'LoanRepaymentController@store');
 Route::post('/login', [AuthController::class, 'login']);
 Route::get('insertcompanyinfo', [ApiUsersController::class, 'insertcompanyinfo']);
 Route::get('mymtn', [ApiUsersController::class, 'mymtn']);
+
+// Scheduler Endpoint for Cron Jobs (Secured by custom middleware)
+Route::get('/schedule/run-loan-cron', [App\Http\Controllers\SchedulerController::class, 'triggerLoanCron'])->middleware('cron.secret');
+

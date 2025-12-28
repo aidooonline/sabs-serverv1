@@ -23,6 +23,17 @@ class LoanCronService
     }
 
     /**
+     * Orchestrates the running of all scheduled loan-related tasks.
+     *
+     * @return void
+     */
+    public function runScheduledTasks(): void
+    {
+        $this->sendPaymentReminders(7); // Send reminders for loans due in 7 days
+        $this->markOverdueAndWarn(30); // Check for overdue loans and mark as defaulted after 30 days
+    }
+
+    /**
      * Helper to send SMS messages, replicating sendFrogMessage logic.
      * Manages SMS credits.
      *
