@@ -167,4 +167,27 @@ class LoanReportController extends Controller
             ]
         ]);
     }
+
+    /**
+     * Get a list of actual defaulted loans.
+     * A loan is considered defaulted if it's active and has at least one overdue and pending schedule.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function getActualDefaultedLoans(Request $request)
+    {
+        $defaultedLoans = LoanApplication::with(['customer', 'loan_product', 'repayment_schedules'])
+                                        ->where('status', 'active')
+                                        ->whereHas('repayment_schedules', function ($query) {
+                                            $query->where('due_date', '<', Carbon::now())
+                                                  ->where('status', 'pending'); // Overdue and not paid
+                                        })
+                                        ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $defaultedLoans
+        ], 200);
+    }
 }
