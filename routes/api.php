@@ -47,7 +47,7 @@ Route::middleware(['auth:api'])->group(function () {
         Route::put('fees/{id}', [LoanProductController::class, 'updateFee']);
         Route::delete('fees/{id}', [LoanProductController::class, 'deleteFee']);
         Route::get('products', [LoanProductController::class, 'index']);
-        Route::post('products', [LoanProductController::class, 'storeProduct']);
+        Route::post('products', [LoanProductController::class, 'store']);
     });
     // ----------------------------------------------------
 
