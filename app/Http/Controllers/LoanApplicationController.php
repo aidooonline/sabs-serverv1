@@ -49,18 +49,22 @@ class LoanApplicationController extends Controller
         $product = LoanProduct::with('fees')->find($request->loan_product_id);
         $method = $request->fee_payment_method;
 
-        // 1. Calculate Interest
-        // Simple Interest: Principal * (Rate/100)
-        // Note: Usually rate is per period or flat. Assuming flat rate for the duration for simplicity unless specified otherwise.
-        // If interest rate is 8%, is it 8% per month or 8% total?
-        // Standard practice in many microfinance simple models: Total Interest = Principal * (Rate/100).
-        // If it's per month, we multiply by duration.
-        // Let's assume the configured rate is the *Total Flat Rate* for the duration for now, 
-        // OR if duration is involved, we might need clarification.
-        // Based on "Standard Interest 8% of Loan Amount", it sounds like a flat fee logic.
-        // Let's use: Interest = Amount * (product.interest_rate / 100)
+        // 1. Calculate Interest (Per Period / Monthly)
+        // Rate is per month. Duration needs to be normalized to months.
+        $durationInMonths = 0;
+        $unit = strtolower($product->duration_unit);
         
-        $totalInterest = $amount * ($product->interest_rate / 100);
+        if ($unit == 'month' || $unit == 'months') {
+            $durationInMonths = $product->duration;
+        } elseif ($unit == 'week' || $unit == 'weeks') {
+            $durationInMonths = ($product->duration * 7) / 30;
+        } elseif ($unit == 'day' || $unit == 'days') {
+            $durationInMonths = $product->duration / 30;
+        } else {
+            $durationInMonths = $product->duration; // Default fallback
+        }
+
+        $totalInterest = $amount * ($product->interest_rate / 100) * $durationInMonths;
 
         // 2. Calculate Fees
         $totalFees = 0;
@@ -136,7 +140,20 @@ class LoanApplicationController extends Controller
         $product = LoanProduct::with('fees')->find($request->loan_product_id);
         
         // Calculate Interest
-        $totalInterest = $amount * ($product->interest_rate / 100);
+        $durationInMonths = 0;
+        $unit = strtolower($product->duration_unit);
+        
+        if ($unit == 'month' || $unit == 'months') {
+            $durationInMonths = $product->duration;
+        } elseif ($unit == 'week' || $unit == 'weeks') {
+            $durationInMonths = ($product->duration * 7) / 30;
+        } elseif ($unit == 'day' || $unit == 'days') {
+            $durationInMonths = $product->duration / 30;
+        } else {
+            $durationInMonths = $product->duration;
+        }
+
+        $totalInterest = $amount * ($product->interest_rate / 100) * $durationInMonths;
 
         // Calculate Fees
         $totalFees = 0;
