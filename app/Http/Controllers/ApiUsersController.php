@@ -745,6 +745,77 @@ class ApiUsersController extends Controller
         }
     }
 
+    public function getdailycollectionsloanrepayment(Request $request)
+    {
+
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'super admin') {
+            $today = \Carbon\Carbon::createFromFormat('m/d/Y', $request->date)->format('Y-m-d');
+
+            $byagents = DB::table('nobs_transactions')
+                ->select('users', 'agentname', 'id', DB::raw('SUM(amount) as total_amount'))
+                ->where('name_of_transaction', 'Loan Repayment')
+                ->where('comp_id', \Auth::user()->comp_id)
+                ->whereDate('created_at', $today)
+                ->groupBy('users')
+                ->orderBy('total_amount', 'DESC')
+                ->paginate(100);
+
+            $byproducts = DB::table('nobs_transactions')
+                ->select('users', 'agentname', 'id', 'account_type', DB::raw('SUM(amount) as total_amount'))
+                ->where('name_of_transaction', 'Loan Repayment')
+                ->where('comp_id', \Auth::user()->comp_id)
+                ->whereDate('created_at', $today)
+                ->groupBy('account_type')
+                ->orderBy('total_amount', 'DESC')
+                ->paginate(100);
+
+            $totalAmount = DB::table('nobs_transactions')
+                ->select('users', 'agentname', 'id', DB::raw('SUM(amount) as total_amount'))
+                ->where('name_of_transaction', 'Loan Repayment')
+                ->where('comp_id', \Auth::user()->comp_id)
+                ->whereDate('created_at', $today)
+                ->groupBy('users')
+                ->get()
+                ->sum('total_amount');
+
+            return response()->json(['byagents' =>  $byagents, 'byproducts' =>  $byproducts, 'totalamount' => $totalAmount]);
+        } else if (\Auth::user()->type == 'Agents') {
+            $today = \Carbon\Carbon::createFromFormat('m/d/Y', $request->date)->format('Y-m-d');
+
+            $byagents = DB::table('nobs_transactions')
+                ->select('users', 'agentname', 'id', DB::raw('SUM(amount) as total_amount'))
+                ->where('name_of_transaction', 'Loan Repayment')
+                ->where('comp_id', \Auth::user()->comp_id)
+                ->where('users', \Auth::user()->created_by_user)
+                ->whereDate('created_at', $today)
+                ->groupBy('users')
+                ->orderBy('total_amount', 'DESC')
+                ->paginate(100);
+
+            $byproducts = DB::table('nobs_transactions')
+                ->select('users', 'agentname', 'id', 'account_type', DB::raw('SUM(amount) as total_amount'))
+                ->where('name_of_transaction', 'Loan Repayment')
+                ->where('comp_id', \Auth::user()->comp_id)
+                ->where('users', \Auth::user()->created_by_user)
+                ->whereDate('created_at', $today)
+                ->groupBy('account_type')
+                ->orderBy('total_amount', 'DESC')
+                ->paginate(100);
+
+            $totalAmount = DB::table('nobs_transactions')
+                ->select('users', 'agentname', 'id', DB::raw('SUM(amount) as total_amount'))
+                ->where('name_of_transaction', 'Loan Repayment')
+                ->where('comp_id', \Auth::user()->comp_id)
+                ->where('users', \Auth::user()->created_by_user)
+                ->whereDate('created_at', $today)
+                ->groupBy('users')
+                ->get()
+                ->sum('total_amount');
+
+            return response()->json(['byagents' => $byagents, 'byproducts' => $byproducts, 'totalamount' => $totalAmount]);
+        }
+    }
+
     public function agentmobilizationbyproducts(Request $request)
     {
         if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'super admin') {

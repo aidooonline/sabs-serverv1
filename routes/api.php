@@ -136,8 +136,9 @@ Route::middleware(['auth:api'])->group(function () {
     Route::get('sendconfirmationcode', [ApiUsersController::class, 'sendconfirmationcode']);
 
     //Daily Collections
-    Route::get('getdailycollections', [ApiUsersController::class, 'getdailycollections']);
-    Route::get('getdailycollectionswithdraw', [ApiUsersController::class, 'getdailycollectionswithdraw']);
+Route::get('/getdailycollections', 'ApiUsersController@getdailycollections');
+Route::get('/getdailycollectionswithdraw', 'ApiUsersController@getdailycollectionswithdraw');
+Route::get('/getdailycollectionsloanrepayment', 'ApiUsersController@getdailycollectionsloanrepayment');
     Route::get('agentmobilizationbyproducts', [ApiUsersController::class, 'agentmobilizationbyproducts']);
     Route::get('agentmobilizationbyproductswithdrawals', [ApiUsersController::class, 'agentmobilizationbyproductswithdrawals']);
 
@@ -164,6 +165,10 @@ Route::middleware(['auth:api'])->group(function () {
     
 });
 
-Route::post('login', [AuthController::class, 'login']);
+// Loan Repayment
+Route::post('/repay-loan', 'LoanRepaymentController@store');
+
+// Existing Routes
+Route::post('/login', 'ApiAuthController@login');
 Route::get('insertcompanyinfo', [ApiUsersController::class, 'insertcompanyinfo']);
 Route::get('mymtn', [ApiUsersController::class, 'mymtn']);
