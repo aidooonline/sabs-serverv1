@@ -181,4 +181,142 @@ class LoanRepaymentController extends Controller
             return response()->json(['success' => false, 'message' => 'Error processing repayment: ' . $e->getMessage()], 500);
         }
     }
+
+    /**
+     * Generate HTML receipt for a specific loan repayment transaction.
+     */
+    public function getRepaymentReceipt(Request $request, $loanId, $transactionId)
+    {
+        $loanApplication = LoanApplication::with('customer', 'loan_product')
+                                        ->find($loanId);
+        $repaymentTransaction = AccountsTransactions::where('transaction_id', $transactionId)
+                                                    ->where('is_loan', 1)
+                                                    ->where('name_of_transaction', 'Loan Repayment')
+                                                    ->first();
+
+        if (!$loanApplication || !$repaymentTransaction) {
+            return response()->json(['success' => false, 'message' => 'Repayment receipt not found'], 404);
+        }
+
+        // Fetch company info (assuming first one is the main company)
+        $companyInfo = CompanyInfo::first();
+        $companyName = $companyInfo ? $companyInfo->name : 'SABS Lending';
+        $companyPhone = $companyInfo ? $companyInfo->phone : 'N/A';
+        $companyAddress = $companyInfo ? $companyInfo->billing_address : 'N/A';
+
+        // Basic HTML structure for thermal printer
+        $html = "
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Repayment Receipt</title>
+            <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+            <style>
+                body {
+                    font-family: 'monospace', 'Courier New', monospace;
+                    font-size: 10px;
+                    width: 80mm; /* Typical thermal printer width */
+                    margin: 0;
+                    padding: 0;
+                }
+                .container {
+                    padding: 5mm;
+                }
+                .header, .footer {
+                    text-align: center;
+                    margin-bottom: 5mm;
+                }
+                .header h3, .header h4 {
+                    margin: 1mm 0;
+                }
+                .details table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-bottom: 5mm;
+                }
+                .details th, .details td {
+                    text-align: left;
+                    padding: 1mm 0;
+                }
+                .details td.right {
+                    text-align: right;
+                }
+                .divider {
+                    border-top: 1px dashed black;
+                    margin: 2mm 0;
+                }
+                .amount-due {
+                    font-size: 12px;
+                    font-weight: bold;
+                }
+                .strong {
+                    font-weight: bold;
+                }
+                .thanks {
+                    margin-top: 5mm;
+                    text-align: center;
+                }
+            </style>
+        </head>
+        <body>
+            <div class=\"container\">
+                <div class=\"header\">
+                    <h3>$companyName</h3>
+                    <h4>Loan Repayment Receipt</h4>
+                    <p>$companyAddress | Tel: $companyPhone</p>
+                    <p>Date: " . Carbon::parse($repaymentTransaction->created_at)->format('Y-m-d H:i:s') . "</p>
+                    <p>Transaction ID: <span class=\"strong\">" . $repaymentTransaction->transaction_id . "</span></p>
+                </div>
+
+                <div class=\"divider\"></div>
+
+                <div class=\"details\">
+                    <table>
+                        <tr>
+                            <td>Customer:</td>
+                            <td class=\"right strong\">" . $loanApplication->customer->first_name . " " . $loanApplication->customer->surname . "</td>
+                        </tr>
+                        <tr>
+                            <td>Account No:</td>
+                            <td class=\"right\">" . $loanApplication->customer->account_number . "</td>
+                        </tr>
+                        <tr>
+                            <td>Loan ID:</td>
+                            <td class=\"right\">" . $loanApplication->id . "</td>
+                        </tr>
+                        <tr>
+                            <td>Loan Product:</td>
+                            <td class=\"right\">" . $loanApplication->loan_product->name . "</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <div class=\"divider\"></div>
+
+                <div class=\"details\">
+                    <table>
+                        <tr>
+                            <td>Repayment Amount:</td>
+                            <td class=\"right amount-due\">" . number_format($repaymentTransaction->amount, 2) . "</td>
+                        </tr>
+                        <tr>
+                            <td>New Outstanding:</td>
+                            <td class=\"right amount-due\">" . number_format($repaymentTransaction->balance, 2) . "</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <div class=\"divider\"></div>
+
+                <div class=\"footer\">
+                    <p>Processed by: " . ($request->user() ? $request->user()->name : 'System') . "</p>
+                    <p class=\"thanks\">Thank you for your business!</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        ";
+
+        return response($html)->header('Content-Type', 'text/html');
+    }
 }
