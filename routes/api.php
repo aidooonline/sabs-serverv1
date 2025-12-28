@@ -50,6 +50,7 @@ Route::middleware(['auth:api'])->group(function () {
         Route::post('products', [LoanProductController::class, 'store']);
 
         // Applications
+        Route::get('applications', [App\Http\Controllers\LoanApplicationController::class, 'index']);
         Route::post('calculate-application', [App\Http\Controllers\LoanApplicationController::class, 'calculate']);
         Route::post('submit-application', [App\Http\Controllers\LoanApplicationController::class, 'store']);
     });

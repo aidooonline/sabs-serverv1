@@ -23,7 +23,7 @@ class LoanApplication extends Model
         'repayment_start_date'
     ];
 
-    public function product()
+    public function loanProduct()
     {
         return $this->belongsTo(LoanProduct::class, 'loan_product_id');
     }

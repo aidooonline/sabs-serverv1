@@ -10,6 +10,26 @@ use Illuminate\Support\Facades\Validator;
 class LoanApplicationController extends Controller
 {
     /**
+     * List Loan Applications.
+     */
+    public function index(Request $request)
+    {
+        $query = LoanApplication::with(['loanProduct', 'customer']);
+
+        if ($request->has('status')) {
+            $query->where('status', $request->status);
+        }
+
+        // Order by newest first
+        $applications = $query->orderBy('created_at', 'desc')->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $applications
+        ], 200);
+    }
+
+    /**
      * Calculate loan details (Preview).
      * Does NOT save to database.
      */
