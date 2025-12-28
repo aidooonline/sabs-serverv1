@@ -169,6 +169,6 @@ Route::get('/getdailycollectionsloanrepayment', 'ApiUsersController@getdailycoll
 Route::post('/repay-loan', 'LoanRepaymentController@store');
 
 // Existing Routes
-Route::post('/login', 'ApiAuthController@login');
+Route::post('/login', [AuthController::class, 'login']);
 Route::get('insertcompanyinfo', [ApiUsersController::class, 'insertcompanyinfo']);
 Route::get('mymtn', [ApiUsersController::class, 'mymtn']);
