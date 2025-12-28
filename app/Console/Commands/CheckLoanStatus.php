@@ -3,8 +3,10 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
-use App\LoanCronService; // Import the service
-use Illuminate\Support\Facades\Log; // For logging
+use App\LoanApplication;
+use App\LoanDefaultLog;
+use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class CheckLoanStatus extends Command
 {
@@ -20,7 +22,7 @@ class CheckLoanStatus extends Command
      *
      * @var string
      */
-    protected $description = 'Checks loan statuses, sends reminders/warnings, and marks defaults.';
+    protected $description = 'Check for overdue loans and loans due for reminders, and update their status.';
 
     /**
      * Create a new command instance.
@@ -35,35 +37,78 @@ class CheckLoanStatus extends Command
     /**
      * Execute the console command.
      *
-     * @return int
+     * @return mixed
      */
     public function handle()
     {
-        $this->info('Starting loan status check...');
-        Log::info('Loan status check started.');
+        $this->info('Checking loan statuses...');
 
-        $loanCronService = new LoanCronService();
+        DB::transaction(function () {
+            $this->handleReminders();
+            $this->handleOverdueLoans();
+        });
 
-        try {
-            // Send payment reminders for loans due in 7 days
-            $this->info('Sending payment reminders...');
-            $loanCronService->sendPaymentReminders(7);
-            $this->info('Payment reminders sent.');
-            Log::info('Payment reminders sent successfully.');
+        $this->info('Loan status check complete.');
+    }
 
-            // Mark overdue loans and send warnings (e.g., 30 days overdue to mark as defaulted)
-            $this->info('Checking for overdue loans and sending warnings...');
-            $loanCronService->markOverdueAndWarn(30);
-            $this->info('Overdue checks complete.');
-            Log::info('Overdue checks complete successfully.');
+    private function handleReminders()
+    {
+        $reminder_date = Carbon::now()->addDays(3)->toDateString();
+        $this->info('Checking for loans due on ' . $reminder_date);
 
-            $this->info('Loan status check finished successfully.');
-            Log::info('Loan status check finished successfully.');
-            return 0; // Command executed successfully
-        } catch (\Throwable $e) {
-            $this->error('An error occurred during loan status check: ' . $e->getMessage());
-            Log::error('Loan status check failed: ' . $e->getMessage(), ['exception' => $e]);
-            return 1; // Command failed
+        $due_loans = LoanApplication::where('status', 'active')
+            ->whereHas('repayment_schedules', function ($query) use ($reminder_date) {
+                $query->where('due_date', '=', $reminder_date)
+                      ->where('status', '!=', 'paid');
+            })->get();
+            
+        foreach ($due_loans as $loan) {
+            // Avoid sending duplicate reminders
+            $existing_log = LoanDefaultLog::where('loan_application_id', $loan->id)
+                                ->where('action_type', 'SMS_REMINDER')
+                                ->whereDate('created_at', Carbon::today())
+                                ->first();
+
+            if (!$existing_log) {
+                LoanDefaultLog::create([
+                    'loan_application_id' => $loan->id,
+                    'action_type' => 'SMS_REMINDER',
+                    'description' => 'Automated reminder for payment due on ' . $reminder_date,
+                    'created_by' => 0, // System User
+                ]);
+                $this->line('Reminder logged for Loan ID: ' . $loan->id);
+            }
+        }
+    }
+
+    private function handleOverdueLoans()
+    {
+        $today = Carbon::now()->toDateString();
+        $this->info('Checking for loans overdue as of ' . $today);
+
+        $overdue_loans = LoanApplication::where('status', 'active')
+            ->whereHas('repayment_schedules', function ($query) use ($today) {
+                $query->where('due_date', '<', $today)
+                      ->where('status', '!=', 'paid');
+            })->get();
+
+        foreach ($overdue_loans as $loan) {
+            $loan->status = 'defaulted';
+            $loan->save();
+
+            $existing_log = LoanDefaultLog::where('loan_application_id', $loan->id)
+                                ->where('action_type', 'DEFAULT_MARKED')
+                                ->first();
+
+            if (!$existing_log) {
+                 LoanDefaultLog::create([
+                    'loan_application_id' => $loan->id,
+                    'action_type' => 'DEFAULT_MARKED',
+                    'description' => 'Loan automatically marked as defaulted due to overdue payment.',
+                    'created_by' => 0, // System User
+                ]);
+            }
+            $this->line('Loan ID: ' . $loan->id . ' marked as defaulted.');
         }
     }
 }

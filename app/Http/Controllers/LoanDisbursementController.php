@@ -20,7 +20,28 @@ class LoanDisbursementController extends Controller
 
         DB::beginTransaction();
         try {
-            // 1. Update Status
+            // Fetch the Central Loan Account (assuming there's one main account for now)
+            $centralLoanAccount = \App\CentralLoanAccount::first(); 
+            if (!$centralLoanAccount) {
+                return response()->json(['success' => false, 'message' => 'Central Loan Account not found'], 500);
+            }
+
+            $amountToDisburse = $application->amount;
+            if ($application->fee_payment_method == 'deduct_upfront') {
+                $amountToDisburse -= $application->total_fees;
+            }
+
+            // 1. Check Central Loan Account balance
+            if ($centralLoanAccount->balance < $amountToDisburse) {
+                DB::rollBack();
+                return response()->json(['success' => false, 'message' => 'Insufficient funds in Central Loan Account'], 400);
+            }
+
+            // 2. Debit Central Loan Account
+            $centralLoanAccount->balance -= $amountToDisburse;
+            $centralLoanAccount->save();
+
+            // 3. Update Loan Application Status
             $application->status = 'active';
             
             // Set First Repayment Date (e.g., 1 month from now)
@@ -33,21 +54,16 @@ class LoanDisbursementController extends Controller
             $application->repayment_start_date = $startDate;
             $application->save();
 
-            // 2. Generate Schedule
+            // 4. Generate Schedule
             $this->generateSchedule($application, $startDate);
 
-            // 3. Disburse Funds (Create Transaction)
-            $amountToDisburse = $application->amount;
-            if ($application->fee_payment_method == 'deduct_upfront') {
-                $amountToDisburse -= $application->total_fees;
-            }
-
+            // 5. Credit Customer's Account
             AccountsTransactions::create([
                 'account_number' => $application->customer->account_number,
                 'account_type' => 'Savings', 
                 'amount' => $amountToDisburse,
                 'det_rep_name_of_transaction' => 'Loan Disbursement',
-                'name_of_transaction' => 'Deposit',
+                'name_of_transaction' => 'Deposit', // This represents a credit to the customer's account
                 'transaction_id' => 'LN' . time(),
                 'users' => $application->customer->user, 
                 'agentname' => $request->user() ? $request->user()->name : 'System',
