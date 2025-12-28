@@ -69,6 +69,12 @@ Route::middleware(['auth:api'])->group(function () {
     });
     // ----------------------------------------------------
 
+    // --- NEW LOAN SYSTEM DEFAULT MANAGEMENT ---
+    Route::group(['prefix' => 'loans'], function () {
+        Route::post('{id}/log-default-action', [App\Http\Controllers\LoanDefaultController::class, 'logAction']);
+    });
+    // ------------------------------------------
+
     // --- NEW LOAN SYSTEM REPORTS ---
     Route::group(['prefix' => 'reports'], function () {
         Route::get('loan-dashboard-metrics', [App\Http\Controllers\LoanReportController::class, 'getLoanDashboardMetrics']);
