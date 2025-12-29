@@ -30,7 +30,15 @@ class AuthController extends Controller
 
             // Get roles and permissions using Spatie's methods
             $roles = $userinfo->getRoleNames(); // Get names of roles
-            $permissions = $userinfo->getAllPermissions()->pluck('name'); // Get names of all permissions
+
+            // --- THIS IS THE NEW PART ---
+            // We get only the permissions that are relevant to the mobile app
+            $relevant_permissions = [
+                'collect_repayments', 'manage_treasury', 'manage_products', 'approve_loans',
+                'disburse_loans', 'manage_users', 'view_reports', 'create_loans', 'process_loans'
+            ];
+            $permissions = $userinfo->getPermissionsViaRoles()->whereIn('name', $relevant_permissions)->pluck('name');
+            // --- END OF NEW PART ---
 
             $userinfo = $userinfo->toArray(); // Convert back to array for consistency
 
