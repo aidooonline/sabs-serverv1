@@ -42,7 +42,12 @@ class RoleSetupController extends Controller
         // 3. Assign Permissions to Roles
         $admin = Role::findByName('Admin', 'web');
         $all_permissions = Permission::where('guard_name', 'web')->get();
-        $admin->syncPermissions($all_permissions); 
+        $admin->syncPermissions($all_permissions);
+
+        $owner = Role::findByName('Owner', 'web');
+        if ($owner) {
+            $owner->syncPermissions($all_permissions);
+        }
 
         $manager = Role::findByName('Manager', 'web');
         $manager_permissions = Permission::where('guard_name', 'web')->whereIn('name', [
