@@ -42,6 +42,7 @@ class AuthController extends Controller
 
             $userinfo = $userinfo->toArray(); // Convert back to array for consistency
 
+            // Return the response with roles and permissions
             return response()->json([
                 'token' => $customToken,
                 'companyid' => $user->comp_id,
