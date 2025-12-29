@@ -86,7 +86,6 @@ Route::middleware(['auth:api'])->group(function () {
     //Customer  Search
 
     // Role and Permissions Setup
-    Route::post('roles/initialize', [App\Http\Controllers\RoleSetupController::class, 'setup']); // Temporary route for one-time setup
     Route::post('roles/assign', [App\Http\Controllers\RoleSetupController::class, 'assignRole']);
     Route::get('roles', [App\Http\Controllers\RoleSetupController::class, 'getRoles']);
 
