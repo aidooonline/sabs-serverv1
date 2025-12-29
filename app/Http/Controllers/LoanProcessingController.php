@@ -123,4 +123,23 @@ class LoanProcessingController extends Controller
 
         return $score;
     }
+
+    /**
+     * Submit the application for approval.
+     * Updates status from 'pending' to 'awaiting_approval'.
+     */
+    public function submit(Request $request, $id)
+    {
+        $loan = LoanApplication::find($id);
+        if (!$loan) return response()->json(['success' => false, 'message' => 'Loan not found'], 404);
+
+        if ($loan->status !== 'pending' && $loan->status !== 'awaiting_approval') {
+            return response()->json(['success' => false, 'message' => 'Loan is not in a state to be submitted.'], 400);
+        }
+
+        $loan->status = 'awaiting_approval';
+        $loan->save();
+
+        return response()->json(['success' => true, 'message' => 'Application submitted for approval successfully.']);
+    }
 }

@@ -26,10 +26,22 @@ class AuthController extends Controller
             $user->save();
 
             $companyinfo = CompanyInfo::where('id',$user->comp_id)->get()->toArray();
-            $userinfo = Auth::user()->toArray();
+            $userinfo = Auth::user();
 
+            // Get roles and permissions using Spatie's methods
+            $roles = $userinfo->getRoleNames(); // Get names of roles
+            $permissions = $userinfo->getAllPermissions()->pluck('name'); // Get names of all permissions
 
-            return response()->json(['token' => $customToken,'companyid'=>$user->company_id,'companyinfo'=>$companyinfo,'user'=>$userinfo], 200);
+            $userinfo = $userinfo->toArray(); // Convert back to array for consistency
+
+            return response()->json([
+                'token' => $customToken,
+                'companyid' => $user->comp_id,
+                'companyinfo' => $companyinfo,
+                'user' => $userinfo,
+                'roles' => $roles,
+                'permissions' => $permissions
+            ], 200);
         } else {
             return response()->json(['error' => 'UnAuthorised'], 401);
         }

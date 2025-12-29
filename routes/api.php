@@ -62,6 +62,7 @@ Route::middleware(['auth:api'])->group(function () {
         Route::get('applications/{id}/requirements', [App\Http\Controllers\LoanProcessingController::class, 'index']);
         Route::post('requirements/{id}/toggle', [App\Http\Controllers\LoanProcessingController::class, 'toggle']);
         Route::post('requirements/upload', [App\Http\Controllers\LoanProcessingController::class, 'upload']);
+        Route::post('applications/{id}/submit-for-approval', [App\Http\Controllers\LoanProcessingController::class, 'submit']); // New route
 
         // Repayments
         Route::post('applications/{id}/repay', [App\Http\Controllers\LoanRepaymentController::class, 'store']); // This is the repayment action
@@ -83,6 +84,11 @@ Route::middleware(['auth:api'])->group(function () {
     // -------------------------------
 
     //Customer  Search
+
+    // Role and Permissions Setup
+    Route::post('roles/initialize', [App\Http\Controllers\RoleSetupController::class, 'setup']); // Temporary route for one-time setup
+    Route::post('roles/assign', [App\Http\Controllers\RoleSetupController::class, 'assignRole']);
+    Route::get('roles', [App\Http\Controllers\RoleSetupController::class, 'getRoles']);
 
     //Customer  Search
     Route::get('searchcustomerssapi', [ApiUsersController::class, 'searchgetcustomers']);
