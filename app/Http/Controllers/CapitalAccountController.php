@@ -18,7 +18,7 @@ class CapitalAccountController extends Controller
      */
     public function index()
     {
-        $accounts = CapitalAccount::where('is_active', 1)->get();
+        $accounts = CapitalAccount::where('is_active', 1)->orderBy('created_at', 'desc')->get();
         return response()->json(['success' => true, 'data' => $accounts], 200);
     }
 
