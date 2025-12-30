@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\LoanApplication;
 use App\LoanProduct;
+use App\User;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 
 class LoanApplicationController extends Controller
@@ -170,7 +172,8 @@ class LoanApplicationController extends Controller
         $application = LoanApplication::create([
             'customer_id' => $request->customer_id,
             'loan_product_id' => $request->loan_product_id,
-            'created_by' => $request->user() ? $request->user()->id : null,
+            'created_by_user_id' => Auth::id(), // Set the creator
+            'assigned_to_user_id' => Auth::id(), // Default assignment to the creator
             'amount' => $amount,
             'total_interest' => $totalInterest,
             'total_fees' => $totalFees,
@@ -197,5 +200,72 @@ class LoanApplicationController extends Controller
         }
 
         return response()->json(['success' => true, 'data' => $application], 200);
+    }
+
+    /**
+     * Get active loans ('disbursed' or 'defaulted').
+     * Filters by agent if the user has the 'Agent' role.
+     * Allows searching by customer name for all roles.
+     */
+    public function getActiveLoans(Request $request)
+    {
+        $query = LoanApplication::with(['customer', 'assignedTo'])
+            ->whereIn('status', ['disbursed', 'defaulted']);
+
+        $user = Auth::user();
+
+        // Role-based filtering
+        if ($user->hasRole('Agent')) {
+            $query->where('assigned_to_user_id', $user->id);
+        }
+
+        // Search functionality
+        if ($request->has('search')) {
+            $searchTerm = $request->search;
+            $query->whereHas('customer', function ($q) use ($searchTerm) {
+                $q->where('name', 'like', "%{$searchTerm}%")
+                  ->orWhere('account_number', 'like', "%{$searchTerm}%");
+            });
+        }
+        
+        // Allow managers to filter by agent
+        if (($user->hasRole('Admin') || $user->hasRole('Manager')) && $request->has('agent_id')) {
+            $query->where('assigned_to_user_id', $request->agent_id);
+        }
+
+        $applications = $query->orderBy('updated_at', 'desc')->get();
+
+        return response()->json(['success' => true, 'data' => $applications], 200);
+    }
+
+    /**
+     * Transfer a loan to another agent.
+     */
+    public function transferLoan(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'new_agent_id' => 'required|exists:users,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'message' => $validator->errors()], 400);
+        }
+
+        $application = LoanApplication::find($id);
+
+        if (!$application) {
+            return response()->json(['success' => false, 'message' => 'Loan application not found.'], 404);
+        }
+
+        $newAgent = User::find($request->new_agent_id);
+        if (!$newAgent || !$newAgent->hasRole('Agent')) {
+            // Or whatever roles are allowed to manage loans
+            return response()->json(['success' => false, 'message' => 'The specified user is not a valid agent.'], 400);
+        }
+
+        $application->assigned_to_user_id = $request->new_agent_id;
+        $application->save();
+
+        return response()->json(['success' => true, 'message' => 'Loan successfully transferred.', 'data' => $application], 200);
     }
 }

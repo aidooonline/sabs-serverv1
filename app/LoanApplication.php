@@ -11,7 +11,8 @@ class LoanApplication extends Model
     protected $fillable = [
         'customer_id',
         'loan_product_id',
-        'created_by',
+        'created_by_user_id',
+        'assigned_to_user_id',
         'amount',
         'total_interest',
         'total_fees',
@@ -32,5 +33,21 @@ class LoanApplication extends Model
     {
         // Assuming your user model is App\User or similar, linking via customer_id
         return $this->belongsTo(Accounts::class, 'customer_id', 'id'); // Adjust foreign key if needed based on legacy system
+    }
+
+    /**
+     * Get the user who created the loan application.
+     */
+    public function createdBy()
+    {
+        return $this->belongsTo(User::class, 'created_by_user_id');
+    }
+
+    /**
+     * Get the user currently assigned to the loan application.
+     */
+    public function assignedTo()
+    {
+        return $this->belongsTo(User::class, 'assigned_to_user_id');
     }
 }
