@@ -212,19 +212,25 @@ class LoanApplicationController extends Controller
         try {
             $user = Auth::user();
             if (!$user) {
-                return response()->json(['success' => false, 'message' => 'Test Step 1 Failed: User not authenticated.'], 401);
+                return response()->json(['success' => false, 'message' => 'Test Step 2 Failed: User not authenticated.'], 401);
             }
+
+            // Test the hasRole method
+            $isAgent = $user->hasRole('Agent');
+            $isAdmin = $user->hasRole('Admin');
+            $isManager = $user->hasRole('Manager');
+            $roles = $user->getRoleNames(); // Get all roles as a collection
 
             return response()->json([
                 'success' => true,
-                'message' => 'Test Step 1 Succeeded: User is authenticated.',
+                'message' => 'Test Step 2 Succeeded. Roles: ' . $roles->implode(', '),
                 'data' => []
             ], 200);
 
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'A server error occurred during Test Step 1.',
+                'message' => 'A server error occurred during Test Step 2 (Role Check).',
                 'error' => $e->getMessage()
             ], 500);
         }
