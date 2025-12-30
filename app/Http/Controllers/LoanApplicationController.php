@@ -209,33 +209,47 @@ class LoanApplicationController extends Controller
      */
     public function getActiveLoans(Request $request)
     {
-        $query = LoanApplication::with(['customer', 'assignedTo'])
-            ->whereIn('status', ['disbursed', 'defaulted']);
+        try {
+            $user = Auth::user();
 
-        $user = Auth::user();
+            if (!$user) {
+                return response()->json(['success' => false, 'message' => 'User not authenticated.'], 401);
+            }
 
-        // Role-based filtering
-        if ($user->hasRole('Agent')) {
-            $query->where('assigned_to_user_id', $user->id);
+            $query = LoanApplication::with(['customer', 'assignedTo'])
+                ->whereIn('status', ['disbursed', 'defaulted']);
+
+            // Role-based filtering
+            // Note: Ensure roles are correctly named, e.g., 'Agent', 'Admin'
+            if ($user->hasRole('Agent')) {
+                $query->where('assigned_to_user_id', $user->id);
+            }
+
+            // Search functionality
+            if ($request->has('search') && !empty($request->search)) {
+                $searchTerm = $request->search;
+                $query->whereHas('customer', function ($q) use ($searchTerm) {
+                    $q->where('name', 'like', "%{$searchTerm}%")
+                      ->orWhere('account_number', 'like', "%{$searchTerm}%");
+                });
+            }
+            
+            // Allow managers to filter by agent
+            if (($user->hasRole('Admin') || $user->hasRole('Manager')) && $request->has('agent_id') && !empty($request->agent_id)) {
+                $query->where('assigned_to_user_id', $request->agent_id);
+            }
+
+            $applications = $query->orderBy('updated_at', 'desc')->get();
+
+            return response()->json(['success' => true, 'data' => $applications], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'A server error occurred while fetching active loans.',
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ], 500);
         }
-
-        // Search functionality
-        if ($request->has('search')) {
-            $searchTerm = $request->search;
-            $query->whereHas('customer', function ($q) use ($searchTerm) {
-                $q->where('name', 'like', "%{$searchTerm}%")
-                  ->orWhere('account_number', 'like', "%{$searchTerm}%");
-            });
-        }
-        
-        // Allow managers to filter by agent
-        if (($user->hasRole('Admin') || $user->hasRole('Manager')) && $request->has('agent_id')) {
-            $query->where('assigned_to_user_id', $request->agent_id);
-        }
-
-        $applications = $query->orderBy('updated_at', 'desc')->get();
-
-        return response()->json(['success' => true, 'data' => $applications], 200);
     }
 
     /**
