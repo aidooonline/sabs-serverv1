@@ -64,7 +64,7 @@ class LoanRepaymentController extends Controller
             $transaction->amount = $amount;
             $transaction->agentname = $agentName;
             $transaction->name_of_transaction = 'Loan Repayment';
-            $transaction->users = $user->created_by_user; 
+            $transaction->users = $agentId; 
             $transaction->is_shown = 1;
             $transaction->is_loan = 1;
             $transaction->row_version = 2;
@@ -162,6 +162,29 @@ class LoanRepaymentController extends Controller
                 if ($companyInfo) {
                     $companyInfo->amount_in_cash += $totalRevenueFromPayment;
                     $companyInfo->save();
+                }
+            }
+
+            // 5. Send SMS Notification if enabled
+            $is_sms_enabled = CompanyInfo::where('id', $compId)
+                ->where('sms_active', 1)
+                ->where('sms_credit', '>', 0)
+                ->exists();
+
+            if ($is_sms_enabled && $loan->customer->phone_number) {
+                $this->company_sms_transaction('sub', 1);
+
+                $thesmsid = CompanyInfo::where('id', $compId)->value('sms_sender_id');
+                $formattedAmount = number_format($amount, 2);
+                $formattedBalance = number_format($remainingDebt, 2);
+                
+                $themessage = "Dear Customer, your loan repayment of GHS {$formattedAmount} was successful. Your new outstanding balance is GHS {$formattedBalance}.";
+
+                try {
+                    $this->sendFrogMessage('NYB', 'Populaire123^', $thesmsid, $themessage, $loan->customer->phone_number);
+                } catch (\Exception $smsException) {
+                    \Log::error("SMS sending failed for loan repayment: " . $smsException->getMessage());
+                    // Do not roll back the main transaction if only SMS fails.
                 }
             }
 
@@ -317,6 +340,168 @@ class LoanRepaymentController extends Controller
         </html>
         ";
 
-        return response($html)->header('Content-Type', 'text/html');
-    }
-}
+                return response($html)->header('Content-Type', 'text/html');
+
+            }
+
+        
+
+            public function sendFrogMessage($theusername, $thepass, $thesenderid, $themessage, $thenumbersent)
+
+            {
+
+                $baseUrl = 'https://banqpopulaire.website/nobsimages2/sendfrogmsg.php';
+
+        
+
+                $params = [
+
+                    'theusername' => $theusername,
+
+                    'thepass' => $thepass,
+
+                    'thesenderid' => $thesenderid,
+
+                    'themessage' => $themessage,
+
+                    'thenumbersent' => $thenumbersent,
+
+                ];
+
+        
+
+                // Build the query string
+
+                $queryString = http_build_query($params);
+
+        
+
+                // Create the full URL
+
+                $url = $baseUrl . '?' . $queryString;
+
+        
+
+                // Initialize cURL session
+
+                $ch = curl_init($url);
+
+        
+
+                // Set cURL options
+
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+
+        
+
+                // Execute cURL session and get the response
+
+                $response = curl_exec($ch);
+
+        
+
+                // Check for cURL errors
+
+                if (curl_errno($ch)) {
+
+                    // Handle the error without throwing an exception to prevent rollbacks
+
+                    \Log::error('cURL Error in sendFrogMessage: ' . curl_error($ch));
+
+                    return response()->json(['status' => 'error', 'message' => curl_error($ch)]);
+
+                }
+
+        
+
+                // Close cURL session
+
+                curl_close($ch);
+
+        
+
+                // Handle the response data accordingly
+
+                return response()->json(['status' => 'success', 'data' => $response]);
+
+            }
+
+        
+
+            public function company_sms_transaction($operation, $value)
+
+            {
+
+                // Check user type
+
+                if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'super admin' || \Auth::user()->type == 'Agents') {
+
+                    // Get the current credit value
+
+                    $currentCredit = CompanyInfo::where('id', \Auth::user()->comp_id)->value('sms_credit');
+
+        
+
+                    if ($operation == 'add') {
+
+        
+
+                        // Decrease the credit by 1
+
+                        $newCredit = $currentCredit + $value;
+
+        
+
+                        // Update the database with the new credit value
+
+                        $thereturned = CompanyInfo::where('id', \Auth::user()->comp_id)
+
+                            ->update([
+
+                                'sms_credit' => $newCredit
+
+                            ]);
+
+                        return $thereturned;
+
+                    } else {
+
+                        // Check if there is credit available
+
+                        if ($currentCredit > 0) {
+
+                            // Decrease the credit by 1
+
+                            $newCredit = $currentCredit - $value;
+
+        
+
+                            // Update the database with the new credit value
+
+                            $thereturnedd = CompanyInfo::where('id', \Auth::user()->comp_id)
+
+                                ->update([
+
+                                    'sms_credit' => $newCredit
+
+                                ]);
+
+                            return $thereturnedd;
+
+                        } else {
+
+                            return false;
+
+                        }
+
+                    }
+
+                }
+
+                return false; // Return false if user type is not permitted
+
+            }
+
+        }
+
+        

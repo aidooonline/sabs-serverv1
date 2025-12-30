@@ -24,6 +24,13 @@ class LoanApplication extends Model
         'repayment_start_date'
     ];
 
+    /**
+     * The accessors to append to the model's array form.
+     *
+     * @var array
+     */
+    protected $appends = ['total_paid', 'outstanding_balance'];
+
     public function loan_product()
     {
         return $this->belongsTo(LoanProduct::class, 'loan_product_id');
@@ -33,6 +40,14 @@ class LoanApplication extends Model
     {
         // Assuming your user model is App\User or similar, linking via customer_id
         return $this->belongsTo(Accounts::class, 'customer_id', 'id'); // Adjust foreign key if needed based on legacy system
+    }
+
+    /**
+     * Get the repayment schedules for the loan application.
+     */
+    public function repaymentSchedules()
+    {
+        return $this->hasMany(LoanRepaymentSchedule::class);
     }
 
     /**
@@ -49,5 +64,26 @@ class LoanApplication extends Model
     public function assignedTo()
     {
         return $this->belongsTo(User::class, 'assigned_to_user_id');
+    }
+
+    /**
+     * Calculate the total amount paid so far.
+     *
+     * @return float
+     */
+    public function getTotalPaidAttribute()
+    {
+        // Sum the total_paid field from all related repayment schedules
+        return (float) $this->repaymentSchedules()->sum('total_paid');
+    }
+
+    /**
+     * Calculate the outstanding balance for the loan.
+     *
+     * @return float
+     */
+    public function getOutstandingBalanceAttribute()
+    {
+        return (float) $this->attributes['total_repayment'] - $this->getTotalPaidAttribute();
     }
 }
