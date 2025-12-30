@@ -209,13 +209,25 @@ class LoanApplicationController extends Controller
      */
     public function getActiveLoans(Request $request)
     {
-        // This is a temporary debugging method.
-        // It will prove if the route and controller are reachable.
-        return response()->json([
-            'success' => true,
-            'message' => 'Test successful. The getActiveLoans method was reached.',
-            'data' => []
-        ], 200);
+        try {
+            $user = Auth::user();
+            if (!$user) {
+                return response()->json(['success' => false, 'message' => 'Test Step 1 Failed: User not authenticated.'], 401);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Test Step 1 Succeeded: User is authenticated.',
+                'data' => []
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'A server error occurred during Test Step 1.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
