@@ -216,7 +216,7 @@ class LoanApplicationController extends Controller
             }
 
             $query = LoanApplication::with(['customer', 'assignedTo'])
-                ->whereIn('status', ['disbursed', 'defaulted']);
+                ->whereIn('status', ['disbursed', 'defaulted', 'active']);
 
             // Define manager-level roles
             $managerRoles = ['Admin', 'Manager', 'super admin', 'Owner'];
