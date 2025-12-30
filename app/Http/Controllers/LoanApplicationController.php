@@ -212,25 +212,43 @@ class LoanApplicationController extends Controller
         try {
             $user = Auth::user();
             if (!$user) {
-                return response()->json(['success' => false, 'message' => 'Test Step 2 Failed: User not authenticated.'], 401);
+                return response()->json(['success' => false, 'message' => 'User not authenticated.'], 401);
             }
 
-            // Test the hasRole method
-            $isAgent = $user->hasRole('Agent');
-            $isAdmin = $user->hasRole('Admin');
-            $isManager = $user->hasRole('Manager');
-            $roles = $user->getRoleNames(); // Get all roles as a collection
+            $query = LoanApplication::with(['customer', 'assignedTo'])
+                ->whereIn('status', ['disbursed', 'defaulted']);
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Test Step 2 Succeeded. Roles: ' . $roles->implode(', '),
-                'data' => []
-            ], 200);
+            // Define manager-level roles
+            $managerRoles = ['Admin', 'Manager', 'super admin', 'Owner'];
+
+            // Role-based filtering
+            if (!$user->hasRole($managerRoles)) {
+                 // If user is not a manager, assume they are an agent and show only their loans
+                $query->where('assigned_to_user_id', $user->id);
+            }
+            
+            // Search functionality for all roles
+            if ($request->has('search') && !empty($request->search)) {
+                $searchTerm = $request->search;
+                $query->whereHas('customer', function ($q) use ($searchTerm) {
+                    $q->where('name', 'like', "%{$searchTerm}%")
+                      ->orWhere('account_number', 'like', "%{$searchTerm}%");
+                });
+            }
+            
+            // Allow managers to filter by a specific agent
+            if ($user->hasRole($managerRoles) && $request->has('agent_id') && !empty($request->agent_id)) {
+                $query->where('assigned_to_user_id', $request->agent_id);
+            }
+
+            $applications = $query->orderBy('updated_at', 'desc')->get();
+
+            return response()->json(['success' => true, 'data' => $applications], 200);
 
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'A server error occurred during Test Step 2 (Role Check).',
+                'message' => 'A server error occurred while fetching active loans.',
                 'error' => $e->getMessage()
             ], 500);
         }
