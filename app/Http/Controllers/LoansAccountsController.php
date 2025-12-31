@@ -138,7 +138,7 @@ try {
 
         
         //this is literally 'Manage User Register'
-        if(\Auth::user()->type=='Admin' || \Auth::user()->type=='owner')
+        if(\Auth::user()->hasRole(['Admin', 'owner', 'super admin']))
         {
             
 $agentdata = User::where('type','Agents')->where('is_active',1)->get();
@@ -399,7 +399,7 @@ $thisyeartotalSCM = AccountsTransactions::whereYear('created_at', date('Y'))->wh
     public function agentquerydashboard($agentqueryid=null)
     {
         //this is literally 'Manage User Register'
-        if(\Auth::user()->type=='Admin' || \Auth::user()->type=='owner')
+        if(\Auth::user()->hasRole(['Admin', 'owner', 'super admin']))
         {
             
 $agentdata = User::where('type','Agents')->where('is_active',1)->get();
@@ -1484,7 +1484,7 @@ return view('reports.index', compact('accounts','todaytotalAGTCM','thisweektotal
      */
     public function store(Request $request)
     {
-        if(\Auth::user()->type=='Admin' || \Auth::user()->type=='owner')
+        if(\Auth::user()->hasRole(['Admin', 'owner', 'super admin']))
         {
             $validator = \Validator::make(
                 $request->all(), [
