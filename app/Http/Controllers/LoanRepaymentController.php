@@ -33,9 +33,10 @@ class LoanRepaymentController extends Controller
         $amount = $request->amount;
         $loanId = $request->loan_application_id;
         $user = Auth::user();
-        $agentId = $request->agent_id ?? $user->id; // The agent collecting the money
-        $agentName = $user->name;
-        $compId = $user->comp_id;
+        // Add safeguards for null user object (e.g., if token is valid but user deleted)
+        $agentId = $request->agent_id ?? ($user ? $user->id : null);
+        $agentName = $user ? $user->name : 'System';
+        $originalCompId = $user ? $user->comp_id : null;
 
         DB::beginTransaction();
 
@@ -48,7 +49,9 @@ class LoanRepaymentController extends Controller
 
             // 1. Create Transaction Record in `nobs_transactions` (The Ledger)
             $accountNumber = $loan->customer->account_number;
-            $accountType = $loan->customer->account_types; // Assuming account_types is the correct field from Accounts model
+            $accountType = $loan->customer->account_types ?? 'default';
+            // Use original compId but fallback to customer's comp_id if needed
+            $compId = $originalCompId ?? $loan->customer->comp_id;
 
             $randomCode = \Str::random(8);
             $myid = \Str::random(30);

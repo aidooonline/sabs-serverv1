@@ -193,7 +193,7 @@ class LoanApplicationController extends Controller
      */
     public function show(Request $request, $id)
     {
-        $application = LoanApplication::with(['loan_product', 'customer'])->find($id);
+        $application = LoanApplication::with(['loan_product', 'customer'])->withSum('repaymentSchedules', 'total_paid')->find($id);
 
         if (!$application) {
             return response()->json(['success' => false, 'message' => 'Loan application not found'], 404);
@@ -216,6 +216,7 @@ class LoanApplicationController extends Controller
             }
 
             $query = LoanApplication::with(['customer', 'assignedTo'])
+                ->withSum('repaymentSchedules', 'total_paid')
                 ->whereIn('status', ['disbursed', 'defaulted', 'active']);
 
             // Define manager-level roles
