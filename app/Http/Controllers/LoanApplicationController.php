@@ -193,13 +193,21 @@ class LoanApplicationController extends Controller
      */
     public function show(Request $request, $id)
     {
-        $application = LoanApplication::with(['loan_product', 'customer'])->withSum('repaymentSchedules', 'total_paid')->find($id);
+        try {
+            $application = LoanApplication::with(['loan_product', 'customer'])->withSum('repaymentSchedules', 'total_paid')->find($id);
 
-        if (!$application) {
-            return response()->json(['success' => false, 'message' => 'Loan application not found'], 404);
+            if (!$application) {
+                return response()->json(['success' => false, 'message' => 'Loan application not found'], 404);
+            }
+
+            return response()->json(['success' => true, 'data' => $application], 200);
+        } catch (\Throwable $th) {
+            // Return a proper JSON response on failure to help diagnostics
+            return response()->json([
+                'success' => false,
+                'message' => 'Server Error: ' . $th->getMessage()
+            ], 500);
         }
-
-        return response()->json(['success' => true, 'data' => $application], 200);
     }
 
     /**
