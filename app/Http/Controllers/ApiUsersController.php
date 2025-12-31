@@ -4167,7 +4167,17 @@ class ApiUsersController extends Controller
 
 
                 if ($user->save()) {
-
+                    // Assign Spatie Role
+                    if ($request->accountrole) {
+                        // Map 'Agents' to 'Agent' if necessary, or just use the value if roles are named 'Agents'
+                        // Assuming roles are 'Agent', 'Admin', 'Manager'
+                        $roleName = ($request->accountrole == 'Agents') ? 'Agent' : $request->accountrole;
+                        try {
+                            $user->assignRole($roleName);
+                        } catch (\Exception $e) {
+                            \Log::error("Failed to assign role: " . $e->getMessage());
+                        }
+                    }
 
                     return 'saved';
                 } else {
@@ -4216,19 +4226,20 @@ class ApiUsersController extends Controller
                         'type'  => $request->accountrole,
                         'gender'  => $request->gender
                     ]);
-                } else {
-                    // Update the User record
-                    User::where('id', $request->id)->update([
-                        'username' => $request->name,
-                        'name' => $request->name,
-                        'phone' => $request->phone,
-                        'email' => $request->email,
-                        'password' => Hash::make($request->password),
-                        'type'  => $request->accountrole,
-                        'gender'  => $request->gender
-                    ]);
                 }
-                return 'updated';
+                
+                // Sync Spatie Role
+                $userToUpdate = User::find($request->id);
+                if ($userToUpdate && $request->accountrole) {
+                    $roleName = ($request->accountrole == 'Agents') ? 'Agent' : $request->accountrole;
+                    try {
+                        $userToUpdate->syncRoles($roleName);
+                    } catch (\Exception $e) {
+                        \Log::error("Failed to sync role: " . $e->getMessage());
+                    }
+                }
+
+                return 'saved';
             } catch (\Illuminate\Database\QueryException $e) {
                 return $e->getMessage();
             }
