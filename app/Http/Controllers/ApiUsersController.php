@@ -41,10 +41,10 @@ class ApiUsersController extends Controller
 
         //this is literally 'Manage User Register'
         if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin'])) {
-            return DB::table('users')->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender')->where('type', '!=', 'Super Admin')->where('type', '!=', 'owner')->where('comp_id', \Auth::user()->comp_id)->orderBy('id', 'DESC')->get('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type');
+            return DB::table('users')->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender')->where('type', '!=', 'Super Admin')->where('type', '!=', 'owner')->where('comp_id', \Auth::user()->comp_id)->orderBy('id', 'DESC')->paginate(10);
         } else {
             if (\Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
-                return DB::table('users')->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender')->orderBy('id', 'DESC')->where('id', \Auth::user()->id)->get();
+                return DB::table('users')->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender')->orderBy('id', 'DESC')->where('id', \Auth::user()->id)->paginate(10);
             } else {
                 return 'error: Type=[' . \Auth::user()->type . '] Roles=' . json_encode(\Auth::user()->getRoleNames());
             }
