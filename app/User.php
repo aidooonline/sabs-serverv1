@@ -40,7 +40,6 @@ class User extends Authenticatable
     ];
     protected $appends  = [
         'type_name',
-        'user_roles_name',
     ];
     /**
      * The attributes that should be hidden for arrays.
