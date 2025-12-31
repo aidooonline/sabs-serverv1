@@ -46,7 +46,7 @@ class ApiUsersController extends Controller
             if (\Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent') {
                 return DB::table('users')->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender')->orderBy('name', 'ASC')->where('id', \Auth::user()->id)->get();
             } else {
-                return 'error';
+                return 'error: ' . \Auth::user()->type;
             }
         }
     }
