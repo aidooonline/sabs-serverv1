@@ -54,7 +54,7 @@ class ApiUsersController extends Controller
 
     public function getcustomers()
     {
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
 
 
             $customers = DB::table('nobs_registration')->select('id', 'user_image', 'is_dataimage', 'customer_picture', 'first_name', 'middle_name', 'surname', 'phone_number', 'email', 'residential_address', 'account_number', 'created_at', DB::raw('created_at as created_at2'), 'date_of_birth2', 'user', 'sec_phone_number', 'postal_address', 'occupation', 'next_of_kin_phone_number', 'next_of_kin_id_number', 'next_of_kin', 'nationality', 'marital_status', 'id_type', 'id_number', 'gender', 'accounttype_num', 'account_types', '__id__')->where('comp_id', \Auth::user()->comp_id)->orderBy('id', 'DESC')->paginate(10);
@@ -79,7 +79,7 @@ class ApiUsersController extends Controller
 
     public function getcustomerbyid(Request $request)
     {
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
 
 
             $customers = DB::table('nobs_registration')->select('id', 'user_image', 'is_dataimage', 'customer_picture', 'first_name', 'middle_name', 'surname', 'phone_number', 'email', 'residential_address', 'account_number', 'created_at', DB::raw('created_at as created_at2'), 'date_of_birth2', 'user', 'sec_phone_number', 'postal_address', 'occupation', 'next_of_kin_phone_number', 'next_of_kin_id_number', 'next_of_kin', 'nationality', 'marital_status', 'id_type', 'id_number', 'gender', 'accounttype_num', 'account_types', '__id__')->where('id', $request->id)->orderBy('id', 'DESC')->paginate(10);
@@ -102,7 +102,7 @@ class ApiUsersController extends Controller
 
     public  function searchbyaccountnumber(Request $request)
     {
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
             // Find the primary_account_number in the nobs_user_account_numbers table
             // Find account numbers that look like the variable passed
             $similarAccountNumbers = DB::table('nobs_user_account_numbers')
@@ -134,7 +134,7 @@ class ApiUsersController extends Controller
     //->where('comp_id',\Auth::user()->comp_id)
     public function searchgetcustomers(Request $request)
     {
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
 
 
             $searchTerm = $request->datatosearch;
@@ -173,7 +173,7 @@ class ApiUsersController extends Controller
     public function getaccountlist()
     {
         //this is literally 'Manage User Register'
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
             $savingsaccounts = SavingsAccounts::where('comp_id', \Auth::user()->comp_id)->orderBy('id', 'DESC')->paginate(20);
             return $savingsaccounts;
         } else {
@@ -184,7 +184,7 @@ class ApiUsersController extends Controller
     public function getloanaccountlist()
     {
         //this is literally 'Manage User Register'
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
             $savingsaccounts = SavingsAccounts::where('comp_id', \Auth::user()->comp_id)->where('is_loan', 1)->where('account_type', 3)->orderBy('id', 'DESC')->paginate(20);
             return $savingsaccounts;
         } else {
@@ -1523,7 +1523,7 @@ class ApiUsersController extends Controller
 
         /*`__id__`, `account_number`, `account_type`, `amount`, `created_at3`, `det_rep_name_of_transaction`, `agentname`, `name_of_transaction`, `phone_number`, `transaction_id`, `users`, `deposit_total`, `updated_at`, `withdrawal_total`, `tid`, `id`, `is_shown`, `foreign_id`, `is_loan`, `created_at`, `updated`, `withdrawrequest_approved`, `withdrawrequest_disapproved`, `approved_by`, `paid_by`, `is_paid`, `paid_withdrawal_msg`, `row_version`*/
 
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
 
             $customers = DB::table('nobs_transactions')->select('__id__', 'account_number', 'account_type', 'amount', 'det_rep_name_of_transaction', 'agentname', 'name_of_transaction', 'transaction_id', 'users', 'id', 'created_at', DB::raw('created_at as created_at2'))->where('name_of_transaction', 'Refund')->where('comp_id', \Auth::user()->comp_id)->orderBy('id', 'DESC')->paginate(10);
             $customers->transform(function ($customer) {
@@ -1896,7 +1896,7 @@ class ApiUsersController extends Controller
     public function withdrawtransaction(Request $request)
     {
         //this is literally 'Manage User Register'
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
 
             $is_transaction_enabled = Companyinfo::where('id', \Auth::user()->comp_id)
                 ->where('transactional_credit', '>', 0)
@@ -1952,7 +1952,7 @@ class ApiUsersController extends Controller
     public function withdrawtransaction_susu(Request $request)
     {
         //this is literally 'Manage User Register'
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
 
             $is_transaction_enabled = Companyinfo::where('id', \Auth::user()->comp_id)
                 ->where('transactional_credit', '>', 0)
@@ -2607,7 +2607,7 @@ class ApiUsersController extends Controller
 
     public function completesusu(Request $request)
     {
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
             SusuCycles::where('account_number',  $request->accountnumber)->where('comp_id', \Auth::user()->comp_id)
                 ->update([
                     'is_complete' => 1,
@@ -2620,7 +2620,7 @@ class ApiUsersController extends Controller
 
     public function sendconfirmationcode(Request $request)
     {
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
 
             $is_sms_enabled = Companyinfo::where('id', \Auth::user()->comp_id)
                 ->where('sms_active', 1)
@@ -2670,7 +2670,7 @@ class ApiUsersController extends Controller
     public function withdrawalrequests_approved()
     {
         //this is literally 'Manage User Register'
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
             // $agentnames = User::orderBy('name', 'ASC')->where('type','!=','Super Admin')->where('type','!=','owner')->get();
             // $unapprovedcounts = AccountsTransactions::orderBy('id', 'DESC')->where('name_of_transaction','Withdrawal Request')->where('withdrawrequest_approved',0)->count();
             // $approvedcounts = AccountsTransactions::orderBy('id', 'DESC')->where('name_of_transaction','Withdrawal Request')->where('withdrawrequest_approved',1)->where('is_paid',0)->count();
@@ -2708,7 +2708,7 @@ class ApiUsersController extends Controller
     public function deposittransaction_susu(Request $request)
     {
         //this is literally 'Manage User Register'
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
 
             $is_transaction_enabled = Companyinfo::where('id', \Auth::user()->comp_id)
                 ->where('transactional_credit', '>', 0)
@@ -2828,7 +2828,7 @@ class ApiUsersController extends Controller
     public function deposittransaction(Request $request)
     {
         //this is literally 'Manage User Register'
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
             $is_transaction_enabled = Companyinfo::where('id', \Auth::user()->comp_id)
                 ->where('transactional_credit', '>', 0)
                 ->exists();
@@ -2934,7 +2934,7 @@ class ApiUsersController extends Controller
 
     public function registeruserac(Request $request)
     {
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
 
             $mydatey = date("Y-m-d H:i:s");
 
@@ -3171,7 +3171,7 @@ class ApiUsersController extends Controller
 
     public function checkifsusuaccount(Request $request)
     {
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
             $account_exist = SusuCycles::where('account_number', $request->accountid)->where('comp_id', \Auth::user()->comp_id)->first();
 
             if ($account_exist) {
@@ -3189,7 +3189,7 @@ class ApiUsersController extends Controller
     public function getsusuaccount(Request $request)
     {
         // Check user type for permission
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
             // Retrieve existing JSON data as an array
             $susuaccounts = SusuCycles::select('*')
                 ->where('comp_id', \Auth::user()->comp_id)
@@ -3443,7 +3443,7 @@ class ApiUsersController extends Controller
 
 
 
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
 
             //this is literally 'Manage User Register'
             $accountsid = $request->accountid;
@@ -3486,7 +3486,7 @@ class ApiUsersController extends Controller
         $commissionchargetype = '';
 
 
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
 
             $commissionchargetype = '';
 
@@ -3565,7 +3565,7 @@ class ApiUsersController extends Controller
         $accountsid = $request->accountid;
 
 
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
 
             /* $mainaccountnumber = UserAccountNumbers::where('account_number',$accountsid)->pluck('primary_account_number');
        $accounttype = UserAccountNumbers::where('account_number',$accountsid)->pluck('account_type');
@@ -3590,7 +3590,7 @@ class ApiUsersController extends Controller
     public function getuseraccountnumbers(Request $request)
     {
         // Check user type for permission
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
             // Retrieve existing JSON data as an array
             $accountnumbers = UserAccountNumbers::select('id', 'account_number', 'account_type', 'balance')
                 ->where('comp_id', \Auth::user()->comp_id)
@@ -3632,7 +3632,7 @@ class ApiUsersController extends Controller
     public function addaccounttouser(Request $request)
     {
         // Check user type for permission
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
             // Retrieve existing JSON data as an array
             $mydatey = date("Y-m-d H:i:s");
 
@@ -3712,7 +3712,7 @@ class ApiUsersController extends Controller
      public function updatecustomer_accounttype(Request $request)
      {
          // Check user type for permission
-         if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+         if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
              // Retrieve existing JSON data as an array
              $mydatey = date("Y-m-d H:i:s");
      
@@ -3744,7 +3744,7 @@ class ApiUsersController extends Controller
     public function getusertransactions(Request $request)
     {
         // Check user type for permission
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
             // Retrieve existing JSON data as an array
             $usertransactions = AccountsTransactions::select('id', 'account_number', 'amount', 'name_of_transaction', 'balance', 'created_at', 'transaction_id','agentname')
                 ->where('account_number', $request->accountnumber)
@@ -3795,7 +3795,7 @@ class ApiUsersController extends Controller
     public function getprintedstatements(Request $request)
     {
         // Check user type for permission
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
             // Retrieve existing JSON data as an array
             $usertransactions = AccountsTransactions::select('id', 'account_number', 'amount', 'name_of_transaction', 'balance', 'created_at')
                 ->where('account_number', $request->myuseracnumber)
@@ -3838,7 +3838,7 @@ class ApiUsersController extends Controller
 
     public function getprintedtransactionsbyid(Request $request)
     {
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
             // Retrieve existing JSON data as an array
             $usertransactions = AccountsTransactions::select('id', 'account_number', 'amount', 'name_of_transaction', 'balance', 'created_at', 'det_rep_name_of_transaction', 'account_type')
                 ->where('transaction_id', $request->myuseracnumber)
@@ -3880,7 +3880,7 @@ class ApiUsersController extends Controller
     public function getprintedtransactions(Request $request)
     {
         // Check user type for permission
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
             // Retrieve existing JSON data as an array
             $usertransactions = AccountsTransactions::select('id', 'account_number', 'amount', 'name_of_transaction', 'balance', 'created_at')
                 ->where('account_number', $request->accountnumber)
@@ -3910,7 +3910,7 @@ class ApiUsersController extends Controller
     public function getprinteddeposits(Request $request)
     {
         // Check user type for permission
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
             // Retrieve existing JSON data as an array
             $usertransactions = AccountsTransactions::select('id', 'account_number', 'amount', 'name_of_transaction', 'balance', 'created_at')
                 ->where('account_number', $request->myuseracnumber)
@@ -3952,7 +3952,7 @@ class ApiUsersController extends Controller
     public function getprintedwithdrawals(Request $request)
     {
         // Check user type for permission
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
             // Retrieve existing JSON data as an array
             $usertransactions = AccountsTransactions::select('id', 'account_number', 'amount', 'name_of_transaction', 'balance', 'created_at')
                 ->where('account_number', $request->myuseracnumber)
@@ -3995,7 +3995,7 @@ class ApiUsersController extends Controller
     public function getprintedaccountbalance(Request $request)
     {
         // Check user type for permission
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
             // Retrieve existing JSON data as an array
             $usertransactions = AccountsTransactions::select('id', 'account_number', 'amount', 'name_of_transaction', 'balance', 'created_at')
                 ->where('account_number', $request->accountnumber)
@@ -4046,7 +4046,7 @@ class ApiUsersController extends Controller
     public function getcustomerinfo(Request $request)
     {
         // Check user type for permission
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
             // Retrieve existing JSON data as an array
             $userinfo = Accounts::select('*')
                 ->where('id', $request->customerid)
@@ -4067,7 +4067,7 @@ class ApiUsersController extends Controller
     public function getcustomeraccountslist(Request $request)
     {
         // Check user type for permission
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
             // Retrieve existing JSON data as an array
             $accountlist = UserAccountNumbers::select('*')
                 ->where('primary_account_number', $request->customermmainaccountnumber)
@@ -4133,7 +4133,7 @@ class ApiUsersController extends Controller
     // creating new account for the business which can be used for susu, business account or even loans.
     public function registersystemuser(Request $request)
     {
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
             $validator = \Validator::make(
                 $request->all(),
                 [
@@ -4189,7 +4189,7 @@ class ApiUsersController extends Controller
     public function updatesystemuser(Request $request)
     {
 
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin') {
+        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
             $validator = \Validator::make(
                 $request->all(),
                 [
