@@ -169,11 +169,18 @@ class LoanApplicationController extends Controller
 
         $totalRepayment = $amount + $totalInterest;
 
+        // Determine Assigned User
+        $assignedUserId = Auth::id();
+        $user = Auth::user();
+        if ($user && $user->hasRole(['Admin', 'Owner', 'super admin', 'Manager']) && $request->has('assigned_to_user_id')) {
+            $assignedUserId = $request->assigned_to_user_id;
+        }
+
         $application = LoanApplication::create([
             'customer_id' => $request->customer_id,
             'loan_product_id' => $request->loan_product_id,
-            'created_by_user_id' => Auth::id(), // Set the creator
-            'assigned_to_user_id' => Auth::id(), // Default assignment to the creator
+            'created_by_user_id' => Auth::id(), 
+            'assigned_to_user_id' => $assignedUserId,
             'amount' => $amount,
             'total_interest' => $totalInterest,
             'total_fees' => $totalFees,
@@ -182,7 +189,7 @@ class LoanApplicationController extends Controller
             'repayment_frequency' => $product->repayment_frequency,
             'fee_payment_method' => $request->fee_payment_method,
             'status' => 'pending',
-            'repayment_start_date' => now()->addMonth() // Default start date? Can be parameterized later.
+            'repayment_start_date' => now()->addMonth() // Default start date
         ]);
 
         return response()->json(['success' => true, 'data' => $application, 'message' => 'Loan Application submitted successfully.'], 201);
