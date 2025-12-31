@@ -67,10 +67,19 @@ Route::middleware(['auth:api'])->group(function () {
         Route::post('applications/{id}/submit-for-approval', [App\Http\Controllers\LoanProcessingController::class, 'submit']); // New route
 
         // Repayments
-        Route::post('applications/{id}/repay', [App\Http\Controllers\LoanRepaymentController::class, 'store']); // This is the repayment action
-        Route::get('applications/{loanId}/repayments/{transactionId}/receipt', [App\Http\Controllers\LoanRepaymentController::class, 'getRepaymentReceipt']); // New route for repayment receipt
+        Route::post('applications/{id}/repay', [App\Http\Controllers\LoanRepaymentController.php, 'store']); // This is the repayment action
+        Route::get('applications/{loanId}/repayments/{transactionId}/receipt', [App\Http\Controllers\LoanRepaymentController.php, 'getRepaymentReceipt']); // New route for repayment receipt
     });
     // ----------------------------------------------------
+
+    // --- AGENT COMMISSIONS ---
+    Route::group(['prefix' => 'commissions'], function () {
+        Route::get('summary', [App\Http\Controllers\CommissionController::class, 'summary']);
+        Route::get('{agentId}/history', [App\Http\Controllers\CommissionController::class, 'history']);
+        Route::post('payout', [App\Http\Controllers\CommissionController::class, 'payout']);
+        Route::post('settings', [App\Http\Controllers\CommissionController::class, 'updateSettings']);
+    });
+    // -------------------------
 
     // --- NEW LOAN SYSTEM DEFAULT MANAGEMENT ---
     Route::group(['prefix' => 'loans'], function () {
