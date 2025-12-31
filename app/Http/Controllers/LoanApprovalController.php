@@ -13,14 +13,20 @@ class LoanApprovalController extends Controller
      */
     public function approve(Request $request, $id)
     {
+        // Add Role-based authorization check
+        if (!\Auth::user()->hasRole(['Admin', 'Owner', 'super admin'])) {
+            return response()->json(['success' => false, 'message' => 'You do not have permission to approve applications.'], 403);
+        }
+
         $application = LoanApplication::find($id);
 
         if (!$application) {
             return response()->json(['success' => false, 'message' => 'Application not found'], 404);
         }
 
-        if ($application->status !== 'pending') {
-            return response()->json(['success' => false, 'message' => 'Application is not pending'], 400);
+        // Status must be 'pending_approval' to be approved
+        if ($application->status !== 'pending_approval') {
+            return response()->json(['success' => false, 'message' => 'Application is not awaiting approval.'], 400);
         }
 
         // Logic for approval
@@ -43,14 +49,20 @@ class LoanApprovalController extends Controller
      */
     public function reject(Request $request, $id)
     {
+        // Add Role-based authorization check
+        if (!\Auth::user()->hasRole(['Admin', 'Owner', 'super admin'])) {
+            return response()->json(['success' => false, 'message' => 'You do not have permission to reject applications.'], 403);
+        }
+
         $application = LoanApplication::find($id);
 
         if (!$application) {
             return response()->json(['success' => false, 'message' => 'Application not found'], 404);
         }
 
-        if ($application->status !== 'pending') {
-            return response()->json(['success' => false, 'message' => 'Application is not pending'], 400);
+        // Allow rejection from either pending state
+        if (!in_array($application->status, ['pending', 'pending_approval'])) {
+            return response()->json(['success' => false, 'message' => 'Application cannot be rejected at this stage.'], 400);
         }
 
         $application->status = 'rejected';

@@ -137,7 +137,7 @@ class LoanProcessingController extends Controller
             return response()->json(['success' => false, 'message' => 'Loan is not in a state to be submitted.'], 400);
         }
 
-        $loan->status = 'awaiting_approval';
+        $loan->status = 'pending_approval';
         $loan->save();
 
         return response()->json(['success' => true, 'message' => 'Application submitted for approval successfully.']);
