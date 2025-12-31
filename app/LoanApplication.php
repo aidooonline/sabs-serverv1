@@ -29,7 +29,7 @@ class LoanApplication extends Model
      *
      * @var array
      */
-    protected $appends = [];
+    protected $appends = ['total_paid', 'outstanding_balance'];
 
     public function loan_product()
     {
