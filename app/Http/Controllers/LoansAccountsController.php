@@ -383,7 +383,7 @@ $thisyeartotalSCM = AccountsTransactions::whereYear('created_at', date('Y'))->wh
 
 } catch (\Throwable $th) {
     //throw $th;
-    return redirect()->route('login');
+    dd($th);
 }
 
     }
