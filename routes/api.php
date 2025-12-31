@@ -67,8 +67,8 @@ Route::middleware(['auth:api'])->group(function () {
         Route::post('applications/{id}/submit-for-approval', [App\Http\Controllers\LoanProcessingController::class, 'submit']); // New route
 
         // Repayments
-        Route::post('applications/{id}/repay', [App\Http\Controllers\LoanRepaymentController.php, 'store']); // This is the repayment action
-        Route::get('applications/{loanId}/repayments/{transactionId}/receipt', [App\Http\Controllers\LoanRepaymentController.php, 'getRepaymentReceipt']); // New route for repayment receipt
+        Route::post('applications/{id}/repay', [App\Http\Controllers\LoanRepaymentController::class, 'store']); // This is the repayment action
+        Route::get('applications/{loanId}/repayments/{transactionId}/receipt', [App\Http\Controllers\LoanRepaymentController::class, 'getRepaymentReceipt']); // New route for repayment receipt
     });
     // ----------------------------------------------------
 
