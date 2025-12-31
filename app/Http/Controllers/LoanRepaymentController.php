@@ -168,7 +168,37 @@ class LoanRepaymentController extends Controller
                 }
             }
 
-            // 5. Send SMS Notification if enabled
+            // 5. Calculate and Record Agent Commission
+            $commissionPercent = \App\SystemSetting::where('key', 'agent_commission_percent')->value('value') ?? 1.00;
+            
+            // Determine beneficiary agent:
+            // Priority 1: Agent selected in the form (passed as agent_id)
+            // Priority 2: Agent assigned to the loan
+            // Priority 3: The user making the payment (if they are an agent)
+            $beneficiaryAgentId = $request->agent_id;
+            if (!$beneficiaryAgentId) {
+                $beneficiaryAgentId = $loan->assigned_to_user_id;
+            }
+            // If still null, check if auth user is agent
+            if (!$beneficiaryAgentId && $user && $user->hasRole('Agent')) {
+                $beneficiaryAgentId = $user->id;
+            }
+
+            if ($beneficiaryAgentId) {
+                $commissionAmount = $amount * ($commissionPercent / 100);
+                
+                \App\AgentCommission::create([
+                    'agent_id' => $beneficiaryAgentId,
+                    'loan_application_id' => $loan->id,
+                    'transaction_id' => $randomCode, // Link to the repayment transaction
+                    'amount' => $commissionAmount,
+                    'calculation_base' => $amount,
+                    'percentage' => $commissionPercent,
+                    'status' => 'earned'
+                ]);
+            }
+
+            // 6. Send SMS Notification if enabled
             $is_sms_enabled = CompanyInfo::where('id', $compId)
                 ->where('sms_active', 1)
                 ->where('sms_credit', '>', 0)
