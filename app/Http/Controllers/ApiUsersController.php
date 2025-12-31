@@ -44,7 +44,7 @@ class ApiUsersController extends Controller
             return DB::table('users')->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender')->where('type', '!=', 'Super Admin')->where('type', '!=', 'owner')->where('comp_id', \Auth::user()->comp_id)->orderBy('id', 'DESC')->get('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type');
         } else {
             if (\Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
-                return DB::table('users')->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender')->orderBy('name', 'ASC')->where('id', \Auth::user()->id)->get();
+                return DB::table('users')->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender')->orderBy('id', 'DESC')->where('id', \Auth::user()->id)->get();
             } else {
                 return 'error: Type=[' . \Auth::user()->type . '] Roles=' . json_encode(\Auth::user()->getRoleNames());
             }
