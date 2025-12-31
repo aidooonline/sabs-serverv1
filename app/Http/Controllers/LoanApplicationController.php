@@ -281,7 +281,14 @@ class LoanApplicationController extends Controller
         }
 
         $newAgent = User::find($request->new_agent_id);
-        if (!$newAgent || !$newAgent->hasRole('Agent')) {
+        
+        // Allow if user has Spatie Role OR legacy type
+        $isValidAgent = $newAgent && (
+            $newAgent->hasRole('Agent') || 
+            in_array($newAgent->type, ['Agent', 'Agents', 'agent', 'agents'])
+        );
+
+        if (!$isValidAgent) {
             // Or whatever roles are allowed to manage loans
             return response()->json(['success' => false, 'message' => 'The specified user is not a valid agent.'], 400);
         }
