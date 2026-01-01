@@ -184,22 +184,24 @@ class LoanReportController extends Controller
     public function getDashboardTransactionHistory(Request $request)
     {
         $metric = $request->query('metric');
-
-        if ($metric === 'disbursed') {
-            // Return a hardcoded response immediately for debugging
-            return response()->json([
-                'success' => true,
-                '__DEBUG_TEST__' => 'This is the new code running',
-                'data' => [
-                    ['id' => 1, 'customer' => ['name' => 'Debug Customer 1'], 'amount' => 1000, 'date' => now()],
-                    ['id' => 2, 'customer' => ['name' => 'Debug Customer 2'], 'amount' => 2000, 'date' => now()],
-                ]
-            ], 200);
-        }
-
         $data = [];
 
         switch ($metric) {
+            case 'disbursed':
+                $data = LoanApplication::with('customer:id,name')
+                    ->whereIn('status', ['active', 'repaid', 'defaulted'])
+                    ->orderBy('updated_at', 'desc')
+                    ->get()
+                    ->map(function ($loan) {
+                        return [
+                            'id' => $loan->id,
+                            'customer' => $loan->customer,
+                            'amount' => $loan->amount,
+                            'date' => $loan->updated_at,
+                        ];
+                    });
+                break;
+
             case 'repaid':
                 $data = LoanRepayment::with('loanApplication.customer:id,name')
                     ->orderBy('created_at', 'desc')
