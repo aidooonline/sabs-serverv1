@@ -115,13 +115,13 @@ class CommissionController extends Controller
             $transaction->comp_id = Auth::user()->comp_id;
             
             // Calculate new balance (standard logic)
-            // Note: In a real optimize scenario, we'd use a service, but copying logic for safety as per legacy pattern
-            $totaldeposits = AccountsTransactions::where('account_number', $destAccount)->where('name_of_transaction', 'Deposit')->where('row_version', 2)->sum('amount');
-            $totalwithdrawals = AccountsTransactions::where('account_number', $destAccount)->where('name_of_transaction', 'Withdraw')->where('row_version', 2)->sum('amount');
-            // ... (simplified balance logic for speed, strictly speaking we should sum all)
-            
-            // Trusted previous balance approach (if available) or raw sum
-            $currentBalance = $accountInfo->balance; // Assuming this field is semi-trusted or we just increment it
+            // We use the same logic as the legacy system (summing all transactions) to ensure accuracy
+            $totaldeposits = AccountsTransactions::where('account_number', $destAccount)->where('name_of_transaction', 'Deposit')->where('row_version', 2)->where('comp_id', Auth::user()->comp_id)->sum('amount');
+            $totalcommission = AccountsTransactions::where('account_number', $destAccount)->where('name_of_transaction', 'Commission')->where('row_version', 2)->where('comp_id', Auth::user()->comp_id)->sum('amount');
+            $totalwithdrawals = AccountsTransactions::where('account_number', $destAccount)->where('name_of_transaction', 'Withdraw')->where('row_version', 2)->where('comp_id', Auth::user()->comp_id)->sum('amount');
+            $totalrefunds = AccountsTransactions::where('account_number', $destAccount)->where('name_of_transaction', 'Refund')->where('row_version', 2)->where('comp_id', Auth::user()->comp_id)->sum('amount');
+
+            $currentBalance = round($totaldeposits - $totalrefunds - $totalwithdrawals - $totalcommission, 3);
             $newBalance = $currentBalance + $payoutAmount;
             
             $transaction->balance = $newBalance;

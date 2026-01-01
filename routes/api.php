@@ -53,6 +53,7 @@ Route::middleware(['auth:api'])->group(function () {
         Route::get('applications/active', [App\Http\Controllers\LoanApplicationController::class, 'getActiveLoans']); // New route for active loans
         Route::post('applications/{id}/transfer', [App\Http\Controllers\LoanApplicationController::class, 'transferLoan']); // New route for loan transfer
         Route::get('applications', [App\Http\Controllers\LoanApplicationController::class, 'index']);
+        Route::put('applications/{id}', [App\Http\Controllers\LoanApplicationController::class, 'update']); // New route for updating application
         Route::get('applications/{id}', [App\Http\Controllers\LoanApplicationController::class, 'show']); // New route for single application
         Route::post('applications/{id}/approve', [App\Http\Controllers\LoanApprovalController::class, 'approve']);
         Route::post('applications/{id}/reject', [App\Http\Controllers\LoanApprovalController::class, 'reject']);

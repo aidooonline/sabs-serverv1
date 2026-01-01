@@ -196,6 +196,82 @@ class LoanApplicationController extends Controller
     }
 
     /**
+     * Update the specified loan application (e.g., change amount).
+     */
+    public function update(Request $request, $id)
+    {
+        $application = LoanApplication::find($id);
+
+        if (!$application) {
+            return response()->json(['success' => false, 'message' => 'Loan application not found'], 404);
+        }
+
+        // Only allow updates if status is pending or pending_approval
+        if (!in_array($application->status, ['pending', 'pending_approval'])) {
+            return response()->json(['success' => false, 'message' => 'Cannot edit application in current status.'], 400);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'amount' => 'required|numeric|min:1',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'message' => $validator->errors()], 400);
+        }
+
+        // Re-calculate based on new amount
+        $amount = $request->amount;
+        $product = $application->loan_product; // Relationship must be defined
+
+        if (!$product) {
+            // Fallback if relation not loaded or missing
+             $product = LoanProduct::with('fees')->find($application->loan_product_id);
+        }
+
+        // Calculate Interest
+        $durationInMonths = 0;
+        $unit = strtolower($product->duration_unit);
+        
+        if ($unit == 'month' || $unit == 'months') {
+            $durationInMonths = $product->duration;
+        } elseif ($unit == 'week' || $unit == 'weeks') {
+            $durationInMonths = ($product->duration * 7) / 30;
+        } elseif ($unit == 'day' || $unit == 'days') {
+            $durationInMonths = $product->duration / 30;
+        } else {
+            $durationInMonths = $product->duration;
+        }
+
+        $totalInterest = $amount * ($product->interest_rate / 100) * $durationInMonths;
+
+        // Calculate Fees
+        $totalFees = 0;
+        // Need to load fees if not loaded
+        if (!$product->relationLoaded('fees')) {
+             $product->load('fees');
+        }
+        
+        foreach ($product->fees as $fee) {
+            if ($fee->type == 'fixed' || $fee->type == 'flat') {
+                $totalFees += $fee->value;
+            } elseif ($fee->type == 'percent' || $fee->type == 'percentage') {
+                $totalFees += $amount * ($fee->value / 100);
+            }
+        }
+
+        $totalRepayment = $amount + $totalInterest;
+
+        $application->amount = $amount;
+        $application->total_interest = $totalInterest;
+        $application->total_fees = $totalFees;
+        $application->total_repayment = $totalRepayment;
+        
+        $application->save();
+
+        return response()->json(['success' => true, 'message' => 'Application updated successfully.', 'data' => $application], 200);
+    }
+
+    /**
      * Display the specified loan application.
      */
     public function show(Request $request, $id)

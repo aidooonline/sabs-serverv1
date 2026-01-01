@@ -130,6 +130,9 @@ class LoanReportController extends Controller
         // Total Cash Available (from CompanyInfo)
         $companyCash = CompanyInfo::first()->amount_in_cash ?? 0;
 
+        // Pool Balance (Central Loan Account)
+        $poolBalance = CentralLoanAccount::sum('balance') ?? 0;
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -142,6 +145,7 @@ class LoanReportController extends Controller
                 'defaulted_loans_count' => $defaultedLoansCount,
                 'defaulted_loans_value' => round($calculatedDefaultedValue, 2), // Using calculated value
                 'company_cash_balance' => round($companyCash, 2),
+                'pool_balance' => round($poolBalance, 2),
                 // Add more metrics as needed
             ]
         ]);

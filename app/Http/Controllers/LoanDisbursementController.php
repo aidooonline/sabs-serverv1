@@ -18,9 +18,23 @@ class LoanDisbursementController extends Controller
         if (!$application) return response()->json(['success' => false, 'message' => 'Not found'], 404);
         if ($application->status !== 'approved') return response()->json(['success' => false, 'message' => 'Loan must be approved first'], 400);
 
+        // Validate Destination Account
+        $destinationAccount = $request->input('destination_account_number');
+        if (!$destinationAccount) {
+             return response()->json(['success' => false, 'message' => 'Destination account is required'], 400);
+        }
+
+        $userAccount = \App\UserAccountNumbers::where('account_number', $destinationAccount)
+                        ->where('comp_id', $request->user()->comp_id)
+                        ->first();
+
+        if (!$userAccount) {
+            return response()->json(['success' => false, 'message' => 'Destination account not found'], 404);
+        }
+
         DB::beginTransaction();
         try {
-            // Fetch the Central Loan Account (assuming there's one main account for now)
+            // Fetch the Central Loan Account
             $centralLoanAccount = \App\CentralLoanAccount::first(); 
             if (!$centralLoanAccount) {
                 return response()->json(['success' => false, 'message' => 'Central Loan Account not found'], 500);
@@ -44,8 +58,7 @@ class LoanDisbursementController extends Controller
             // 3. Update Loan Application Status
             $application->status = 'active';
             
-            // Set First Repayment Date (e.g., 1 month from now)
-            // Adjust logic based on frequency later (weekly = 1 week)
+            // Set First Repayment Date
             $startDate = Carbon::now()->addMonth(); 
             if ($application->repayment_frequency == 'weekly') {
                 $startDate = Carbon::now()->addWeek();
@@ -57,20 +70,38 @@ class LoanDisbursementController extends Controller
             // 4. Generate Schedule
             $this->generateSchedule($application, $startDate);
 
-            // 5. Credit Customer's Account
+            // 5. Credit Customer's Account (Deep Integration)
+            // We use 'Deposit' as name_of_transaction so the legacy system sees the money.
+            
+            $totaldeposits = AccountsTransactions::where('account_number', $destinationAccount)->where('name_of_transaction', 'Deposit')->where('row_version', 2)->where('comp_id', $request->user()->comp_id)->sum('amount');
+            $totalcommission = AccountsTransactions::where('account_number', $destinationAccount)->where('name_of_transaction', 'Commission')->where('row_version', 2)->where('comp_id', $request->user()->comp_id)->sum('amount');
+            $totalwithdrawals = AccountsTransactions::where('account_number', $destinationAccount)->where('name_of_transaction', 'Withdraw')->where('row_version', 2)->where('comp_id', $request->user()->comp_id)->sum('amount');
+            $totalrefunds = AccountsTransactions::where('account_number', $destinationAccount)->where('name_of_transaction', 'Refund')->where('row_version', 2)->where('comp_id', $request->user()->comp_id)->sum('amount');
+
+            // Calculate current balance before this deposit
+            $currentBalance = round($totaldeposits - $totalrefunds - $totalwithdrawals - $totalcommission, 3);
+            $newBalance = $currentBalance + $amountToDisburse;
+
             AccountsTransactions::create([
-                'account_number' => $application->customer->account_number,
-                'account_type' => 'Savings', 
+                'account_number' => $destinationAccount,
+                'account_type' => $userAccount->account_type, 
                 'amount' => $amountToDisburse,
                 'det_rep_name_of_transaction' => 'Loan Disbursement',
-                'name_of_transaction' => 'Deposit', // This represents a credit to the customer's account
+                'name_of_transaction' => 'Deposit', // Critical for legacy balance calculation
                 'transaction_id' => 'LN' . time(),
                 'users' => $application->customer->user, 
-                'agentname' => $request->user() ? $request->user()->name : 'System',
-                'is_loan' => 1,
+                'agentname' => $request->user()->name,
+                'is_loan' => 1, // Mark as loan related
+                'balance' => $newBalance,
+                'row_version' => 2,
+                'comp_id' => $request->user()->comp_id,
                 'created_at' => now(),
                 'updated_at' => now()
             ]);
+
+            // Update UserAccountNumbers
+            $userAccount->balance = $newBalance;
+            $userAccount->save();
 
             DB::commit();
             return response()->json(['success' => true, 'message' => 'Loan Disbursed Successfully']);
