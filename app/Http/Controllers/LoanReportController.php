@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\LoanApplication;
+use App\LoanRepayment;
 use App\LoanRepaymentSchedule;
 use App\AccountsTransactions;
 use App\CentralLoanAccount;
@@ -171,6 +172,99 @@ class LoanReportController extends Controller
         return response()->json([
             'success' => true,
             'data' => $defaultedLoans
+        ], 200);
+    }
+
+    /**
+     * Get transaction history for a specific dashboard metric.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function getDashboardTransactionHistory(Request $request)
+    {
+        $metric = $request->query('metric');
+        $data = [];
+
+        switch ($metric) {
+            case 'disbursed':
+                $data = LoanApplication::with('customer:id,name')
+                    ->whereIn('status', ['active', 'repaid', 'defaulted'])
+                    ->orderBy('updated_at', 'desc')
+                    ->get()
+                    ->map(function ($loan) {
+                        return [
+                            'id' => $loan->id,
+                            'customer' => $loan->customer,
+                            'amount' => $loan->amount,
+                            'date' => $loan->updated_at,
+                        ];
+                    });
+                break;
+
+            case 'repaid':
+                $data = LoanRepayment::with('loanApplication.customer:id,name')
+                    ->orderBy('created_at', 'desc')
+                    ->get()
+                    ->map(function ($repayment) {
+                        return [
+                            'id' => $repayment->id,
+                            'customer' => $repayment->loanApplication->customer ?? null,
+                            'amount' => $repayment->amount_paid,
+                            'date' => $repayment->created_at,
+                        ];
+                    });
+                break;
+
+            case 'interest':
+                $data = LoanRepayment::with('loanApplication.customer:id,name')
+                    ->where('interest_amount_paid', '>', 0)
+                    ->orderBy('created_at', 'desc')
+                    ->get()
+                    ->map(function ($repayment) {
+                        return [
+                            'id' => $repayment->id,
+                            'customer' => $repayment->loanApplication->customer ?? null,
+                            'amount' => $repayment->interest_amount_paid,
+                            'date' => $repayment->created_at,
+                        ];
+                    });
+                break;
+
+            case 'charges':
+                 $data = LoanRepayment::with('loanApplication.customer:id,name')
+                    ->where('fees_amount_paid', '>', 0)
+                    ->orderBy('created_at', 'desc')
+                    ->get()
+                    ->map(function ($repayment) {
+                        return [
+                            'id' => $repayment->id,
+                            'customer' => $repayment->loanApplication->customer ?? null,
+                            'amount' => $repayment->fees_amount_paid,
+                            'date' => $repayment->created_at,
+                        ];
+                    });
+                break;
+
+            case 'defaulted':
+                $data = LoanApplication::with('customer:id,name')
+                    ->where('status', 'defaulted')
+                    ->orderBy('updated_at', 'desc')
+                    ->get()
+                    ->map(function ($loan) {
+                        return [
+                            'id' => $loan->id,
+                            'customer' => $loan->customer,
+                            'amount' => $loan->getOutstandingBalanceAttribute(), // Use the accessor
+                            'date' => $loan->updated_at,
+                        ];
+                    });
+                break;
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $data
         ], 200);
     }
 }
