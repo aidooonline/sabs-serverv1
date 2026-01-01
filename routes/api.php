@@ -68,7 +68,11 @@ Route::middleware(['auth:api'])->group(function () {
 
         // Repayments
         Route::post('applications/{id}/repay', [App\Http\Controllers\LoanRepaymentController::class, 'store']); // This is the repayment action
-        Route::get('applications/{loanId}/repayments/{transactionId}/receipt', [App\Http\Controllers\LoanRepaymentController::class, 'getRepaymentReceipt']); // New route for repayment receipt
+        Route::get('applications/{loanId}/repayments/{transactionId}/receipt', [App\Http\Controllers\LoanRepaymentController::class, 'getRepaymentReceipt']); 
+        
+        // History & Statement
+        Route::get('applications/{id}/history', [App\Http\Controllers\LoanRepaymentController::class, 'getHistory']);
+        Route::get('applications/{id}/statement', [App\Http\Controllers\LoanRepaymentController::class, 'getStatement']);
     });
     // ----------------------------------------------------
 

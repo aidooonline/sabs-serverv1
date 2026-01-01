@@ -377,6 +377,128 @@ class LoanRepaymentController extends Controller
 
             }
 
+            /**
+             * Get payment history for a specific loan application.
+             */
+            public function getHistory(Request $request, $id)
+            {
+                $user = Auth::user();
+                // Check permissions? Assuming if they can view details, they can view history.
+                
+                // Fetch transactions linked to this loan
+                // We use 'det_rep_name_of_transaction' pattern match because we didn't add a loan_id column to transactions table yet.
+                // Ideally, we should migration to add loan_id to accounts_transactions, but this works for now.
+                $history = AccountsTransactions::where('det_rep_name_of_transaction', 'like', "%Loan Repayment - App #{$id}%")
+                    ->where('is_loan', 1)
+                    ->select('id', 'transaction_id', 'amount', 'balance', 'created_at', 'agentname')
+                    ->orderBy('created_at', 'desc')
+                    ->get();
+
+                return response()->json(['success' => true, 'data' => $history], 200);
+            }
+
+            /**
+             * Generate printable statement for a loan.
+             */
+            public function getStatement(Request $request, $id)
+            {
+                $loan = LoanApplication::with(['customer', 'loan_product'])->find($id);
+                
+                if (!$loan) {
+                    return response()->json(['success' => false, 'message' => 'Loan not found'], 404);
+                }
+
+                $history = AccountsTransactions::where('det_rep_name_of_transaction', 'like', "%Loan Repayment - App #{$id}%")
+                    ->where('is_loan', 1)
+                    ->orderBy('created_at', 'asc') // Chronological for statement
+                    ->get();
+
+                $companyInfo = CompanyInfo::first();
+                $companyName = $companyInfo ? $companyInfo->name : 'SABS Lending';
+                $companyPhone = $companyInfo ? $companyInfo->phone : '';
+
+                // Build HTML
+                $html = "
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Loan Statement</title>
+                    <style>
+                        body { font-family: sans-serif; padding: 20px; }
+                        .header { text-align: center; margin-bottom: 20px; }
+                        .title { font-size: 18px; font-weight: bold; margin: 5px 0; }
+                        .subtitle { font-size: 12px; color: #555; }
+                        .section { margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 15px; }
+                        .row { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 14px; }
+                        .label { font-weight: bold; color: #333; }
+                        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+                        th { background: #f0f0f0; text-align: left; padding: 8px; border-bottom: 2px solid #ddd; }
+                        td { padding: 8px; border-bottom: 1px solid #eee; }
+                        .right { text-align: right; }
+                        .footer { margin-top: 30px; font-size: 10px; text-align: center; color: #888; }
+                    </style>
+                </head>
+                <body>
+                    <div class='header'>
+                        <div class='title'>$companyName</div>
+                        <div class='subtitle'>Loan Account Statement</div>
+                        <div class='subtitle'>$companyPhone</div>
+                    </div>
+
+                    <div class='section'>
+                        <div class='row'><span class='label'>Customer:</span> <span>{$loan->customer->first_name} {$loan->customer->surname}</span></div>
+                        <div class='row'><span class='label'>Account No:</span> <span>{$loan->customer->account_number}</span></div>
+                        <div class='row'><span class='label'>Loan ID:</span> <span>#{$loan->id}</span></div>
+                        <div class='row'><span class='label'>Product:</span> <span>{$loan->loan_product->name}</span></div>
+                    </div>
+
+                    <div class='section'>
+                        <div class='row'><span class='label'>Principal:</span> <span>" . number_format($loan->amount, 2) . "</span></div>
+                        <div class='row'><span class='label'>Total Due:</span> <span>" . number_format($loan->total_repayment, 2) . "</span></div>
+                        <div class='row'><span class='label'>Total Paid:</span> <span>" . number_format($loan->total_paid, 2) . "</span></div>
+                        <div class='row'><span class='label'>Outstanding:</span> <span style='color:red'>" . number_format($loan->outstanding_balance, 2) . "</span></div>
+                    </div>
+
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Ref</th>
+                                <th class='right'>Amount</th>
+                                <th class='right'>Balance</th>
+                                <th>Agent</th>
+                            </tr>
+                        </thead>
+                        <tbody>";
+                
+                foreach ($history as $tx) {
+                    $html .= "
+                        <tr>
+                            <td>" . Carbon::parse($tx->created_at)->format('Y-m-d H:i') . "</td>
+                            <td>{$tx->transaction_id}</td>
+                            <td class='right'>" . number_format($tx->amount, 2) . "</td>
+                            <td class='right'>" . number_format($tx->balance, 2) . "</td>
+                            <td>{$tx->agentname}</td>
+                        </tr>";
+                }
+
+                if ($history->isEmpty()) {
+                    $html .= "<tr><td colspan='5' style='text-align:center; padding: 20px;'>No payments recorded yet.</td></tr>";
+                }
+
+                $html .= "
+                        </tbody>
+                    </table>
+
+                    <div class='footer'>
+                        <p>Generated on " . date('Y-m-d H:i:s') . "</p>
+                    </div>
+                </body>
+                </html>";
+
+                return response($html)->header('Content-Type', 'text/html');
+            }
+
         
 
             public function sendFrogMessage($theusername, $thepass, $thesenderid, $themessage, $thenumbersent)
