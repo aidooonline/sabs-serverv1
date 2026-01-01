@@ -19,7 +19,12 @@ class LoanApplicationController extends Controller
         $query = LoanApplication::with(['loan_product', 'customer']);
 
         if ($request->has('status')) {
-            $query->where('status', $request->status);
+            $status = $request->status;
+            if (is_array($status)) {
+                $query->whereIn('status', $status);
+            } else {
+                $query->where('status', $status);
+            }
         }
 
         // Order by newest first

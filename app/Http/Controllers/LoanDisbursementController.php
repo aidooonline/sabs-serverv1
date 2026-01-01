@@ -8,6 +8,7 @@ use App\LoanRepaymentSchedule;
 use App\AccountsTransactions;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use App\Http\Controllers\ApiUsersController;
 
 class LoanDisbursementController extends Controller
 {
@@ -70,41 +71,39 @@ class LoanDisbursementController extends Controller
             // 4. Generate Schedule
             $this->generateSchedule($application, $startDate);
 
-            // 5. Credit Customer's Account (Deep Integration)
-            // We use 'Deposit' as name_of_transaction so the legacy system sees the money.
-            
-            $totaldeposits = AccountsTransactions::where('account_number', $destinationAccount)->where('name_of_transaction', 'Deposit')->where('row_version', 2)->where('comp_id', $request->user()->comp_id)->sum('amount');
-            $totalcommission = AccountsTransactions::where('account_number', $destinationAccount)->where('name_of_transaction', 'Commission')->where('row_version', 2)->where('comp_id', $request->user()->comp_id)->sum('amount');
-            $totalwithdrawals = AccountsTransactions::where('account_number', $destinationAccount)->where('name_of_transaction', 'Withdraw')->where('row_version', 2)->where('comp_id', $request->user()->comp_id)->sum('amount');
-            $totalrefunds = AccountsTransactions::where('account_number', $destinationAccount)->where('name_of_transaction', 'Refund')->where('row_version', 2)->where('comp_id', $request->user()->comp_id)->sum('amount');
-
-            // Calculate current balance before this deposit
-            $currentBalance = round($totaldeposits - $totalrefunds - $totalwithdrawals - $totalcommission, 3);
-            $newBalance = $currentBalance + $amountToDisburse;
-
-            AccountsTransactions::create([
-                'account_number' => $destinationAccount,
-                'account_type' => $userAccount->account_type, 
-                'amount' => $amountToDisburse,
-                'det_rep_name_of_transaction' => 'Loan Disbursement',
-                'name_of_transaction' => 'Deposit', // Critical for legacy balance calculation
-                'transaction_id' => 'LN' . time(),
-                'users' => $application->customer->user, 
-                'agentname' => $request->user()->name,
-                'is_loan' => 1, // Mark as loan related
-                'balance' => $newBalance,
-                'row_version' => 2,
-                'comp_id' => $request->user()->comp_id,
-                'created_at' => now(),
-                'updated_at' => now()
+            // 5. Credit Customer's Account via ApiUsersController (Deep Integration)
+            $apiUsersController = new ApiUsersController();
+            $depositRequest = new Request();
+            $depositRequest->replace([
+                'accountnumber'   => $destinationAccount,
+                'customerdeposit' => $amountToDisburse,
+                'phonenumber'     => $application->customer->phone_number,
+                'firstname'       => $application->customer->first_name,
+                'middlename'      => $application->customer->middle_name,
+                'surname'         => $application->customer->surname,
             ]);
 
-            // Update UserAccountNumbers
-            $userAccount->balance = $newBalance;
-            $userAccount->save();
+            // Manually set the user on the request for the controller context
+            $depositRequest->setUserResolver(function () use ($request) {
+                return $request->user();
+            });
 
-            DB::commit();
-            return response()->json(['success' => true, 'message' => 'Loan Disbursed Successfully']);
+            $depositResponse = $apiUsersController->deposittransaction($depositRequest);
+            $depositData = json_decode($depositResponse->getContent(), true);
+
+            // The deposittransaction returns a JSON response. We need to check if it was successful.
+            // A simple check could be for the existence of the 'balance' key. A more robust check is better.
+            if ($depositResponse->getStatusCode() == 200 && isset($depositData['balance'])) {
+                // If the deposit was successful, we can commit the transaction.
+                DB::commit();
+                return response()->json(['success' => true, 'message' => 'Loan Disbursed Successfully']);
+            } else {
+                // If the deposit failed, we must roll back our own transaction.
+                DB::rollBack();
+                // Pass on the error message from the deposit transaction if available
+                $errorMessage = $depositData['message'] ?? 'Failed to post deposit transaction in legacy system.';
+                return response()->json(['success' => false, 'message' => $errorMessage], 500);
+            }
 
         } catch (\Exception $e) {
             DB::rollBack();
