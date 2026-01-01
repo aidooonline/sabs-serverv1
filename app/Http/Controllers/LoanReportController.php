@@ -98,7 +98,7 @@ class LoanReportController extends Controller
         // Defaulted Loans (requires a 'default' status or specific logic to identify)
         // For now, let's count loans that are 'active' but overdue in their schedules
         $defaultedLoansCount = LoanApplication::where('status', 'active')
-                                                ->whereHas('repayment_schedules', function($query) {
+                                                ->whereHas('repaymentSchedules', function($query) {
                                                     $query->where('due_date', '<', Carbon::now())
                                                           ->where('status', 'pending'); // Overdue and not paid
                                                 })
@@ -154,9 +154,9 @@ class LoanReportController extends Controller
      */
     public function getActualDefaultedLoans(Request $request)
     {
-        $defaultedLoans = LoanApplication::with(['customer', 'loan_product', 'repayment_schedules'])
+        $defaultedLoans = LoanApplication::with(['customer', 'loan_product', 'repaymentSchedules'])
                                         ->where('status', 'active')
-                                        ->whereHas('repayment_schedules', function ($query) {
+                                        ->whereHas('repaymentSchedules', function ($query) {
                                             $query->where('due_date', '<', Carbon::now())
                                                   ->where('status', 'pending'); // Overdue and not paid
                                         })
