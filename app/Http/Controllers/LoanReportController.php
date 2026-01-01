@@ -36,16 +36,18 @@ class LoanReportController extends Controller
         $totalLoansDisbursedValue = $loanApplicationsQuery->sum('amount');
         $totalLoansDisbursedCount = $loanApplicationsQuery->count();
 
-        // Total Repaid, Interest, Fees Collected
-        // Summing from AccountsTransactions with name_of_transaction 'Loan Repayment'
-        $repaymentTransactionsQuery = AccountsTransactions::where('name_of_transaction', 'Loan Repayment')
-                                                        ->when($startDate, function ($query) use ($startDate) {
-                                                            return $query->whereDate('created_at', '>=', $startDate);
-                                                        })
-                                                        ->when($endDate, function ($query) use ($endDate) {
-                                                            return $query->whereDate('created_at', '<=', $endDate);
-                                                        });
-        $totalRepaid = $repaymentTransactionsQuery->sum('amount');
+        // Total Repaid (Principal + Interest + Fees)
+        // Calculated directly from the repayment schedules to ensure accuracy
+        $totalRepaid = LoanRepaymentSchedule::whereHas('application', function ($query) use ($startDate, $endDate) {
+                                                $query->whereIn('status', ['active', 'repaid'])
+                                                    ->when($startDate, function ($subQuery) use ($startDate) {
+                                                        return $subQuery->whereDate('repayment_start_date', '>=', $startDate);
+                                                    })
+                                                    ->when($endDate, function ($subQuery) use ($endDate) {
+                                                        return $subQuery->whereDate('repayment_start_date', '<=', $endDate);
+                                                    });
+                                            })
+                                            ->sum(DB::raw('principal_paid + interest_paid + fees_paid'));
 
         // Summing interest and fees from repayment schedules
         $schedulesPaidQuery = LoanRepaymentSchedule::where('status', 'paid')
