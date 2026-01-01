@@ -79,15 +79,6 @@ class LoanReportController extends Controller
                                                     ->sum('fees_paid'); // Sum actual paid fees
         
         // Total Outstanding (All active/partial loans)
-        $totalOutstanding = LoanApplication::whereIn('status', ['active', 'partial']) // 'partial' status not in LoanApplication model currently
-                                            ->when($startDate, function ($query) use ($startDate) {
-                                                return $query->whereDate('repayment_start_date', '>=', $startDate);
-                                            })
-                                            ->when($endDate, function ($query) use ($endDate) {
-                                                return $query->whereDate('repayment_start_date', '<=', $endDate);
-                                            })
-                                            ->sum(DB::raw('total_repayment - total_paid')); // total_paid is not a column on LoanApplication
-
         // Correct calculation for Total Outstanding
         // Sum total_due - (principal_paid + interest_paid + fees_paid) from all active/partial schedules
         $activeSchedules = LoanRepaymentSchedule::whereHas('application', function($query) {
@@ -118,20 +109,6 @@ class LoanReportController extends Controller
                                                     return $query->whereDate('repayment_start_date', '<=', $endDate);
                                                 })
                                                 ->count();
-        
-        // Total value of defaulted loans (simple sum of remaining repayment for defaulted loans)
-        $defaultedLoansValue = LoanApplication::where('status', 'active')
-                                                ->whereHas('repayment_schedules', function($query) {
-                                                    $query->where('due_date', '<', Carbon::now())
-                                                          ->where('status', 'pending');
-                                                })
-                                                ->when($startDate, function ($query) use ($startDate) {
-                                                    return $query->whereDate('repayment_start_date', '>=', $startDate);
-                                                })
-                                                ->when($endDate, function ($query) use ($endDate) {
-                                                    return $query->whereDate('repayment_start_date', '<=', $endDate);
-                                                })
-                                                ->sum(DB::raw('total_repayment - total_paid')); // total_paid is not a column on LoanApplication
         
         // Correct calculation for defaulted loans value: sum of outstanding from their schedules
         $defaultedSchedules = LoanRepaymentSchedule::whereHas('application', function($query) {
