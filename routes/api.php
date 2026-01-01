@@ -98,6 +98,12 @@ Route::middleware(['auth:api'])->group(function () {
     });
     // -------------------------------
 
+    // --- SYSTEM MAINTENANCE ---
+    Route::group(['prefix' => 'maintenance'], function () {
+        Route::post('reset-loans', 'SystemMaintenanceController@resetLoanSystem');
+    });
+    // --------------------------
+
     //Customer  Search
 
     // Role and Permissions Setup
