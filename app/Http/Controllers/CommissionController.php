@@ -71,11 +71,11 @@ class CommissionController extends Controller
         $validator = Validator::make($request->all(), [
             'agent_id' => 'required|exists:users,id',
             'amount' => 'required|numeric|min:0.01',
-            'destination_account_number' => 'required|exists:nobs_user_account_numbers,account_number'
+            'destination_account_number' => 'required|string|exists:nobs_user_account_numbers,account_number'
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['success' => false, 'message' => $validator->errors()], 400);
+            return response()->json(['success' => false, 'message' => $validator->errors()->first()], 400);
         }
 
         $agentId = $request->agent_id;
@@ -84,54 +84,48 @@ class CommissionController extends Controller
 
         // Verify agent has enough 'earned' balance
         $totalEarned = AgentCommission::where('agent_id', $agentId)->where('status', 'earned')->sum('amount');
-        
         if ($payoutAmount > $totalEarned) {
              return response()->json(['success' => false, 'message' => 'Insufficient earned commission balance.'], 400);
         }
 
         DB::beginTransaction();
         try {
-            // 1. Create the Payout Record
-            $randomCode = \Str::random(8);
-            $myid = \Str::random(30);
-            
-            // 2. Create Transaction (Deposit)
-            $accountInfo = UserAccountNumbers::where('account_number', $destAccount)->first();
-            
-            $transaction = new AccountsTransactions();
-            $transaction->__id__ = $myid;
-            $transaction->account_number = $destAccount;
-            $transaction->account_type = $accountInfo->account_type;
-            $transaction->created_at = now();
-            $transaction->transaction_id = $randomCode;
-            $transaction->det_rep_name_of_transaction = "Commission Payout";
-            $transaction->amount = $payoutAmount;
-            $transaction->agentname = Auth::user()->name; // Admin performing the payout
-            $transaction->name_of_transaction = 'Deposit'; // Treat as deposit so it appears in balance logic
-            $transaction->users = Auth::id(); 
-            $transaction->is_shown = 1;
-            $transaction->is_loan = 0; // Not a loan transaction
-            $transaction->row_version = 2;
-            $transaction->comp_id = Auth::user()->comp_id;
-            
-            // Calculate new balance (standard logic)
-            // We use the same logic as the legacy system (summing all transactions) to ensure accuracy
-            $totaldeposits = AccountsTransactions::where('account_number', $destAccount)->where('name_of_transaction', 'Deposit')->where('row_version', 2)->where('comp_id', Auth::user()->comp_id)->sum('amount');
-            $totalcommission = AccountsTransactions::where('account_number', $destAccount)->where('name_of_transaction', 'Commission')->where('row_version', 2)->where('comp_id', Auth::user()->comp_id)->sum('amount');
-            $totalwithdrawals = AccountsTransactions::where('account_number', $destAccount)->where('name_of_transaction', 'Withdraw')->where('row_version', 2)->where('comp_id', Auth::user()->comp_id)->sum('amount');
-            $totalrefunds = AccountsTransactions::where('account_number', $destAccount)->where('name_of_transaction', 'Refund')->where('row_version', 2)->where('comp_id', Auth::user()->comp_id)->sum('amount');
+            // Find the customer details associated with the destination account for the deposit narrative
+            $userAccount = UserAccountNumbers::where('account_number', $destAccount)->first();
+            $customerInfo = DB::table('nobs_registration')->where('account_number', $userAccount->primary_account_number)->first();
 
-            $currentBalance = round($totaldeposits - $totalrefunds - $totalwithdrawals - $totalcommission, 3);
-            $newBalance = $currentBalance + $payoutAmount;
+            if (!$customerInfo) {
+                DB::rollBack();
+                return response()->json(['success' => false, 'message' => 'Could not find the account holder for the destination account.'], 404);
+            }
+
+            // 1. Credit Agent's Account via ApiUsersController (Deep Integration)
+            $apiUsersController = new ApiUsersController();
+            $depositRequest = new Request();
+            $depositRequest->replace([
+                'accountnumber'   => $destAccount,
+                'customerdeposit' => $payoutAmount,
+                'phonenumber'     => $customerInfo->phone_number,
+                'firstname'       => $customerInfo->first_name,
+                'middlename'      => $customerInfo->middle_name,
+                'surname'         => $customerInfo->surname,
+            ]);
+            $depositRequest->setUserResolver(fn() => Auth::user());
+
+            $depositResponse = $apiUsersController->deposittransaction($depositRequest);
+            $depositData = json_decode($depositResponse->getContent(), true);
+
+            // Check if the legacy deposit transaction was successful
+            if ($depositResponse->getStatusCode() != 200 || !isset($depositData['balance'])) {
+                DB::rollBack();
+                $errorMessage = $depositData['message'] ?? 'Failed to post commission deposit in legacy system.';
+                return response()->json(['success' => false, 'message' => $errorMessage], 500);
+            }
             
-            $transaction->balance = $newBalance;
-            $transaction->save();
+            // If the deposit was successful, continue with logging the payout and updating commission statuses.
+            $randomCode = $depositData['transaction_id'] ?? \Str::random(8); // Use transaction ID from response if available
 
-            // Update Account Balance
-            $accountInfo->balance = $newBalance;
-            $accountInfo->save();
-
-            // 3. Log the Payout
+            // 2. Log the Payout
             $payout = CommissionPayout::create([
                 'agent_id' => $agentId,
                 'amount' => $payoutAmount,
@@ -140,52 +134,51 @@ class CommissionController extends Controller
                 'performed_by_user_id' => Auth::id()
             ]);
 
-            // 4. Mark specific commission records as 'paid' (FIFO - First In First Out)
-            // We need to find exactly which records equal the payout amount. 
-            // Simplified: We mark records until the sum is reached.
-            
-            $commissions = AgentCommission::where('agent_id', $agentId)
+            // 3. Mark specific commission records as 'paid' (FIFO)
+            $commissionsToPay = AgentCommission::where('agent_id', $agentId)
                 ->where('status', 'earned')
                 ->orderBy('created_at', 'asc')
                 ->get();
             
-            $remainingToPay = $payoutAmount;
+            $remainingToMarkAsPaid = $payoutAmount;
 
-            foreach ($commissions as $comm) {
-                if ($remainingToPay <= 0) break;
+            foreach ($commissionsToPay as $comm) {
+                if ($remainingToMarkAsPaid <= 0) break;
 
-                if ($comm->amount <= $remainingToPay) {
-                    // Pay in full
+                if ($comm->amount <= $remainingToMarkAsPaid) {
                     $comm->status = 'paid';
                     $comm->payout_id = $payout->id;
                     $comm->save();
-                    $remainingToPay -= $comm->amount;
+                    $remainingToMarkAsPaid -= $comm->amount;
                 } else {
-                    // Partial payment (Split the record)
-                    // 1. Create a new "remaining" record
+                    // This is a partial payment on a commission record.
+                    // We split the record into a paid part and a remaining earned part.
                     AgentCommission::create([
                         'agent_id' => $comm->agent_id,
                         'loan_application_id' => $comm->loan_application_id,
                         'transaction_id' => $comm->transaction_id,
-                        'amount' => $comm->amount - $remainingToPay,
+                        'amount' => $comm->amount - $remainingToMarkAsPaid,
                         'calculation_base' => $comm->calculation_base,
                         'percentage' => $comm->percentage,
-                        'status' => 'earned' // Still earned
+                        'status' => 'earned'
                     ]);
 
-                    // 2. Mark current as paid (with the paid amount)
-                    $comm->amount = $remainingToPay;
+                    $comm->amount = $remainingToMarkAsPaid;
                     $comm->status = 'paid';
                     $comm->payout_id = $payout->id;
                     $comm->save();
                     
-                    $remainingToPay = 0;
+                    $remainingToMarkAsPaid = 0;
                 }
             }
 
             DB::commit();
 
-            return response()->json(['success' => true, 'message' => 'Commission disbursed successfully.', 'new_balance' => $newBalance], 200);
+            return response()->json([
+                'success' => true, 
+                'message' => 'Commission disbursed successfully.', 
+                'new_balance' => $depositData['balance']
+            ], 200);
 
         } catch (\Exception $e) {
             DB::rollBack();

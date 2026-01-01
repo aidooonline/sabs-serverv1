@@ -83,6 +83,49 @@ class ApiUsersController extends Controller
         return response()->json(['success' => true, 'data' => $agents], 200);
     }
 
+    public function searchUsersForPayout(Request $request)
+    {
+        if (!\Auth::user()->hasAnyRole(['Admin', 'Owner', 'super admin', 'Manager'])) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        $searchTerm = $request->input('searchtext');
+        $searchType = $request->input('searchtype'); // 1 for name, 2 for phone/account
+
+        $query = DB::table('nobs_registration')
+            ->select('id', 'first_name', 'middle_name', 'surname', 'phone_number', 'account_number')
+            ->where('comp_id', \Auth::user()->comp_id);
+
+        if ($searchTerm) {
+            if ($searchType == '1') { // Search by name
+                $query->where(function ($q) use ($searchTerm) {
+                    $q->where('first_name', 'like', "%{$searchTerm}%")
+                      ->orWhere('surname', 'like', "%{$searchTerm}%")
+                      ->orWhere(DB::raw("CONCAT(first_name, ' ', surname)"), 'like', "%{$searchTerm}%");
+                });
+            } elseif ($searchType == '2') { // Search by phone or account number
+                $query->where(function ($q) use ($searchTerm) {
+                    $q->where('phone_number', 'like', "%{$searchTerm}%")
+                      ->orWhere('account_number', 'like', "%{$searchTerm}%");
+                });
+            }
+        }
+
+        $users = $query->orderBy('surname')->orderBy('first_name')->paginate(15);
+        
+        // To provide a consistent output with other search functions (like searchAgents that returns a 'name' field)
+        // we can add a 'name' field to each result.
+        $users->getCollection()->transform(function ($user) {
+            $user->name = trim($user->first_name . ' ' . $user->middle_name . ' ' . $user->surname);
+            return $user;
+        });
+
+
+        return response()->json(['success' => true, 'data' => $users], 200);
+    }
+
+
+
 
     public function getcustomers()
     {
