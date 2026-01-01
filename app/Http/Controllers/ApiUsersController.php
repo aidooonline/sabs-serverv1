@@ -51,6 +51,38 @@ class ApiUsersController extends Controller
         }
     }
 
+    /**
+     * Search for agent users by name or phone number.
+     */
+    public function searchAgents(Request $request)
+    {
+        if (!\Auth::user()->hasAnyRole(['Admin', 'Owner', 'super admin', 'Manager'])) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        $searchTerm = $request->input('searchtext');
+        $searchType = $request->input('searchtype'); // 1 for name, 2 for phone
+
+        $query = DB::table('users')
+                    ->select('id', 'name', 'phone', 'email', 'type')
+                    ->where('comp_id', \Auth::user()->comp_id)
+                    ->whereIn('type', ['Agent', 'Agents', 'Admin', 'Manager', 'owner', 'super admin']); // Include roles that can be agents/receive commissions
+
+        if ($searchTerm) {
+            if ($searchType == '1') { // Search by name
+                $query->where(function ($q) use ($searchTerm) {
+                    $q->where('name', 'like', "%{$searchTerm}%");
+                });
+            } elseif ($searchType == '2') { // Search by phone
+                $query->where('phone', 'like', "%{$searchTerm}%");
+            }
+        }
+
+        $agents = $query->paginate(10);
+
+        return response()->json(['success' => true, 'data' => $agents], 200);
+    }
+
 
     public function getcustomers()
     {

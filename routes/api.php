@@ -79,6 +79,7 @@ Route::middleware(['auth:api'])->group(function () {
 
     // --- AGENT COMMISSIONS ---
     Route::group(['prefix' => 'commissions'], function () {
+        Route::get('search-agents', [ApiUsersController::class, 'searchAgents']);
         Route::get('summary', [App\Http\Controllers\CommissionController::class, 'summary']);
         Route::get('{agentId}/history', [App\Http\Controllers\CommissionController::class, 'history']);
         Route::post('payout', [App\Http\Controllers\CommissionController::class, 'payout']);
