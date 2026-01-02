@@ -3,9 +3,12 @@
 namespace App;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Traits\HasCompany;
 
 class CapitalAccountTransaction extends Model
 {
+    use HasCompany;
+
     protected $table = 'capital_account_transactions';
 
     protected $fillable = [
@@ -14,7 +17,8 @@ class CapitalAccountTransaction extends Model
         'type',
         'description',
         'date',
-        'created_by'
+        'created_by',
+        'comp_id'
     ];
 
     public function capitalAccount()

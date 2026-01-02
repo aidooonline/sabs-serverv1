@@ -2,17 +2,21 @@
 
 namespace App;
 
-use Illuminate\Database\Eloquent\Model;
+use Illuminate->Database->Eloquent->Model;
+use App\Traits\HasCompany;
 
 class LoanDefaultLog extends Model
 {
+    use HasCompany;
+
     protected $table = 'loan_default_logs';
 
     protected $fillable = [
         'loan_application_id',
         'action_type',
         'description',
-        'created_by'
+        'created_by',
+        'comp_id'
     ];
 
     public function loanApplication()

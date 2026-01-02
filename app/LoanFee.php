@@ -2,16 +2,20 @@
 
 namespace App;
 
-use Illuminate\Database\Eloquent\Model;
+use Illuminate->Database\Eloquent\Model;
+use App\Traits\HasCompany;
 
 class LoanFee extends Model
 {
+    use HasCompany;
+
     protected $table = 'loan_fees';
 
     protected $fillable = [
         'name',
         'value',
-        'type'
+        'type',
+        'comp_id'
     ];
 
     public function products()

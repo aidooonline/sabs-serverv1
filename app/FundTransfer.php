@@ -3,9 +3,12 @@
 namespace App;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Traits\HasCompany;
 
 class FundTransfer extends Model
 {
+    use HasCompany;
+
     protected $table = 'fund_transfers';
 
     protected $fillable = [
@@ -14,9 +17,9 @@ class FundTransfer extends Model
         'amount',
         'date',
         'description',
-        'created_by'
+        'created_by',
+        'comp_id'
     ];
-
     public function sourceAccount()
     {
         return $this->belongsTo('App\CapitalAccount', 'from_account_id');

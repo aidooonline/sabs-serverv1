@@ -3,9 +3,11 @@
 namespace App;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Traits\HasCompany;
 
 class AccountsTransactions extends Model
 {
+    use HasCompany;
 
     protected $table = 'nobs_transactions';
  
@@ -32,7 +34,8 @@ class AccountsTransactions extends Model
         'approved_by',
         'paid_by',
         'is_paid',
-        'paid_withdrawal_msg'
+        'paid_withdrawal_msg',
+        'comp_id'
     ];
 
      

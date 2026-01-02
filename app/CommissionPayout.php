@@ -3,9 +3,12 @@
 namespace App;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Traits\HasCompany;
 
 class CommissionPayout extends Model
 {
+    use HasCompany;
+
     protected $table = 'commission_payouts';
 
     protected $fillable = [
@@ -13,7 +16,8 @@ class CommissionPayout extends Model
         'amount',
         'destination_account_number',
         'transaction_ref',
-        'performed_by_user_id'
+        'performed_by_user_id',
+        'comp_id'
     ];
 
     public function agent()

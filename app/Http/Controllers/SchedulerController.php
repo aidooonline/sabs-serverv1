@@ -378,6 +378,10 @@ class SchedulerController extends Controller
         }
     }
 
+    /**
+     * Get current scheduler status.
+     */
+    public function status()
     {
         if (!$this->checkPermission()) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);

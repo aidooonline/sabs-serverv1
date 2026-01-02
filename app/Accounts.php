@@ -3,9 +3,11 @@
 namespace App;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Traits\HasCompany;
 
 class Accounts extends Model
 {
+    use HasCompany;
 
     protected $table = 'nobs_registration';
     protected $primaryKey = 'id';
@@ -43,7 +45,8 @@ class Accounts extends Model
         'created_time2',
         'is_dataimage',
         'legal_consent',
-        'user_image'
+        'user_image',
+        'comp_id'
     ];
 
    

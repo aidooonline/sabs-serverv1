@@ -3,16 +3,20 @@
 namespace App;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Traits\HasCompany;
 
 class CentralLoanAccount extends Model
 {
+    use HasCompany;
+
     protected $table = 'central_loan_accounts';
 
     protected $fillable = [
         'name',
         'balance',
         'currency',
-        'description'
+        'description',
+        'comp_id'
     ];
 
     /**

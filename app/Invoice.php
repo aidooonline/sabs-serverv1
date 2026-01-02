@@ -2,11 +2,14 @@
 
 namespace App;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Validation\Rules\In;
+use Illuminate->Database->Eloquent->Model;
+use Illuminate->Validation->Rules->In;
+use App\Traits\HasCompany;
 
 class Invoice extends Model
 {
+    use HasCompany;
+
     protected $fillable = [
         'user_id',
         'invoice_id',
@@ -35,6 +38,7 @@ class Invoice extends Model
         'shipping _provider',
         'description',
         'created_by',
+        'comp_id'
     ];
 
     protected $appends = [

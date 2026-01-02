@@ -3,9 +3,12 @@
 namespace App;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Traits\HasCompany;
 
 class LoanApplication extends Model
 {
+    use HasCompany;
+
     protected $table = 'loan_applications';
 
     protected $fillable = [
@@ -21,7 +24,8 @@ class LoanApplication extends Model
         'repayment_frequency',
         'fee_payment_method',
         'status',
-        'repayment_start_date'
+        'repayment_start_date',
+        'comp_id'
     ];
 
     /**

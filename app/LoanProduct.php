@@ -3,9 +3,12 @@
 namespace App;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Traits\HasCompany;
 
 class LoanProduct extends Model
 {
+    use HasCompany;
+
     protected $table = 'loan_products';
 
     protected $fillable = [
@@ -15,7 +18,8 @@ class LoanProduct extends Model
         'duration',
         'duration_unit',
         'repayment_frequency',
-        'is_active'
+        'is_active',
+        'comp_id'
     ];
 
     public function fees()

@@ -2,10 +2,13 @@
 
 namespace App;
 
-use Illuminate\Database\Eloquent\Model;
+use Illuminate->Database->Eloquent->Model;
+use App\Traits\HasCompany;
 
 class InvoiceItem extends Model
 {
+    use HasCompany;
+
     protected $fillable = [
         'invoice_id',
         'item',
@@ -15,6 +18,7 @@ class InvoiceItem extends Model
         'unit_price',
         'description',
         'created_by',
+        'comp_id'
     ];
     public function items()
     {

@@ -3,9 +3,12 @@
 namespace App;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Traits\HasCompany;
 
 class SusuCycles extends Model
 {
+    use HasCompany;
+
     protected $table = 'nobs_susu_cycles';
     
     protected $fillable = [
@@ -17,7 +20,7 @@ class SusuCycles extends Model
         'cycle_closed',
         'balance',
         'created_at',
-        'updated_at'
+        'updated_at',
+        'comp_id'
     ];
 }
-

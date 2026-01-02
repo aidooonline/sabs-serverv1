@@ -3,9 +3,12 @@
 namespace App;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Traits\HasCompany;
 
 class CapitalAccount extends Model
 {
+    use HasCompany;
+
     protected $table = 'capital_accounts';
 
     protected $fillable = [
@@ -15,7 +18,8 @@ class CapitalAccount extends Model
         'balance',
         'description',
         'created_by',
-        'is_active'
+        'is_active',
+        'comp_id'
     ];
 
     /**

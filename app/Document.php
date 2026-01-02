@@ -3,9 +3,12 @@
 namespace App;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Traits\HasCompany;
 
 class Document extends Model
 {
+    use HasCompany;
+
     protected     $fillable = [
         'user_id',
         'name',
@@ -16,6 +19,7 @@ class Document extends Model
         'expiration_date',
         'description',
         'attachments',
+        'comp_id'
     ];
     public static $status = [
         'Active',
