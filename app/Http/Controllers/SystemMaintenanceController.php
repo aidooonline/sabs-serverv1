@@ -86,4 +86,67 @@ class SystemMaintenanceController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Fix accounts with negative balances by creating balancing deposits.
+     */
+    public function fixNegativeBalances(Request $request)
+    {
+        if (!auth()->user()->hasRole('Owner')) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        try {
+            $compId = auth()->user()->comp_id;
+            $negativeAccounts = DB::table('nobs_user_account_numbers')
+                ->where('comp_id', $compId)
+                ->where('balance', '<', 0)
+                ->get();
+
+            $count = 0;
+            foreach ($negativeAccounts as $account) {
+                $adjustmentAmount = abs($account->balance);
+                
+                // Create balancing transaction
+                DB::table('nobs_transactions')->insert([
+                    '__id__' => \Str::random(30),
+                    'account_number' => $account->account_number,
+                    'account_type' => $account->account_type,
+                    'amount' => $adjustmentAmount,
+                    'name_of_transaction' => 'Admin Adjustment',
+                    'det_rep_name_of_transaction' => 'System Correction',
+                    'agentname' => 'System',
+                    'users' => 'admin',
+                    'is_shown' => 1,
+                    'row_version' => 2,
+                    'comp_id' => $compId,
+                    'transaction_id' => \Str::random(8),
+                    'created_at' => now(),
+                    'balance' => 0.00,
+                    'description' => 'System-generated deposit to correct negative balance.'
+                ]);
+
+                // Update the account balance
+                DB::table('nobs_user_account_numbers')
+                    ->where('id', $account->id)
+                    ->update([
+                        'balance' => 0.00,
+                        'last_transaction_date' => now()
+                    ]);
+                
+                $count++;
+            }
+
+            return response()->json([
+                'success' => true, 
+                'message' => "Successfully corrected $count accounts with negative balances."
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Correction failed: ' . $e->getMessage()
+            ], 500);
+        }
+    }
 }
