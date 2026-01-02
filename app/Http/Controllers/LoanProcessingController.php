@@ -82,25 +82,42 @@ class LoanProcessingController extends Controller
         if ($request->hasFile('file')) {
             $file = $request->file('file');
             
-            // Random unique filename to prevent collisions and mimic legacy safety
-            $filename = 'loan_doc_' . bin2hex(random_bytes(8)) . '_' . time() . '.jpg';
+            // Generate unique base name
+            $baseName = 'loan_doc_' . bin2hex(random_bytes(8)) . '_' . time();
+            $originalName = $baseName . '_original.jpg';
+            $thumbName = $baseName . '_thumb.jpg';
             
-            // Path: We go up from Laravel root to reach sibling folder 'nobsimages3'
             $destinationPath = base_path('../nobsimages3/images/user_avatar');
             
-            // Ensure directory exists (WAMP or Linux)
             if (!file_exists($destinationPath)) {
                 mkdir($destinationPath, 0755, true);
             }
 
-            // Move file to the legacy storage location
-            $file->move($destinationPath, $filename);
-            
-            // Construct the public URL matching the legacy structure
-            // Using the base domain provided in your legacy example/app constants
-            $fullUrl = "https://banqpopulaire.website/nobsimages3/images/user_avatar/" . $filename;
+            // 1. Save Original File
+            $file->move($destinationPath, $originalName);
+            $originalFullPath = $destinationPath . '/' . $originalName;
 
-            $req->file_path = $fullUrl;
+            // 2. Generate Compressed Thumbnail (PHP GD)
+            try {
+                // Load the original image
+                $sourceImage = imagecreatefromjpeg($originalFullPath);
+                if ($sourceImage) {
+                    // Save with low quality (30) for fast app viewing
+                    imagejpeg($sourceImage, $destinationPath . '/' . $thumbName, 30);
+                    imagedestroy($sourceImage);
+                } else {
+                    // Fallback if GD fails: just copy the file
+                    copy($originalFullPath, $destinationPath . '/' . $thumbName);
+                }
+            } catch (\Exception $e) {
+                // Fallback if anything goes wrong during compression
+                copy($originalFullPath, $destinationPath . '/' . $thumbName);
+            }
+            
+            $basePublicUrl = "https://banqpopulaire.website/nobsimages3/images/user_avatar/";
+            
+            $req->file_path = $basePublicUrl . $thumbName; // Thumbnail for view
+            $req->file_path_original = $basePublicUrl . $originalName; // Original for download
             $req->is_met = 1;
             $req->save();
 
@@ -109,7 +126,8 @@ class LoanProcessingController extends Controller
             return response()->json([
                 'success' => true, 
                 'message' => 'File uploaded successfully', 
-                'file_path' => $fullUrl,
+                'file_path' => $req->file_path,
+                'file_path_original' => $req->file_path_original,
                 'new_score' => $score
             ]);
         }
