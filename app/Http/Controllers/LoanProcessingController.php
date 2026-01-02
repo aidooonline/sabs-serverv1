@@ -67,9 +67,7 @@ class LoanProcessingController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'loan_application_id' => 'required',
-            'requirement_id' => 'required', // This is the ID of the LoanApplicationRequirement (pivot), or the Master ID?
-            // Let's assume it's the pivot ID for simplicity, or we look it up.
-            // Frontend usually iterates the list of LoanApplicationRequirements.
+            'requirement_id' => 'required',
             'file' => 'required|file|max:10240', // 10MB max
         ]);
 
@@ -78,22 +76,41 @@ class LoanProcessingController extends Controller
         }
 
         // Find the specific requirement record
-        // The frontend sends the `id` of the LoanApplicationRequirement
         $req = LoanApplicationRequirement::find($request->requirement_id);
         if (!$req) return response()->json(['success' => false, 'message' => 'Requirement record not found'], 404);
 
         if ($request->hasFile('file')) {
             $file = $request->file('file');
-            $filename = time() . '_' . $file->getClientOriginalName();
-            // Store in a public folder
-            $path = $file->storeAs('public/loans/' . $request->loan_application_id, $filename);
             
-            // Generate URL (adjust based on server config)
-            // Assuming 'storage' is linked. If not, this might need adjustment.
-            // For now, returning the relative path or full URL.
-            $url = asset('storage/loans/' . $request->loan_application_id . '/' . $filename);
+            // Generate unique filename
+            $extension = $file->getClientOriginalExtension();
+            if (!$extension) $extension = 'jpg';
+            
+            $filename = 'loan_' . $request->loan_application_id . '_req_' . $request->requirement_id . '_' . time() . '.' . $extension;
+            
+            // Define target directory in public folder
+            $destinationPath = public_path('images/loan_docs');
+            
+            // Ensure directory exists
+            if (!file_exists($destinationPath)) {
+                mkdir($destinationPath, 0755, true);
+            }
 
-            $req->file_path = $url; // Or $path
+            // Move file
+            $file->move($destinationPath, $filename);
+            
+            // Construct Public URL
+            // Assuming the app is hosted at the root or we use url() helper
+            // We'll use the current request root to build the full URL
+            $baseUrl = $request->root();
+            // Clean up the URL if it ends with /api (since public images are usually at root/images)
+            $baseUrl = str_replace('/api', '', $baseUrl);
+            // Also handle if the script is in a subdirectory (like /sabsv3-test)
+            // The safest bet is often just url('/') in Laravel if configured correctly, but let's be explicit
+            
+            $fullUrl = $baseUrl . '/images/loan_docs/' . $filename;
+
+            $req->file_path = $fullUrl;
             $req->is_met = 1;
             $req->save();
 
@@ -102,7 +119,7 @@ class LoanProcessingController extends Controller
             return response()->json([
                 'success' => true, 
                 'message' => 'File uploaded successfully', 
-                'file_path' => $url,
+                'file_path' => $fullUrl,
                 'new_score' => $score
             ]);
         }
@@ -133,10 +150,10 @@ class LoanProcessingController extends Controller
         $loan = LoanApplication::find($id);
         if (!$loan) return response()->json(['success' => false, 'message' => 'Loan not found'], 404);
 
-        if ($loan->status !== 'pending' && $loan->status !== 'awaiting_approval') {
-            return response()->json(['success' => false, 'message' => 'Loan is not in a state to be submitted.'], 400);
-        }
-
+        // REMOVED RESTRICTION: Allow submission from any state (except maybe deleted)
+        // But logic implies moving TO pending_approval.
+        // We will just execute the status change.
+        
         $loan->status = 'pending_approval';
         $loan->save();
 
