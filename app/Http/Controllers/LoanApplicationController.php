@@ -16,7 +16,20 @@ class LoanApplicationController extends Controller
      */
     public function index(Request $request)
     {
+        $user = Auth::user();
+        if (!$user) return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+
         $query = LoanApplication::with(['loan_product', 'customer']);
+
+        // Role-based filtering (Agent Privacy)
+        $managerRoles = ['Admin', 'Manager', 'super admin', 'Owner'];
+        if (!$user->hasRole($managerRoles) && !in_array($user->type, $managerRoles)) {
+            // Agent sees loans assigned to them OR created by them
+            $query->where(function($q) use ($user) {
+                $q->where('assigned_to_user_id', $user->id)
+                  ->orWhere('created_by_user_id', $user->id);
+            });
+        }
 
         if ($request->has('status')) {
             $status = $request->status;
@@ -310,9 +323,12 @@ class LoanApplicationController extends Controller
             $managerRoles = ['Admin', 'Manager', 'super admin', 'Owner'];
 
             // Role-based filtering
-            if (!$user->hasRole($managerRoles)) {
-                 // If user is not a manager, assume they are an agent and show only their loans
-                $query->where('assigned_to_user_id', $user->id);
+            if (!$user->hasRole($managerRoles) && !in_array($user->type, $managerRoles)) {
+                 // If user is not a manager, assume they are an agent and show only their loans (assigned OR created)
+                $query->where(function($q) use ($user) {
+                    $q->where('assigned_to_user_id', $user->id)
+                      ->orWhere('created_by_user_id', $user->id);
+                });
             }
             
             // Search functionality for all roles
