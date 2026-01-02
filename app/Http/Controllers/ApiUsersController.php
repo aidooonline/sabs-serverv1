@@ -694,13 +694,10 @@ class ApiUsersController extends Controller
 
 
             $totalAmount = DB::table('nobs_transactions')
-                ->select('users', 'agentname', 'id', DB::raw('SUM(amount) as total_amount'))
                 ->where('name_of_transaction', 'Deposit')
                 ->where('comp_id', \Auth::user()->comp_id)
                 ->whereDate('created_at', $today)
-                ->groupBy('users')
-                ->get()
-                ->sum('total_amount');
+                ->sum('amount');
 
             return response()->json(['byagents' =>  $byagents, 'byproducts' =>  $byproducts, 'totalamount' => $totalAmount]);
         } else if (\Auth::user()->type == 'Agents') {
@@ -729,14 +726,11 @@ class ApiUsersController extends Controller
                 ->paginate(100);
 
             $totalAmount = DB::table('nobs_transactions')
-                ->select('users', 'agentname', 'id', DB::raw('SUM(amount) as total_amount'))
                 ->where('name_of_transaction', 'Deposit')
                 ->where('comp_id', \Auth::user()->comp_id)
                 ->where('users', \Auth::user()->created_by_user)
                 ->whereDate('created_at', $today)
-                ->groupBy('users')
-                ->get()
-                ->sum('total_amount');
+                ->sum('amount');
 
             return response()->json(['byagents' => $byagents, 'byproducts' => $byproducts, 'totalamount' => $totalAmount]);
         }
@@ -772,13 +766,10 @@ class ApiUsersController extends Controller
 
 
             $totalAmount = DB::table('nobs_transactions')
-                ->select('users', 'agentname', 'id', DB::raw('SUM(amount) as total_amount'))
                 ->where('name_of_transaction', 'Withdraw')
                 ->where('comp_id', \Auth::user()->comp_id)
                 ->whereDate('created_at', $today)
-                ->groupBy('users')
-                ->get()
-                ->sum('total_amount');
+                ->sum('amount');
 
             return response()->json(['byagents' =>  $byagents, 'byproducts' =>  $byproducts, 'totalamount' => $totalAmount]);
         } else if (\Auth::user()->type == 'Agents') {
@@ -807,14 +798,11 @@ class ApiUsersController extends Controller
                 ->paginate(100);
 
             $totalAmount = DB::table('nobs_transactions')
-                ->select('users', 'agentname', 'id', DB::raw('SUM(amount) as total_amount'))
                 ->where('name_of_transaction', 'Withdraw')
                 ->where('comp_id', \Auth::user()->comp_id)
                 ->where('users', \Auth::user()->created_by_user)
                 ->whereDate('created_at', $today)
-                ->groupBy('users')
-                ->get()
-                ->sum('total_amount');
+                ->sum('amount');
 
             return response()->json(['byagents' => $byagents, 'byproducts' => $byproducts, 'totalamount' => $totalAmount]);
         }
@@ -845,13 +833,10 @@ class ApiUsersController extends Controller
                 ->paginate(100);
 
             $totalAmount = DB::table('nobs_transactions')
-                ->select('users', 'agentname', 'id', DB::raw('SUM(amount) as total_amount'))
                 ->where('name_of_transaction', 'Loan Repayment')
                 ->where('comp_id', \Auth::user()->comp_id)
                 ->whereDate('created_at', $today)
-                ->groupBy('users')
-                ->get()
-                ->sum('total_amount');
+                ->sum('amount');
 
             return response()->json(['byagents' =>  $byagents, 'byproducts' =>  $byproducts, 'totalamount' => $totalAmount]);
         } else if (\Auth::user()->type == 'Agents') {
@@ -878,14 +863,11 @@ class ApiUsersController extends Controller
                 ->paginate(100);
 
             $totalAmount = DB::table('nobs_transactions')
-                ->select('users', 'agentname', 'id', DB::raw('SUM(amount) as total_amount'))
                 ->where('name_of_transaction', 'Loan Repayment')
                 ->where('comp_id', \Auth::user()->comp_id)
                 ->where('users', \Auth::user()->created_by_user)
                 ->whereDate('created_at', $today)
-                ->groupBy('users')
-                ->get()
-                ->sum('total_amount');
+                ->sum('amount');
 
             return response()->json(['byagents' => $byagents, 'byproducts' => $byproducts, 'totalamount' => $totalAmount]);
         }
