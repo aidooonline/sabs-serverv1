@@ -99,6 +99,12 @@ Route::middleware(['auth:api'])->group(function () {
         Route::get('loan-dashboard-metrics', [App\Http\Controllers\LoanReportController::class, 'getLoanDashboardMetrics']);
         Route::get('loan-dashboard/history', [App\Http\Controllers\LoanReportController::class, 'getDashboardTransactionHistory']); // New route for dashboard metric history
         Route::get('defaulted-loans', [App\Http\Controllers\LoanReportController::class, 'getActualDefaultedLoans']); // New route for defaulted loans
+        
+        // System Health & Financial Reports (Sprint 9)
+        Route::get('executive-summary', [App\Http\Controllers\SystemReportController::class, 'getExecutiveSummary']);
+        Route::get('dormancy-stats', [App\Http\Controllers\SystemReportController::class, 'getDormancyStats']);
+        Route::get('integrity-check', [App\Http\Controllers\SystemReportController::class, 'getIntegrityReport']);
+        Route::get('top-customers', [App\Http\Controllers\SystemReportController::class, 'getTopCustomers']);
     });
     // -------------------------------
 
