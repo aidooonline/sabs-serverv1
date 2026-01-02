@@ -100,6 +100,14 @@ class SchedulerController extends Controller
                 }
             });
 
+            // 5. Dual Storage Support (Sprint 8.3)
+            $reqTable = 'loan_application_requirements';
+            if (Schema::hasTable($reqTable) && !Schema::hasColumn($reqTable, 'file_path_original')) {
+                Schema::table($reqTable, function (Blueprint $table) {
+                    $table->text('file_path_original')->nullable()->after('file_path');
+                });
+            }
+
             return response()->json(['success' => true, 'message' => 'System performance optimizations applied successfully.']);
         } catch (\Exception $e) {
             return response()->json([
