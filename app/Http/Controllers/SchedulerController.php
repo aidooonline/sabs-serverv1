@@ -25,7 +25,7 @@ class SchedulerController extends Controller
      */
     public function setup()
     {
-        $user = auth()->user();
+        $user = auth('api')->user();
         if (!$this->checkPermission()) {
             $type = $user ? $user->type : 'Guest';
             return response()->json(['success' => false, 'message' => "Unauthorized (User Type: $type)"], 403);
@@ -118,7 +118,7 @@ class SchedulerController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
-        $company = CompanyInfo::find(auth()->user()->comp_id);
+        $company = CompanyInfo::find(auth('api')->user()->comp_id);
         
         $lastRun = $company->loan_cron_last_run;
         $isRunToday = $lastRun ? Carbon::parse($lastRun)->isToday() : false;
@@ -143,7 +143,7 @@ class SchedulerController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
-        $companyId = auth()->user()->comp_id;
+        $companyId = auth('api')->user()->comp_id;
         $company = CompanyInfo::find($companyId);
         
         // If auto-triggered (not forced), check if already ran today
@@ -174,7 +174,7 @@ class SchedulerController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
-        $company = CompanyInfo::find(auth()->user()->comp_id);
+        $company = CompanyInfo::find(auth('api')->user()->comp_id);
         $company->loan_cron_enabled = $request->input('enabled');
         $company->save();
 
@@ -183,7 +183,7 @@ class SchedulerController extends Controller
 
     private function checkPermission()
     {
-        $user = auth()->user();
+        $user = auth('api')->user();
         if (!$user) {
             return false;
         }
