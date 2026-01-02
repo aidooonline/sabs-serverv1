@@ -223,6 +223,12 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::get('insertcompanyinfo', [ApiUsersController::class, 'insertcompanyinfo']);
 Route::get('mymtn', [ApiUsersController::class, 'mymtn']);
 
-// Scheduler Endpoint for Cron Jobs (Secured by custom middleware)
-Route::get('/schedule/run-loan-cron', [App\Http\Controllers\SchedulerController::class, 'triggerLoanCron'])->middleware('cron.secret');
+    // --- SCHEDULER (SOFT CRON) ---
+    Route::group(['prefix' => 'scheduler'], function () {
+        Route::post('setup', [App\Http\Controllers\SchedulerController::class, 'setup']);
+        Route::get('status', [App\Http\Controllers\SchedulerController::class, 'status']);
+        Route::post('trigger', [App\Http\Controllers\SchedulerController::class, 'trigger']);
+        Route::post('settings', [App\Http\Controllers\SchedulerController::class, 'updateSettings']);
+    });
+    // -----------------------------
 

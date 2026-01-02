@@ -184,27 +184,39 @@ class LoanReportController extends Controller
     public function getDashboardTransactionHistory(Request $request)
     {
         $metric = $request->query('metric');
+        $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date')) : null;
+        $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date')) : null;
+        
         $data = [];
 
         switch ($metric) {
             case 'disbursed':
-                $data = LoanApplication::with('customer:id,name')
-                    ->whereIn('status', ['active', 'repaid', 'defaulted'])
-                    ->orderBy('updated_at', 'desc')
+                // Align with metric: uses repayment_start_date
+                $query = LoanApplication::with('customer')
+                    ->whereIn('status', ['active', 'repaid', 'defaulted', 'disbursed']);
+
+                if ($startDate) $query->whereDate('repayment_start_date', '>=', $startDate);
+                if ($endDate) $query->whereDate('repayment_start_date', '<=', $endDate);
+
+                $data = $query->orderBy('repayment_start_date', 'desc')
                     ->get()
                     ->map(function ($loan) {
                         return [
                             'id' => $loan->id,
                             'customer' => $loan->customer,
                             'amount' => $loan->amount,
-                            'date' => $loan->updated_at,
+                            'date' => $loan->repayment_start_date, // Display disbursement date
                         ];
                     });
                 break;
 
             case 'repaid':
-                $data = LoanRepayment::with('loanApplication.customer:id,name')
-                    ->orderBy('created_at', 'desc')
+                $query = LoanRepayment::with('loanApplication.customer');
+
+                if ($startDate) $query->whereDate('created_at', '>=', $startDate);
+                if ($endDate) $query->whereDate('created_at', '<=', $endDate);
+
+                $data = $query->orderBy('created_at', 'desc')
                     ->get()
                     ->map(function ($repayment) {
                         return [
@@ -217,9 +229,13 @@ class LoanReportController extends Controller
                 break;
 
             case 'interest':
-                $data = LoanRepayment::with('loanApplication.customer:id,name')
-                    ->where('interest_amount_paid', '>', 0)
-                    ->orderBy('created_at', 'desc')
+                $query = LoanRepayment::with('loanApplication.customer')
+                    ->where('interest_amount_paid', '>', 0);
+
+                if ($startDate) $query->whereDate('created_at', '>=', $startDate);
+                if ($endDate) $query->whereDate('created_at', '<=', $endDate);
+
+                $data = $query->orderBy('created_at', 'desc')
                     ->get()
                     ->map(function ($repayment) {
                         return [
@@ -232,9 +248,13 @@ class LoanReportController extends Controller
                 break;
 
             case 'charges':
-                 $data = LoanRepayment::with('loanApplication.customer:id,name')
-                    ->where('fees_amount_paid', '>', 0)
-                    ->orderBy('created_at', 'desc')
+                $query = LoanRepayment::with('loanApplication.customer')
+                    ->where('fees_amount_paid', '>', 0);
+
+                if ($startDate) $query->whereDate('created_at', '>=', $startDate);
+                if ($endDate) $query->whereDate('created_at', '<=', $endDate);
+
+                $data = $query->orderBy('created_at', 'desc')
                     ->get()
                     ->map(function ($repayment) {
                         return [
@@ -246,16 +266,52 @@ class LoanReportController extends Controller
                     });
                 break;
 
-            case 'defaulted':
-                $data = LoanApplication::with('customer:id,name')
-                    ->where('status', 'defaulted')
-                    ->orderBy('updated_at', 'desc')
+            case 'outstanding':
+                // All active loans (filtered by start date if provided, though usually Outstanding is a snapshot)
+                // If dates are provided, we show loans disbursed in that range that are still active
+                $query = LoanApplication::with('customer')
+                    ->whereIn('status', ['active', 'defaulted']);
+
+                if ($startDate) $query->whereDate('repayment_start_date', '>=', $startDate);
+                if ($endDate) $query->whereDate('repayment_start_date', '<=', $endDate);
+
+                $data = $query->orderBy('updated_at', 'desc')
                     ->get()
                     ->map(function ($loan) {
                         return [
                             'id' => $loan->id,
                             'customer' => $loan->customer,
-                            'amount' => $loan->getOutstandingBalanceAttribute(), // Use the accessor
+                            'amount' => $loan->outstanding_balance, // Accessor
+                            'date' => $loan->repayment_start_date,
+                        ];
+                    });
+                break;
+
+            case 'defaulted':
+                // Align with metric: Active loans with OVERDUE schedules
+                // Or loans explicitly marked as 'defaulted'
+                $query = LoanApplication::with('customer')
+                    ->where(function($q) {
+                        $q->where('status', 'defaulted')
+                          ->orWhere(function($subQ) {
+                              $subQ->where('status', 'active')
+                                   ->whereHas('repaymentSchedules', function ($schedQ) {
+                                       $schedQ->where('due_date', '<', Carbon::now())
+                                              ->where('status', 'pending');
+                                   });
+                          });
+                    });
+
+                if ($startDate) $query->whereDate('repayment_start_date', '>=', $startDate);
+                if ($endDate) $query->whereDate('repayment_start_date', '<=', $endDate);
+
+                $data = $query->orderBy('updated_at', 'desc')
+                    ->get()
+                    ->map(function ($loan) {
+                        return [
+                            'id' => $loan->id,
+                            'customer' => $loan->customer,
+                            'amount' => $loan->outstanding_balance,
                             'date' => $loan->updated_at,
                         ];
                     });

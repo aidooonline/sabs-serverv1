@@ -3,41 +3,136 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use App\LoanCronService;
-use Illuminate\Support\Facades\Log; // For logging
+use App\Services\LoanCronService;
+use App\CompanyInfo;
+use Carbon\Carbon;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 
 class SchedulerController extends Controller
 {
-    /**
-     * Trigger the LoanCronService to run scheduled tasks.
-     * This endpoint should be secured externally (e.g., IP whitelist, secret key).
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\JsonResponse
-     */
-    public function triggerLoanCron(Request $request)
-    {
-        // For security, you should implement a check here.
-        // Example: check for a secret key in the request header or query parameter,
-        // or ensure the request comes from a whitelisted IP address.
-        // For this task, we'll assume a basic check, but advise the user for stronger security.
+    protected $cronService;
 
-        $secretKey = env('LOAN_CRON_SECRET_KEY');
-        if (!$secretKey || $request->header('X-Cron-Secret') !== $secretKey) {
-            // Log an attempt of unauthorized access
-            Log::warning('Unauthorized access attempt to triggerLoanCron endpoint.', ['ip' => $request->ip()]);
-            return response()->json(['success' => false, 'message' => 'Unauthorized access'], 401);
+    public function __construct(LoanCronService $cronService)
+    {
+        $this->cronService = $cronService;
+    }
+
+    /**
+     * One-time setup to add necessary columns to the company_info (accounts) table.
+     * Workaround for missing CLI access.
+     */
+    public function setup()
+    {
+        if (!$this->checkPermission()) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
         try {
-            $loanCronService = new LoanCronService();
-            $loanCronService->runScheduledTasks();
+            $tableName = 'accounts'; // CompanyInfo uses this table
 
-            Log::info('LoanCronService triggered successfully via API endpoint.');
-            return response()->json(['success' => true, 'message' => 'Loan scheduled tasks triggered successfully.']);
-        } catch (\Throwable $e) {
-            Log::error('Error triggering LoanCronService via API endpoint: ' . $e->getMessage(), ['exception' => $e]);
-            return response()->json(['success' => false, 'message' => 'Error triggering scheduled tasks.', 'error' => $e->getMessage()], 500);
+            if (!Schema::hasColumn($tableName, 'loan_cron_last_run')) {
+                Schema::table($tableName, function (Blueprint $table) {
+                    $table->dateTime('loan_cron_last_run')->nullable();
+                    $table->text('loan_cron_settings')->nullable(); // For future config
+                    $table->boolean('loan_cron_enabled')->default(0);
+                });
+                return response()->json(['success' => true, 'message' => 'Scheduler columns added successfully.']);
+            }
+
+            return response()->json(['success' => true, 'message' => 'Setup already completed.']);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
+    }
+
+    /**
+     * Get current scheduler status.
+     */
+    public function status()
+    {
+        if (!$this->checkPermission()) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        $company = CompanyInfo::find(auth()->user()->comp_id);
+        
+        $lastRun = $company->loan_cron_last_run;
+        $isRunToday = $lastRun ? Carbon::parse($lastRun)->isToday() : false;
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'enabled' => (bool)$company->loan_cron_enabled,
+                'last_run' => $lastRun,
+                'is_up_to_date' => $isRunToday,
+                'server_time' => now()->toDateTimeString()
+            ]
+        ]);
+    }
+
+    /**
+     * Trigger the daily process manually or via "Soft Cron".
+     */
+    public function trigger(Request $request)
+    {
+        if (!$this->checkPermission()) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        $companyId = auth()->user()->comp_id;
+        $company = CompanyInfo::find($companyId);
+        
+        // If auto-triggered (not forced), check if already ran today
+        if (!$request->input('force')) {
+            if ($company->loan_cron_last_run && Carbon::parse($company->loan_cron_last_run)->isToday()) {
+                return response()->json(['success' => true, 'message' => 'Already ran today.', 'skipped' => true]);
+            }
+        }
+
+        // Execute Service
+        $result = $this->cronService->runDailyProcess($companyId);
+
+        if ($result['success']) {
+            // Update last run date
+            $company->loan_cron_last_run = now();
+            $company->save();
+        }
+
+        return response()->json($result);
+    }
+
+    /**
+     * Update Scheduler Settings (Enable/Disable).
+     */
+    public function updateSettings(Request $request)
+    {
+        if (!$this->checkPermission()) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        $company = CompanyInfo::find(auth()->user()->comp_id);
+        $company->loan_cron_enabled = $request->input('enabled');
+        $company->save();
+
+        return response()->json(['success' => true, 'message' => 'Settings updated.']);
+    }
+
+    private function checkPermission()
+    {
+        $user = auth()->user();
+        // Allow Admin, Owner, Super Admin, Manager.
+        // Deny Agent.
+        
+        // Check if user is explicitly an Agent type
+        if (in_array($user->type, ['Agent', 'Agents', 'agent'])) {
+            return false;
+        }
+
+        // Allow if role matches
+        // Note: Project uses both 'type' string and Spatie roles. 
+        // Logic: If NOT agent, proceed.
+        return true;
     }
 }
