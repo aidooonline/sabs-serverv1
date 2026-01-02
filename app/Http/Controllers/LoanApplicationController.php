@@ -294,7 +294,7 @@ class LoanApplicationController extends Controller
      */
     public function show(Request $request, $id)
     {
-        $application = LoanApplication::with(['loan_product', 'customer'])->find($id);
+        $application = LoanApplication::with(['loan_product', 'customer', 'requirements.requirement'])->find($id);
 
         if (!$application) {
             return response()->json(['success' => false, 'message' => 'Loan application not found'], 404);

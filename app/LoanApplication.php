@@ -43,6 +43,14 @@ class LoanApplication extends Model
     }
 
     /**
+     * Get the requirements (documents) for the loan application.
+     */
+    public function requirements()
+    {
+        return $this->hasMany(LoanApplicationRequirement::class, 'loan_application_id');
+    }
+
+    /**
      * Get the repayment schedules for the loan application.
      */
     public function repaymentSchedules()
