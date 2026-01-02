@@ -99,19 +99,24 @@ class LoanProcessingController extends Controller
 
             // 2. Generate Compressed Thumbnail (PHP GD)
             try {
-                // Load the original image
-                $sourceImage = imagecreatefromjpeg($originalFullPath);
-                if ($sourceImage) {
-                    // Save with low quality (30) for fast app viewing
-                    imagejpeg($sourceImage, $destinationPath . '/' . $thumbName, 30);
-                    imagedestroy($sourceImage);
+                // Safety check: Does GD library exist?
+                if (function_exists('imagecreatefromjpeg')) {
+                    $sourceImage = @imagecreatefromjpeg($originalFullPath);
+                    if ($sourceImage) {
+                        // Save with low quality (30) for fast app viewing
+                        imagejpeg($sourceImage, $destinationPath . '/' . $thumbName, 30);
+                        imagedestroy($sourceImage);
+                    } else {
+                        // Fallback if image loading fails: just copy the file
+                        @copy($originalFullPath, $destinationPath . '/' . $thumbName);
+                    }
                 } else {
-                    // Fallback if GD fails: just copy the file
-                    copy($originalFullPath, $destinationPath . '/' . $thumbName);
+                    // Fallback if GD is missing: just copy the file
+                    @copy($originalFullPath, $destinationPath . '/' . $thumbName);
                 }
             } catch (\Exception $e) {
                 // Fallback if anything goes wrong during compression
-                copy($originalFullPath, $destinationPath . '/' . $thumbName);
+                @copy($originalFullPath, $destinationPath . '/' . $thumbName);
             }
             
             $basePublicUrl = "https://banqpopulaire.website/nobsimages3/images/user_avatar/";
