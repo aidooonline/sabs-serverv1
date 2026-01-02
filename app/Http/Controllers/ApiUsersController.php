@@ -1,4 +1,5 @@
-public function reactivateAccount(Request $request)
+
+    public function reactivateAccount(Request $request)
     {
         if (!$this->isManagement()) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
