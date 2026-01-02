@@ -100,7 +100,10 @@ class SchedulerController extends Controller
 
             return response()->json(['success' => true, 'message' => 'System performance optimizations applied successfully.']);
         } catch (\Exception $e) {
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+            return response()->json([
+                'success' => false, 
+                'message' => 'Setup Failed: ' . $e->getMessage() . ' on Line ' . $e->getLine()
+            ], 500);
         }
     }
 
