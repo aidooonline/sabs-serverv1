@@ -32,16 +32,41 @@ class SchedulerController extends Controller
         try {
             $tableName = 'accounts'; // CompanyInfo uses this table
 
+            // 1. Add Scheduler columns to accounts table
             if (!Schema::hasColumn($tableName, 'loan_cron_last_run')) {
                 Schema::table($tableName, function (Blueprint $table) {
                     $table->dateTime('loan_cron_last_run')->nullable();
-                    $table->text('loan_cron_settings')->nullable(); // For future config
+                    $table->text('loan_cron_settings')->nullable();
                     $table->boolean('loan_cron_enabled')->default(0);
                 });
-                return response()->json(['success' => true, 'message' => 'Scheduler columns added successfully.']);
             }
 
-            return response()->json(['success' => true, 'message' => 'Setup already completed.']);
+            // 2. Add Indexes for Performance (Sprint 5 Optimization)
+            Schema::table('loan_applications', function (Blueprint $table) {
+                $sm = Schema::getConnection()->getDoctrineSchemaManager();
+                $indexes = $sm->listTableIndexes('loan_applications');
+                
+                if (!array_key_exists('idx_loan_app_status', $indexes)) {
+                    $table->index('status', 'idx_loan_app_status');
+                }
+                if (!array_key_exists('idx_loan_app_start_date', $indexes)) {
+                    $table->index('repayment_start_date', 'idx_loan_app_start_date');
+                }
+            });
+
+            Schema::table('loan_repayment_schedules', function (Blueprint $table) {
+                $sm = Schema::getConnection()->getDoctrineSchemaManager();
+                $indexes = $sm->listTableIndexes('loan_repayment_schedules');
+
+                if (!array_key_exists('idx_loan_sched_status', $indexes)) {
+                    $table->index('status', 'idx_loan_sched_status');
+                }
+                if (!array_key_exists('idx_loan_sched_due_date', $indexes)) {
+                    $table->index('due_date', 'idx_loan_sched_due_date');
+                }
+            });
+
+            return response()->json(['success' => true, 'message' => 'Scheduler columns and performance indexes added successfully.']);
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
