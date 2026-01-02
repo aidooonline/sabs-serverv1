@@ -82,33 +82,23 @@ class LoanProcessingController extends Controller
         if ($request->hasFile('file')) {
             $file = $request->file('file');
             
-            // Generate unique filename
-            $extension = $file->getClientOriginalExtension();
-            if (!$extension) $extension = 'jpg';
+            // Random unique filename to prevent collisions and mimic legacy safety
+            $filename = 'loan_doc_' . bin2hex(random_bytes(8)) . '_' . time() . '.jpg';
             
-            $filename = 'loan_' . $request->loan_application_id . '_req_' . $request->requirement_id . '_' . time() . '.' . $extension;
+            // Path: We go up from Laravel root to reach sibling folder 'nobsimages3'
+            $destinationPath = base_path('../nobsimages3/images/user_avatar');
             
-            // Define target directory in public folder
-            $destinationPath = public_path('images/loan_docs');
-            
-            // Ensure directory exists
+            // Ensure directory exists (WAMP or Linux)
             if (!file_exists($destinationPath)) {
                 mkdir($destinationPath, 0755, true);
             }
 
-            // Move file
+            // Move file to the legacy storage location
             $file->move($destinationPath, $filename);
             
-            // Construct Public URL
-            // Assuming the app is hosted at the root or we use url() helper
-            // We'll use the current request root to build the full URL
-            $baseUrl = $request->root();
-            // Clean up the URL if it ends with /api (since public images are usually at root/images)
-            $baseUrl = str_replace('/api', '', $baseUrl);
-            // Also handle if the script is in a subdirectory (like /sabsv3-test)
-            // The safest bet is often just url('/') in Laravel if configured correctly, but let's be explicit
-            
-            $fullUrl = $baseUrl . '/images/loan_docs/' . $filename;
+            // Construct the public URL matching the legacy structure
+            // Using the base domain provided in your legacy example/app constants
+            $fullUrl = "https://banqpopulaire.website/nobsimages3/images/user_avatar/" . $filename;
 
             $req->file_path = $fullUrl;
             $req->is_met = 1;
