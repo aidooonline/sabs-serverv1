@@ -127,7 +127,249 @@ class SchedulerController extends Controller
                 });
             }
 
-            return response()->json(['success' => true, 'message' => 'System performance optimizations applied successfully.']);
+            // 7. Company Isolation for Loans (Bug Fix Sprint 9)
+            $loanAppTable = 'loan_applications';
+            if (Schema::hasTable($loanAppTable) && !Schema::hasColumn($loanAppTable, 'comp_id')) {
+                Schema::table($loanAppTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_loan_comp_id');
+                });
+                // Backfill existing loan_applications. Assuming a default comp_id of 2 for existing data.
+                DB::table($loanAppTable)->update(['comp_id' => 2]);
+            }
+            // Sprint 10: Multi-tenancy - Add comp_id to all relevant tables
+
+            // nobs_registration
+            $nobsRegTable = 'nobs_registration';
+            if (Schema::hasTable($nobsRegTable) && !Schema::hasColumn($nobsRegTable, 'comp_id')) {
+                Schema::table($nobsRegTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_nobs_registration_comp_id');
+                });
+                DB::table($nobsRegTable)->update(['comp_id' => 2]);
+            }
+
+            // account_types
+            $accountTypesTable = 'account_types';
+            if (Schema::hasTable($accountTypesTable) && !Schema::hasColumn($accountTypesTable, 'comp_id')) {
+                Schema::table($accountTypesTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_account_types_comp_id');
+                });
+                DB::table($accountTypesTable)->update(['comp_id' => 2]);
+            }
+
+            // agent_commissions
+            $agentCommissionsTable = 'agent_commissions';
+            if (Schema::hasTable($agentCommissionsTable) && !Schema::hasColumn($agentCommissionsTable, 'comp_id')) {
+                Schema::table($agentCommissionsTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_agent_commissions_comp_id');
+                });
+                DB::table($agentCommissionsTable)->update(['comp_id' => 2]);
+            }
+
+            // capital_accounts
+            $capitalAccountsTable = 'capital_accounts';
+            if (Schema::hasTable($capitalAccountsTable) && !Schema::hasColumn($capitalAccountsTable, 'comp_id')) {
+                Schema::table($capitalAccountsTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_capital_accounts_comp_id');
+                });
+                DB::table($capitalAccountsTable)->update(['comp_id' => 2]);
+            }
+
+            // capital_account_transactions
+            $capitalAccountTransactionsTable = 'capital_account_transactions';
+            if (Schema::hasTable($capitalAccountTransactionsTable) && !Schema::hasColumn($capitalAccountTransactionsTable, 'comp_id')) {
+                Schema::table($capitalAccountTransactionsTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_capital_account_transactions_comp_id');
+                });
+                DB::table($capitalAccountTransactionsTable)->update(['comp_id' => 2]);
+            }
+
+            // central_loan_accounts
+            $centralLoanAccountsTable = 'central_loan_accounts';
+            if (Schema::hasTable($centralLoanAccountsTable) && !Schema::hasColumn($centralLoanAccountsTable, 'comp_id')) {
+                Schema::table($centralLoanAccountsTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_central_loan_accounts_comp_id');
+                });
+                DB::table($centralLoanAccountsTable)->update(['comp_id' => 2]);
+            }
+
+            // commission_payouts
+            $commissionPayoutsTable = 'commission_payouts';
+            if (Schema::hasTable($commissionPayoutsTable) && !Schema::hasColumn($commissionPayoutsTable, 'comp_id')) {
+                Schema::table($commissionPayoutsTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_commission_payouts_comp_id');
+                });
+                DB::table($commissionPayoutsTable)->update(['comp_id' => 2]);
+            }
+
+            // coupons
+            $couponsTable = 'coupons';
+            if (Schema::hasTable($couponsTable) && !Schema::hasColumn($couponsTable, 'comp_id')) {
+                Schema::table($couponsTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_coupons_comp_id');
+                });
+                DB::table($couponsTable)->update(['comp_id' => 2]);
+            }
+
+            // documents
+            $documentsTable = 'documents';
+            if (Schema::hasTable($documentsTable) && !Schema::hasColumn($documentsTable, 'comp_id')) {
+                Schema::table($documentsTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_documents_comp_id');
+                });
+                DB::table($documentsTable)->update(['comp_id' => 2]);
+            }
+
+            // document_folders
+            $documentFoldersTable = 'document_folders';
+            if (Schema::hasTable($documentFoldersTable) && !Schema::hasColumn($documentFoldersTable, 'comp_id')) {
+                Schema::table($documentFoldersTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_document_folders_comp_id');
+                });
+                DB::table($documentFoldersTable)->update(['comp_id' => 2]);
+            }
+
+            // document_types
+            $documentTypesTable = 'document_types';
+            if (Schema::hasTable($documentTypesTable) && !Schema::hasColumn($documentTypesTable, 'comp_id')) {
+                Schema::table($documentTypesTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_document_types_comp_id');
+                });
+                DB::table($documentTypesTable)->update(['comp_id' => 2]);
+            }
+
+            // fund_transfers
+            $fundTransfersTable = 'fund_transfers';
+            if (Schema::hasTable($fundTransfersTable) && !Schema::hasColumn($fundTransfersTable, 'comp_id')) {
+                Schema::table($fundTransfersTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_fund_transfers_comp_id');
+                });
+                DB::table($fundTransfersTable)->update(['comp_id' => 2]);
+            }
+
+            // invoices
+            $invoicesTable = 'invoices';
+            if (Schema::hasTable($invoicesTable) && !Schema::hasColumn($invoicesTable, 'comp_id')) {
+                Schema::table($invoicesTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_invoices_comp_id');
+                });
+                DB::table($invoicesTable)->update(['comp_id' => 2]);
+            }
+
+            // invoice_items
+            $invoiceItemsTable = 'invoice_items';
+            if (Schema::hasTable($invoiceItemsTable) && !Schema::hasColumn($invoiceItemsTable, 'comp_id')) {
+                Schema::table($invoiceItemsTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_invoice_items_comp_id');
+                });
+                DB::table($invoiceItemsTable)->update(['comp_id' => 2]);
+            }
+
+            // loan_application_requirements
+            $loanApplicationRequirementsTable = 'loan_application_requirements';
+            if (Schema::hasTable($loanApplicationRequirementsTable) && !Schema::hasColumn($loanApplicationRequirementsTable, 'comp_id')) {
+                Schema::table($loanApplicationRequirementsTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_loan_application_requirements_comp_id');
+                });
+                DB::table($loanApplicationRequirementsTable)->update(['comp_id' => 2]);
+            }
+
+            // loan_default_logs
+            $loanDefaultLogsTable = 'loan_default_logs';
+            if (Schema::hasTable($loanDefaultLogsTable) && !Schema::hasColumn($loanDefaultLogsTable, 'comp_id')) {
+                Schema::table($loanDefaultLogsTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_loan_default_logs_comp_id');
+                });
+                DB::table($loanDefaultLogsTable)->update(['comp_id' => 2]);
+            }
+
+            // loan_fees
+            $loanFeesTable = 'loan_fees';
+            if (Schema::hasTable($loanFeesTable) && !Schema::hasColumn($loanFeesTable, 'comp_id')) {
+                Schema::table($loanFeesTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_loan_fees_comp_id');
+                });
+                DB::table($loanFeesTable)->update(['comp_id' => 2]);
+            }
+
+            // loan_products
+            $loanProductsTable = 'loan_products';
+            if (Schema::hasTable($loanProductsTable) && !Schema::hasColumn($loanProductsTable, 'comp_id')) {
+                Schema::table($loanProductsTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_loan_products_comp_id');
+                });
+                DB::table($loanProductsTable)->update(['comp_id' => 2]);
+            }
+
+            // loan_repayment_schedules
+            $loanRepaymentSchedulesTable = 'loan_repayment_schedules';
+            if (Schema::hasTable($loanRepaymentSchedulesTable) && !Schema::hasColumn($loanRepaymentSchedulesTable, 'comp_id')) {
+                Schema::table($loanRepaymentSchedulesTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_loan_repayment_schedules_comp_id');
+                });
+                DB::table($loanRepaymentSchedulesTable)->update(['comp_id' => 2]);
+            }
+
+            // nobs_savings_accounts
+            $nobsSavingsAccountsTable = 'nobs_savings_accounts';
+            if (Schema::hasTable($nobsSavingsAccountsTable) && !Schema::hasColumn($nobsSavingsAccountsTable, 'comp_id')) {
+                Schema::table($nobsSavingsAccountsTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_nobs_savings_accounts_comp_id');
+                });
+                DB::table($nobsSavingsAccountsTable)->update(['comp_id' => 2]);
+            }
+
+            // nobs_susu_cycles
+            $nobsSusuCyclesTable = 'nobs_susu_cycles';
+            if (Schema::hasTable($nobsSusuCyclesTable) && !Schema::hasColumn($nobsSusuCyclesTable, 'comp_id')) {
+                Schema::table($nobsSusuCyclesTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_nobs_susu_cycles_comp_id');
+                });
+                DB::table($nobsSusuCyclesTable)->update(['comp_id' => 2]);
+            }
+
+            // nobs_user_account_numbers
+            $nobsUserAccountNumbersTable = 'nobs_user_account_numbers';
+            if (Schema::hasTable($nobsUserAccountNumbersTable) && !Schema::hasColumn($nobsUserAccountNumbersTable, 'comp_id')) {
+                Schema::table($nobsUserAccountNumbersTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_nobs_user_account_numbers_comp_id');
+                });
+                DB::table($nobsUserAccountNumbersTable)->update(['comp_id' => 2]);
+            }
+
+            // user_defualt_views
+            $userDefualtViewsTable = 'user_defualt_views';
+            if (Schema::hasTable($userDefualtViewsTable) && !Schema::hasColumn($userDefualtViewsTable, 'comp_id')) {
+                Schema::table($userDefualtViewsTable, function (Blueprint $table) {
+                    $table->integer('comp_id')->nullable()->after('id');
+                    $table->index('comp_id', 'idx_user_defualt_views_comp_id');
+                });
+                DB::table($userDefualtViewsTable)->update(['comp_id' => 2]);
+            }
+
+            return response()->json(['success' => true, 'message' => 'System performance optimizations and fixes applied successfully.']);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false, 
@@ -136,10 +378,6 @@ class SchedulerController extends Controller
         }
     }
 
-    /**
-     * Get current scheduler status.
-     */
-    public function status()
     {
         if (!$this->checkPermission()) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
