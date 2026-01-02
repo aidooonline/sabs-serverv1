@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use App\Services\LoanCronService;
+use App\Services\SystemCronService;
 use App\CompanyInfo;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Schema;
@@ -12,11 +12,13 @@ use Illuminate\Support\Facades\DB;
 
 class SchedulerController extends Controller
 {
-    protected $cronService;
+    protected $loanCronService;
+    protected $systemCronService;
 
-    public function __construct(LoanCronService $cronService)
+    public function __construct(LoanCronService $loanCronService, SystemCronService $systemCronService)
     {
-        $this->cronService = $cronService;
+        $this->loanCronService = $loanCronService;
+        $this->systemCronService = $systemCronService;
     }
 
     /**
@@ -25,10 +27,8 @@ class SchedulerController extends Controller
      */
     public function setup()
     {
-        $user = auth('api')->user();
         if (!$this->checkPermission()) {
-            $type = $user ? $user->type : 'Guest';
-            return response()->json(['success' => false, 'message' => "Unauthorized (User Type: $type)"], 403);
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
         try {
@@ -108,6 +108,16 @@ class SchedulerController extends Controller
                 });
             }
 
+            // 6. Dormancy Tracking (Sprint 8.5)
+            $userAcctTable = 'nobs_user_account_numbers';
+            if (Schema::hasTable($userAcctTable) && !Schema::hasColumn($userAcctTable, 'account_status')) {
+                Schema::table($userAcctTable, function (Blueprint $table) {
+                    $table->string('account_status', 20)->default('active')->after('balance');
+                    $table->timestamp('last_transaction_date')->nullable()->after('account_status');
+                    $table->index('account_status', 'idx_acct_status');
+                });
+            }
+
             return response()->json(['success' => true, 'message' => 'System performance optimizations applied successfully.']);
         } catch (\Exception $e) {
             return response()->json([
@@ -161,18 +171,22 @@ class SchedulerController extends Controller
             }
         }
 
-        // Execute Service
-        $result = $this->cronService->runDailyProcess($companyId);
+        // Execute Services
+        $loanResult = $this->loanCronService->runDailyProcess($companyId);
+        $dormancyCount = $this->systemCronService->updateDormancyStatus();
 
-        if ($result['success']) {
+        if ($loanResult['success']) {
             // Update last run date
             $company->loan_cron_last_run = now();
             $company->save();
+
+            // Add dormancy count to log
+            $loanResult['log']['dormant_accounts_flagged'] = $dormancyCount;
         }
 
-        return response()->json($result);
+        return response()->json($loanResult);
     }
-
+    
     /**
      * Update Scheduler Settings (Enable/Disable).
      */

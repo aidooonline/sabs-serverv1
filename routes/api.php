@@ -173,6 +173,7 @@ Route::middleware(['auth:api'])->group(function () {
     Route::get('getcustomeraccountslist', [ApiUsersController::class, 'getcustomeraccountslist']);
 
     // accounts
+    Route::post('reactivate-account', [ApiUsersController::class, 'reactivateAccount']);
     Route::post('updatesavingsaccount', [ApiUsersController::class, 'updatesavingsaccount']);
     Route::post('insertsavingsaccount', [ApiUsersController::class, 'insertsavingsaccount']);
     Route::post('deletesavingsaccount', [ApiUsersController::class, 'deletesavingsaccount']);
