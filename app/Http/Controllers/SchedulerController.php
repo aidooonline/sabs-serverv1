@@ -66,7 +66,39 @@ class SchedulerController extends Controller
                 }
             });
 
-            return response()->json(['success' => true, 'message' => 'Scheduler columns and performance indexes added successfully.']);
+            // 3. Optimize Legacy Ledger (Sprint 6 Performance)
+            Schema::table('nobs_transactions', function (Blueprint $table) {
+                $sm = Schema::getConnection()->getDoctrineSchemaManager();
+                $indexes = $sm->listTableIndexes('nobs_transactions');
+
+                if (!array_key_exists('idx_trans_comp_date', $indexes)) {
+                    $table->index(['comp_id', 'created_at'], 'idx_trans_comp_date');
+                }
+                if (!array_key_exists('idx_trans_type_comp', $indexes)) {
+                    $table->index(['name_of_transaction', 'comp_id'], 'idx_trans_type_comp');
+                }
+                if (!array_key_exists('idx_trans_user_comp', $indexes)) {
+                    $table->index(['users', 'comp_id'], 'idx_trans_user_comp');
+                }
+                if (!array_key_exists('idx_trans_acc_no', $indexes)) {
+                    $table->index('account_number', 'idx_trans_acc_no');
+                }
+            });
+
+            // 4. Optimize Customer Registry
+            Schema::table('nobs_registration', function (Blueprint $table) {
+                $sm = Schema::getConnection()->getDoctrineSchemaManager();
+                $indexes = $sm->listTableIndexes('nobs_registration');
+
+                if (!array_key_exists('idx_reg_acc_no', $indexes)) {
+                    $table->index('account_number', 'idx_reg_acc_no');
+                }
+                if (!array_key_exists('idx_reg_phone', $indexes)) {
+                    $table->index('phone_number', 'idx_reg_phone');
+                }
+            });
+
+            return response()->json(['success' => true, 'message' => 'System performance optimizations applied successfully.']);
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
