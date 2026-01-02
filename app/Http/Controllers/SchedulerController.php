@@ -119,6 +119,14 @@ class SchedulerController extends Controller
                 });
             }
 
+            // 7. Company Isolation for Loans (Bug Fix Sprint 9)
+            if (Schema::hasTable('loan_applications') && !Schema::hasColumn('loan_applications', 'comp_id')) {
+                Schema::table('loan_applications', function (Blueprint $table) {
+                    $table->integer('comp_id')->default(2)->after('id'); // Default 2 for legacy compatibility if needed
+                    $table->index('comp_id', 'idx_loan_comp_id');
+                });
+            }
+
             return response()->json(['success' => true, 'message' => 'System performance optimizations applied successfully.']);
         } catch (\Exception $e) {
             return response()->json([
