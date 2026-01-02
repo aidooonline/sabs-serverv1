@@ -25,8 +25,10 @@ class SchedulerController extends Controller
      */
     public function setup()
     {
+        $user = auth()->user();
         if (!$this->checkPermission()) {
-            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+            $type = $user ? $user->type : 'Guest';
+            return response()->json(['success' => false, 'message' => "Unauthorized (User Type: $type)"], 403);
         }
 
         try {
