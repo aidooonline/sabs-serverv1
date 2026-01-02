@@ -182,6 +182,10 @@ class SchedulerController extends Controller
     private function checkPermission()
     {
         $user = auth()->user();
+        if (!$user) {
+            return false;
+        }
+
         // Allow Admin, Owner, Super Admin, Manager.
         // Deny Agent.
         
