@@ -20,7 +20,7 @@ trait HasCompany
             });
 
             static::creating(function ($model) {
-                if (! $model->comp_id) {
+                if (Auth::check()) {
                     $model->comp_id = Auth::user()->comp_id;
                 }
             });
