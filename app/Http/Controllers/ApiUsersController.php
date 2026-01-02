@@ -40,7 +40,7 @@ class ApiUsersController extends Controller
     {
 
         //this is literally 'Manage User Register'
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin'])) {
+        if ($this->isManagement()) {
             return DB::table('users')->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender')->where('type', '!=', 'Super Admin')->where('type', '!=', 'owner')->where('comp_id', \Auth::user()->comp_id)->orderBy('id', 'DESC')->paginate(10);
         } else {
             if (\Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
@@ -49,6 +49,17 @@ class ApiUsersController extends Controller
                 return 'error: Type=[' . \Auth::user()->type . '] Roles=' . json_encode(\Auth::user()->getRoleNames());
             }
         }
+    }
+
+    private function isManagement()
+    {
+        $user = \Auth::user();
+        if (!$user) return false;
+        
+        $managementTypes = ['Admin', 'owner', 'super admin', 'God Admin', 'Manager'];
+        $managementRoles = ['Admin', 'Owner', 'super admin', 'Manager'];
+
+        return in_array($user->type, $managementTypes) || $user->hasRole($managementRoles);
     }
 
     /**
@@ -129,7 +140,7 @@ class ApiUsersController extends Controller
 
     public function getcustomers()
     {
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
 
 
             $customers = DB::table('nobs_registration')->select('id', 'user_image', 'is_dataimage', 'customer_picture', 'first_name', 'middle_name', 'surname', 'phone_number', 'email', 'residential_address', 'account_number', 'created_at', DB::raw('created_at as created_at2'), 'date_of_birth2', 'user', 'sec_phone_number', 'postal_address', 'occupation', 'next_of_kin_phone_number', 'next_of_kin_id_number', 'next_of_kin', 'nationality', 'marital_status', 'id_type', 'id_number', 'gender', 'accounttype_num', 'account_types', '__id__')->where('comp_id', \Auth::user()->comp_id)->orderBy('id', 'DESC')->paginate(10);
@@ -154,7 +165,7 @@ class ApiUsersController extends Controller
 
     public function getcustomerbyid(Request $request)
     {
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
 
 
             $customers = DB::table('nobs_registration')->select('id', 'user_image', 'is_dataimage', 'customer_picture', 'first_name', 'middle_name', 'surname', 'phone_number', 'email', 'residential_address', 'account_number', 'created_at', DB::raw('created_at as created_at2'), 'date_of_birth2', 'user', 'sec_phone_number', 'postal_address', 'occupation', 'next_of_kin_phone_number', 'next_of_kin_id_number', 'next_of_kin', 'nationality', 'marital_status', 'id_type', 'id_number', 'gender', 'accounttype_num', 'account_types', '__id__')->where('id', $request->id)->orderBy('id', 'DESC')->paginate(10);
@@ -177,7 +188,7 @@ class ApiUsersController extends Controller
 
     public  function searchbyaccountnumber(Request $request)
     {
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
             // Find the primary_account_number in the nobs_user_account_numbers table
             // Find account numbers that look like the variable passed
             $similarAccountNumbers = DB::table('nobs_user_account_numbers')
@@ -211,35 +222,41 @@ class ApiUsersController extends Controller
     {
         if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
 
+            $searchTerm = trim($request->datatosearch);
+            
+            $query = DB::table('nobs_registration')
+                ->select('id', 'user_image', 'is_dataimage', 'customer_picture', 'first_name', 'middle_name', 'surname', 'phone_number', 'email', 'residential_address', 'account_number', 'created_at', DB::raw('created_at as created_at2'), 'date_of_birth2', 'user', 'sec_phone_number', 'postal_address', 'occupation', 'next_of_kin_phone_number', 'next_of_kin_id_number', 'next_of_kin', 'nationality', 'marital_status', 'id_type', 'id_number', 'gender', 'accounttype_num', 'account_types', '__id__')
+                ->where('comp_id', \Auth::user()->comp_id);
 
-            $searchTerm = $request->datatosearch;
-
-            $customers = DB::table('nobs_registration')->select('id', 'user_image', 'is_dataimage', 'customer_picture', 'first_name', 'middle_name', 'surname', 'phone_number', 'email', 'residential_address', 'account_number', 'created_at', DB::raw('created_at as created_at2'), 'date_of_birth2', 'user', 'sec_phone_number', 'postal_address', 'occupation', 'next_of_kin_phone_number', 'next_of_kin_id_number', 'next_of_kin', 'nationality', 'marital_status', 'id_type', 'id_number', 'gender', 'accounttype_num', 'account_types', '__id__')
-                ->where(function ($query) use ($searchTerm) {
-                    $searchTerms = explode(' ', $searchTerm);
-
+            // Optimization: If search term looks like an Account Number or Phone, use direct index lookup
+            if (preg_match('/^[A-Z0-9-]{5,}$/i', $searchTerm)) {
+                $query->where(function($q) use ($searchTerm) {
+                    $q->where('account_number', $searchTerm)
+                      ->orWhere('phone_number', 'like', "%$searchTerm%");
+                });
+            } else {
+                // Name search
+                $searchTerms = explode(' ', $searchTerm);
+                $query->where(function ($q) use ($searchTerms) {
                     foreach ($searchTerms as $term) {
-                        $query->where(function ($innerQuery) use ($term) {
-                            $innerQuery->where('first_name', 'like', "%$term%")
-                                ->orWhere('surname', 'like', "%$term%")
-                                ->where('comp_id', \Auth::user()->comp_id);
+                        if (empty($term)) continue;
+                        $q->where(function($inner) use ($term) {
+                            $inner->where('first_name', 'like', "$term%") // Prefix search is much faster than %term%
+                                  ->orWhere('surname', 'like', "$term%");
                         });
                     }
-                })
-                ->orderBy('first_name', 'ASC')
-                ->orderBy('surname', 'ASC')
+                });
+            }
+
+            $customers = $query->orderBy('first_name', 'ASC')
                 ->paginate(100);
 
-            $customers->transform(function ($customer) {
+            $customers->getCollection()->transform(function ($customer) {
                 $customer->created_at = Carbon::parse($customer->created_at)->diffForHumans();
                 return $customer;
             });
 
             return response()->json($customers);
-            /*  } else if (\Auth::user()->type == 'Agents') {
-            // Similar code as above, just replace $customers and update the query as needed.
-        } else {
-            return 'error'; */
         }
     }
 
@@ -248,7 +265,7 @@ class ApiUsersController extends Controller
     public function getaccountlist()
     {
         //this is literally 'Manage User Register'
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
             $savingsaccounts = SavingsAccounts::where('comp_id', \Auth::user()->comp_id)->orderBy('id', 'DESC')->paginate(20);
             return $savingsaccounts;
         } else {
@@ -259,7 +276,7 @@ class ApiUsersController extends Controller
     public function getloanaccountlist()
     {
         //this is literally 'Manage User Register'
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
             $savingsaccounts = SavingsAccounts::where('comp_id', \Auth::user()->comp_id)->where('is_loan', 1)->where('account_type', 3)->orderBy('id', 'DESC')->paginate(20);
             return $savingsaccounts;
         } else {
@@ -270,98 +287,86 @@ class ApiUsersController extends Controller
 
     public function getdashboardlisttoday()
     {
-        //this is literally 'Manage User Register'
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'super admin') {
+        $user = \Auth::user();
+        $compId = $user->comp_id;
+        $userType = $user->type;
+        $agentUser = ($userType == 'Agents') ? $user->created_by_user : null;
+        
+        $cacheKey = "dashboard_today_{$compId}_" . ($agentUser ?? 'admin');
 
-            $transactions = AccountsTransactions::select(
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) AS totalDP'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) AS totalWD'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) AS totalRF'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Repayment" THEN amount ELSE 0 END) AS totalLN'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Disbursed" THEN amount ELSE 0 END) AS totalDIS'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) AS totalAGTCM'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END) AS totalSCM'),
-                DB::raw('(SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END)) AS balance')
-            )
-                ->whereDate('created_at', Carbon::today())
+        return \Illuminate\Support\Facades\Cache::remember($cacheKey, 60, function() use ($compId, $agentUser) {
+            $today = Carbon::today();
+
+            // 1. Consolidated Transaction Metrics (One Query)
+            $query = DB::table('nobs_transactions')
+                ->select(
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) AS totalDP'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) AS totalWD'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) AS totalRF'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Repayment" THEN amount ELSE 0 END) AS totalLN'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Disbursed" THEN amount ELSE 0 END) AS totalDIS'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) AS totalAGTCM'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END) AS totalSCM'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Deposit" THEN 1 END) as totalDPCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Withdraw" THEN 1 END) as totalWDCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Refund" THEN 1 END) as totalRFCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Repayment" THEN 1 END) as totalLNCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Disbursed" THEN 1 END) as totalDISBCOUNT')
+                )
+                ->whereDate('created_at', $today)
                 ->where('is_shown', 1)
                 ->where('row_version', 2)
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->get();
+                ->where('comp_id', $compId);
 
-            $totalREGISTERED =  DB::table('nobs_registration')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->whereDate('created_at', Carbon::today())->count('id');
+            if ($agentUser) {
+                $query->where('users', $agentUser);
+            }
 
-            $totalDPCOUNT =  DB::table('nobs_transactions')
-                ->whereDate('created_at', Carbon::today())
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('name_of_transaction', 'Deposit')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
+            $transactionMetrics = $query->first();
 
-            $totalWDCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->whereDate('created_at', Carbon::today())
-                ->where('name_of_transaction', 'Withdraw')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
+            // 2. Count Registered Users
+            $regQuery = DB::table('nobs_registration')->where('comp_id', $compId)->whereDate('created_at', $today);
+            if ($agentUser) $regQuery->where('user', $agentUser);
+            $totalREGISTERED = $regQuery->count('id');
 
-            $totalRFCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->whereDate('created_at', Carbon::today())
-                ->where('name_of_transaction', 'Refund')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
+            // 3. Loan Request Metrics
+            $loanReqQuery = DB::table('nobs_micro_loan_request')
+                ->select(DB::raw('COUNT(id) as count'), DB::raw('SUM(amount) as sum'))
+                ->where('comp_id', $compId)
+                ->where('loan_migrated', 0);
+            if ($agentUser) $loanReqQuery->where('user', $agentUser);
+            $loanRequestMetrics = $loanReqQuery->first();
 
-            $totalLNCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->whereDate('created_at', Carbon::today())
-                ->where('name_of_transaction', 'Loan Repayment')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalDISBCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->whereDate('created_at', Carbon::today())
-                ->where('name_of_transaction', 'Loan Disbursed')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalLNREQUESTCOUNT =  DB::table('nobs_micro_loan_request')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('loan_migrated', 0)
-                ->count('nobs_micro_loan_request.id');
-
-            $totalLNREQUESTSUM =  DB::table('nobs_micro_loan_request')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('loan_migrated', 0)
-                ->sum('amount');
+            // Format data
+            $balance = $transactionMetrics->totalDP - $transactionMetrics->totalWD - $transactionMetrics->totalRF - $transactionMetrics->totalAGTCM - $transactionMetrics->totalSCM;
+            
+            $dataRow = (object)[
+                'totalDP' => $transactionMetrics->totalDP,
+                'totalWD' => $transactionMetrics->totalWD,
+                'totalRF' => $transactionMetrics->totalRF,
+                'totalLN' => $transactionMetrics->totalLN,
+                'totalDIS' => $transactionMetrics->totalDIS,
+                'totalAGTCM' => $transactionMetrics->totalAGTCM,
+                'totalSCM' => $transactionMetrics->totalSCM,
+                'balance' => $balance
+            ];
 
             $result = new \stdClass();
             $result->current_page = 1;
-            $result->data = $transactions;
-            $result->totalLNREQUESTCOUNT = $totalLNREQUESTCOUNT;
-            $result->totalLNREQUESTSUM = $totalLNREQUESTSUM;
-            $result->totalDPCOUNT = $totalDPCOUNT;
-            $result->totalWDCOUNT = $totalWDCOUNT;
-            $result->totalRFCOUNT = $totalRFCOUNT;
-            $result->totalLNCOUNT = $totalLNCOUNT;
-            $result->totalDISBCOUNT = $totalDISBCOUNT;
+            $result->data = [$dataRow];
+            $result->totalLNREQUESTCOUNT = $loanRequestMetrics->count;
+            $result->totalLNREQUESTSUM = $loanRequestMetrics->sum;
+            $result->totalDPCOUNT = $transactionMetrics->totalDPCOUNT;
+            $result->totalWDCOUNT = $transactionMetrics->totalWDCOUNT;
+            $result->totalRFCOUNT = $transactionMetrics->totalRFCOUNT;
+            $result->totalLNCOUNT = $transactionMetrics->totalLNCOUNT;
+            $result->totalDISBCOUNT = $transactionMetrics->totalDISBCOUNT;
             $result->totalREGISTERED = $totalREGISTERED;
-            $result->first_page_url = request()->fullUrl();
-            $result->from = null;
-            $result->last_page = 1;
-            $result->last_page_url = request()->fullUrl();
-            $result->next_page_url = null;
-            $result->path = request()->url();
-            $result->per_page = 10;
-            $result->prev_page_url = null;
-            $result->to = null;
-            $result->total = $transactions->count();
+            $result->total = 1;
 
             return response()->json($result);
-        } elseif (\Auth::user()->type == 'Agents') {
+        });
+    } elseif (\Auth::user()->type == 'Agents') {
 
             $transactions = AccountsTransactions::select(
                 DB::raw('SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) AS totalDP'),
@@ -468,199 +473,83 @@ class ApiUsersController extends Controller
 
     public function getdashboardlistthisweek()
     {
-        //this is literally 'Manage User Register'
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'super admin') {
+        $user = \Auth::user();
+        $compId = $user->comp_id;
+        $userType = $user->type;
+        $agentUser = ($userType == 'Agents') ? $user->created_by_user : null;
+        
+        $cacheKey = "dashboard_week_{$compId}_" . ($agentUser ?? 'admin');
 
-            $transactions = AccountsTransactions::select(
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) AS totalDP'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) AS totalWD'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) AS totalRF'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Repayment" THEN amount ELSE 0 END) AS totalLN'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Disbursed" THEN amount ELSE 0 END) AS totalDIS'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) AS totalAGTCM'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END) AS totalSCM'),
-                DB::raw('(SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END)) AS balance')
-            )
-                ->whereBetween('created_at', [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()])
-                ->where('comp_id', \Auth::user()->comp_id)
+        return \Illuminate\Support\Facades\Cache::remember($cacheKey, 60, function() use ($compId, $agentUser) {
+            $start = Carbon::now()->startOfWeek();
+            $end = Carbon::now()->endOfWeek();
+
+            // 1. Consolidated Transaction Metrics
+            $query = DB::table('nobs_transactions')
+                ->select(
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) AS totalDP'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) AS totalWD'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) AS totalRF'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Repayment" THEN amount ELSE 0 END) AS totalLN'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Disbursed" THEN amount ELSE 0 END) AS totalDIS'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) AS totalAGTCM'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END) AS totalSCM'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Deposit" THEN 1 END) as totalDPCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Withdraw" THEN 1 END) as totalWDCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Refund" THEN 1 END) as totalRFCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Repayment" THEN 1 END) as totalLNCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Disbursed" THEN 1 END) as totalDISBCOUNT')
+                )
+                ->whereBetween('created_at', [$start, $end])
                 ->where('is_shown', 1)
                 ->where('row_version', 2)
-                ->get();
+                ->where('comp_id', $compId);
 
-            $totalREGISTERED =  DB::table('nobs_registration')
-                ->whereBetween('created_at', [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()])
-                ->count('id');
+            if ($agentUser) $query->where('users', $agentUser);
+            $transactionMetrics = $query->first();
 
-            $totalDPCOUNT =  DB::table('nobs_transactions')
-                ->whereBetween('created_at', [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()])
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('name_of_transaction', 'Deposit')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
+            // 2. Count Registered Users
+            $regQuery = DB::table('nobs_registration')->where('comp_id', $compId)->whereBetween('created_at', [$start, $end]);
+            if ($agentUser) $regQuery->where('user', $agentUser);
+            $totalREGISTERED = $regQuery->count('id');
 
-            $totalWDCOUNT =  DB::table('nobs_transactions')
-                ->whereBetween('created_at', [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()])
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('name_of_transaction', 'Withdraw')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
+            // 3. Loan Request Metrics
+            $loanReqQuery = DB::table('nobs_micro_loan_request')
+                ->select(DB::raw('COUNT(id) as count'), DB::raw('SUM(amount) as sum'))
+                ->where('comp_id', $compId)
+                ->where('loan_migrated', 0);
+            if ($agentUser) $loanReqQuery->where('user', $agentUser);
+            $loanRequestMetrics = $loanReqQuery->first();
 
-            $totalRFCOUNT =  DB::table('nobs_transactions')
-                ->whereBetween('created_at', [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()])
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('name_of_transaction', 'Refund')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalLNCOUNT =  DB::table('nobs_transactions')
-                ->whereBetween('created_at', [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()])
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('name_of_transaction', 'Loan Repayment')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalDISBCOUNT =  DB::table('nobs_transactions')
-                ->whereBetween('created_at', [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()])
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('name_of_transaction', 'Loan Disbursed')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalLNREQUESTCOUNT =  DB::table('nobs_micro_loan_request')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('loan_migrated', 0)
-                ->count('id');
-
-            $totalLNREQUESTSUM =  DB::table('nobs_micro_loan_request')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('loan_migrated', 0)
-                ->sum('amount');
+            // Format data
+            $balance = $transactionMetrics->totalDP - $transactionMetrics->totalWD - $transactionMetrics->totalRF - $transactionMetrics->totalAGTCM - $transactionMetrics->totalSCM;
+            
+            $dataRow = (object)[
+                'totalDP' => $transactionMetrics->totalDP,
+                'totalWD' => $transactionMetrics->totalWD,
+                'totalRF' => $transactionMetrics->totalRF,
+                'totalLN' => $transactionMetrics->totalLN,
+                'totalDIS' => $transactionMetrics->totalDIS,
+                'totalAGTCM' => $transactionMetrics->totalAGTCM,
+                'totalSCM' => $transactionMetrics->totalSCM,
+                'balance' => $balance
+            ];
 
             $result = new \stdClass();
             $result->current_page = 1;
-            $result->data = $transactions;
-            $result->totalLNREQUESTCOUNT = $totalLNREQUESTCOUNT;
-            $result->totalLNREQUESTSUM = $totalLNREQUESTSUM;
-            $result->totalDPCOUNT = $totalDPCOUNT;
-            $result->totalWDCOUNT = $totalWDCOUNT;
-            $result->totalRFCOUNT = $totalRFCOUNT;
-            $result->totalLNCOUNT = $totalLNCOUNT;
-            $result->totalDISBCOUNT = $totalDISBCOUNT;
+            $result->data = [$dataRow];
+            $result->totalLNREQUESTCOUNT = $loanRequestMetrics->count;
+            $result->totalLNREQUESTSUM = $loanRequestMetrics->sum;
+            $result->totalDPCOUNT = $transactionMetrics->totalDPCOUNT;
+            $result->totalWDCOUNT = $transactionMetrics->totalWDCOUNT;
+            $result->totalRFCOUNT = $transactionMetrics->totalRFCOUNT;
+            $result->totalLNCOUNT = $transactionMetrics->totalLNCOUNT;
+            $result->totalDISBCOUNT = $transactionMetrics->totalDISBCOUNT;
             $result->totalREGISTERED = $totalREGISTERED;
-            $result->first_page_url = request()->fullUrl();
-            $result->from = null;
-            $result->last_page = 1;
-            $result->last_page_url = request()->fullUrl();
-            $result->next_page_url = null;
-            $result->path = request()->url();
-            $result->per_page = 10;
-            $result->prev_page_url = null;
-            $result->to = null;
-            $result->total = $transactions->count();
+            $result->total = 1;
+
             return response()->json($result);
-        } elseif (\Auth::user()->type == 'Agents') {
-            $transactions = AccountsTransactions::select(
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) AS totalDP'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) AS totalWD'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) AS totalRF'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Repayment" THEN amount ELSE 0 END) AS totalLN'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Disbursed" THEN amount ELSE 0 END) AS totalDIS'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) AS totalAGTCM'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END) AS totalSCM'),
-                DB::raw('(SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END)) AS balance')
-            )
-                ->whereBetween('created_at', [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()])
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('is_shown', 1)
-                ->where('users', \Auth::user()->created_by_user)
-                ->where('row_version', 2)
-                ->get();
-
-            $totalREGISTERED =  DB::table('nobs_registration')
-                ->whereBetween('created_at', [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()])
-                ->where('user', \Auth::user()->created_by_user)
-                ->count('id');
-
-            $totalDPCOUNT =  DB::table('nobs_transactions')
-                ->whereBetween('created_at', [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()])
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('users', \Auth::user()->created_by_user)
-                ->where('name_of_transaction', 'Deposit')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalWDCOUNT =  DB::table('nobs_transactions')
-                ->whereBetween('created_at', [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()])
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('users', \Auth::user()->created_by_user)
-                ->where('name_of_transaction', 'Withdraw')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalRFCOUNT =  DB::table('nobs_transactions')
-                ->whereBetween('created_at', [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()])
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('users', \Auth::user()->created_by_user)
-                ->where('name_of_transaction', 'Refund')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalLNCOUNT =  DB::table('nobs_transactions')
-                ->whereBetween('created_at', [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()])
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('users', \Auth::user()->created_by_user)
-                ->where('name_of_transaction', 'Loan Repayment')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalDISBCOUNT =  DB::table('nobs_transactions')
-                ->whereBetween('created_at', [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()])
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('users', \Auth::user()->created_by_user)
-                ->where('name_of_transaction', 'Loan Disbursed')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalLNREQUESTCOUNT =  DB::table('nobs_micro_loan_request')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('user', \Auth::user()->created_by_user)
-                ->where('loan_migrated', 0)
-                ->count('id');
-
-            $totalLNREQUESTSUM =  DB::table('nobs_micro_loan_request')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('user', \Auth::user()->created_by_user)
-                ->where('loan_migrated', 0)
-                ->sum('amount');
-
-            $result = new \stdClass();
-            $result->current_page = 1;
-            $result->data = $transactions;
-            $result->totalLNREQUESTCOUNT = $totalLNREQUESTCOUNT;
-            $result->totalLNREQUESTSUM = $totalLNREQUESTSUM;
-            $result->totalDPCOUNT = $totalDPCOUNT;
-            $result->totalWDCOUNT = $totalWDCOUNT;
-            $result->totalRFCOUNT = $totalRFCOUNT;
-            $result->totalLNCOUNT = $totalLNCOUNT;
-            $result->totalDISBCOUNT = $totalDISBCOUNT;
-            $result->totalREGISTERED = $totalREGISTERED;
-            $result->first_page_url = request()->fullUrl();
-            $result->from = null;
-            $result->last_page = 1;
-            $result->last_page_url = request()->fullUrl();
-            $result->next_page_url = null;
-            $result->path = request()->url();
-            $result->per_page = 10;
-            $result->prev_page_url = null;
-            $result->to = null;
-            $result->total = $transactions->count();
-            return response()->json($result);
-
-            // ->where('users', \Auth::user()->created_by_user)
-            // return 'agent_error';
-        } else {
-            return 'non_role_error';
-        }
+        });
     }
 
 
@@ -940,401 +829,166 @@ class ApiUsersController extends Controller
 
     public function getdashboardlistthismonth()
     {
-        //this is literally 'Manage User Register'
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'super admin') {
+        $user = \Auth::user();
+        $compId = $user->comp_id;
+        $userType = $user->type;
+        $agentUser = ($userType == 'Agents') ? $user->created_by_user : null;
+        
+        $cacheKey = "dashboard_month_{$compId}_" . ($agentUser ?? 'admin');
 
-            $transactions = AccountsTransactions::select(
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) AS totalDP'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) AS totalWD'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) AS totalRF'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Repayment" THEN amount ELSE 0 END) AS totalLN'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Disbursed" THEN amount ELSE 0 END) AS totalDIS'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) AS totalAGTCM'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END) AS totalSCM'),
-                DB::raw('(SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END)) AS balance')
-            )
-                ->whereMonth('created_at', date('m'))->whereYear('created_at', date('Y'))
-                ->where('comp_id', \Auth::user()->comp_id)
+        return \Illuminate\Support\Facades\Cache::remember($cacheKey, 60, function() use ($compId, $agentUser) {
+            $month = date('m');
+            $year = date('Y');
+
+            // 1. Consolidated Transaction Metrics
+            $query = DB::table('nobs_transactions')
+                ->select(
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) AS totalDP'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) AS totalWD'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) AS totalRF'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Repayment" THEN amount ELSE 0 END) AS totalLN'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Disbursed" THEN amount ELSE 0 END) AS totalDIS'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) AS totalAGTCM'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END) AS totalSCM'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Deposit" THEN 1 END) as totalDPCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Withdraw" THEN 1 END) as totalWDCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Refund" THEN 1 END) as totalRFCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Repayment" THEN 1 END) as totalLNCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Disbursed" THEN 1 END) as totalDISBCOUNT')
+                )
+                ->whereMonth('created_at', $month)
+                ->whereYear('created_at', $year)
                 ->where('is_shown', 1)
                 ->where('row_version', 2)
-                ->get();
+                ->where('comp_id', $compId);
 
-            $totalREGISTERED =  DB::table('nobs_registration')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->whereMonth('created_at', date('m'))->whereYear('created_at', date('Y'))
-                ->count('id');
+            if ($agentUser) $query->where('users', $agentUser);
+            $transactionMetrics = $query->first();
 
-            $totalDPCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->whereMonth('created_at', date('m'))->whereYear('created_at', date('Y'))
-                ->where('name_of_transaction', 'Deposit')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
+            // 2. Count Registered Users
+            $regQuery = DB::table('nobs_registration')->where('comp_id', $compId)->whereMonth('created_at', $month)->whereYear('created_at', $year);
+            if ($agentUser) $regQuery->where('user', $agentUser);
+            $totalREGISTERED = $regQuery->count('id');
 
-            $totalWDCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->whereMonth('created_at', date('m'))->whereYear('created_at', date('Y'))
-                ->where('name_of_transaction', 'Withdraw')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
+            // 3. Loan Request Metrics
+            $loanReqQuery = DB::table('nobs_micro_loan_request')
+                ->select(DB::raw('COUNT(id) as count'), DB::raw('SUM(amount) as sum'))
+                ->where('comp_id', $compId)
+                ->where('loan_migrated', 0);
+            if ($agentUser) $loanReqQuery->where('user', $agentUser);
+            $loanRequestMetrics = $loanReqQuery->first();
 
-            $totalRFCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->whereMonth('created_at', date('m'))->whereYear('created_at', date('Y'))
-                ->where('name_of_transaction', 'Refund')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalLNCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->whereMonth('created_at', date('m'))->whereYear('created_at', date('Y'))
-                ->where('name_of_transaction', 'Loan Repayment')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalDISBCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->whereMonth('created_at', date('m'))->whereYear('created_at', date('Y'))
-                ->where('name_of_transaction', 'Loan Disbursed')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalLNREQUESTCOUNT =  DB::table('nobs_micro_loan_request')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('loan_migrated', 0)
-                ->count('id');
-
-            $totalLNREQUESTSUM =  DB::table('nobs_micro_loan_request')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('loan_migrated', 0)
-                ->sum('amount');
+            // Format data
+            $balance = $transactionMetrics->totalDP - $transactionMetrics->totalWD - $transactionMetrics->totalRF - $transactionMetrics->totalAGTCM - $transactionMetrics->totalSCM;
+            
+            $dataRow = (object)[
+                'totalDP' => $transactionMetrics->totalDP,
+                'totalWD' => $transactionMetrics->totalWD,
+                'totalRF' => $transactionMetrics->totalRF,
+                'totalLN' => $transactionMetrics->totalLN,
+                'totalDIS' => $transactionMetrics->totalDIS,
+                'totalAGTCM' => $transactionMetrics->totalAGTCM,
+                'totalSCM' => $transactionMetrics->totalSCM,
+                'balance' => $balance
+            ];
 
             $result = new \stdClass();
             $result->current_page = 1;
-            $result->data = $transactions;
-            $result->totalLNREQUESTCOUNT = $totalLNREQUESTCOUNT;
-            $result->totalLNREQUESTSUM = $totalLNREQUESTSUM;
-            $result->totalDPCOUNT = $totalDPCOUNT;
-            $result->totalWDCOUNT = $totalWDCOUNT;
-            $result->totalRFCOUNT = $totalRFCOUNT;
-            $result->totalLNCOUNT = $totalLNCOUNT;
-            $result->totalDISBCOUNT = $totalDISBCOUNT;
+            $result->data = [$dataRow];
+            $result->totalLNREQUESTCOUNT = $loanRequestMetrics->count;
+            $result->totalLNREQUESTSUM = $loanRequestMetrics->sum;
+            $result->totalDPCOUNT = $transactionMetrics->totalDPCOUNT;
+            $result->totalWDCOUNT = $transactionMetrics->totalWDCOUNT;
+            $result->totalRFCOUNT = $transactionMetrics->totalRFCOUNT;
+            $result->totalLNCOUNT = $transactionMetrics->totalLNCOUNT;
+            $result->totalDISBCOUNT = $transactionMetrics->totalDISBCOUNT;
             $result->totalREGISTERED = $totalREGISTERED;
-            $result->first_page_url = request()->fullUrl();
-            $result->from = null;
-            $result->last_page = 1;
-            $result->last_page_url = request()->fullUrl();
-            $result->next_page_url = null;
-            $result->path = request()->url();
-            $result->per_page = 10;
-            $result->prev_page_url = null;
-            $result->to = null;
-            $result->total = $transactions->count();
+            $result->total = 1;
+
             return response()->json($result);
-        } elseif (\Auth::user()->type == 'Agents') {
-
-            $transactions = AccountsTransactions::select(
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) AS totalDP'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) AS totalWD'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) AS totalRF'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Repayment" THEN amount ELSE 0 END) AS totalLN'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Disbursed" THEN amount ELSE 0 END) AS totalDIS'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) AS totalAGTCM'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END) AS totalSCM'),
-                DB::raw('(SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END)) AS balance')
-            )
-                ->whereMonth('created_at', date('m'))->whereYear('created_at', date('Y'))
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('users', \Auth::user()->created_by_user)
-                ->where('is_shown', 1)
-                ->where('row_version', 2)
-                ->get();
-
-            $totalREGISTERED =  DB::table('nobs_registration')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->whereMonth('created_at', date('m'))->whereYear('created_at', date('Y'))
-                ->where('user', \Auth::user()->created_by_user)
-                ->count('id');
-
-            $totalDPCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->whereMonth('created_at', date('m'))->whereYear('created_at', date('Y'))
-                ->where('name_of_transaction', 'Deposit')
-                ->where('users', \Auth::user()->created_by_user)
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalWDCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->whereMonth('created_at', date('m'))->whereYear('created_at', date('Y'))
-                ->where('name_of_transaction', 'Withdraw')
-                ->where('users', \Auth::user()->created_by_user)
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalRFCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->whereMonth('created_at', date('m'))->whereYear('created_at', date('Y'))
-                ->where('name_of_transaction', 'Refund')
-                ->where('users', \Auth::user()->created_by_user)
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalLNCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->whereMonth('created_at', date('m'))->whereYear('created_at', date('Y'))
-                ->where('name_of_transaction', 'Loan Repayment')
-                ->where('users', \Auth::user()->created_by_user)
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalDISBCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->whereMonth('created_at', date('m'))->whereYear('created_at', date('Y'))
-                ->where('name_of_transaction', 'Loan Disbursed')
-                ->where('users', \Auth::user()->created_by_user)
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalLNREQUESTCOUNT =  DB::table('nobs_micro_loan_request')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('user', \Auth::user()->created_by_user)
-                ->where('loan_migrated', 0)
-                ->count('id');
-
-            $totalLNREQUESTSUM =  DB::table('nobs_micro_loan_request')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('user', \Auth::user()->created_by_user)
-                ->where('loan_migrated', 0)
-                ->sum('amount');
-
-            $result = new \stdClass();
-            $result->current_page = 1;
-            $result->data = $transactions;
-            $result->totalLNREQUESTCOUNT = $totalLNREQUESTCOUNT;
-            $result->totalLNREQUESTSUM = $totalLNREQUESTSUM;
-            $result->totalDPCOUNT = $totalDPCOUNT;
-            $result->totalWDCOUNT = $totalWDCOUNT;
-            $result->totalRFCOUNT = $totalRFCOUNT;
-            $result->totalLNCOUNT = $totalLNCOUNT;
-            $result->totalDISBCOUNT = $totalDISBCOUNT;
-            $result->totalREGISTERED = $totalREGISTERED;
-            $result->first_page_url = request()->fullUrl();
-            $result->from = null;
-            $result->last_page = 1;
-            $result->last_page_url = request()->fullUrl();
-            $result->next_page_url = null;
-            $result->path = request()->url();
-            $result->per_page = 10;
-            $result->prev_page_url = null;
-            $result->to = null;
-            $result->total = $transactions->count();
-            return response()->json($result);
-        } else {
-            return 'non_role_error';
-        }
+        });
     }
 
 
 
     public function getdashboardlistthisyear()
     {
-        //this is literally 'Manage User Register'
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'super admin') {
+        $user = \Auth::user();
+        $compId = $user->comp_id;
+        $userType = $user->type;
+        $agentUser = ($userType == 'Agents') ? $user->created_by_user : null;
+        
+        $cacheKey = "dashboard_year_{$compId}_" . ($agentUser ?? 'admin');
 
-            $transactions = AccountsTransactions::select(
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) AS totalDP'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) AS totalWD'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) AS totalRF'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Repayment" THEN amount ELSE 0 END) AS totalLN'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Disbursed" THEN amount ELSE 0 END) AS totalDIS'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) AS totalAGTCM'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END) AS totalSCM'),
-                DB::raw('(SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END)) AS balance')
-            )
-                ->whereYear('created_at', date('Y'))
-                ->where('comp_id', \Auth::user()->comp_id)
+        return \Illuminate\Support\Facades\Cache::remember($cacheKey, 60, function() use ($compId, $agentUser) {
+            $year = date('Y');
+
+            // 1. Consolidated Transaction Metrics
+            $query = DB::table('nobs_transactions')
+                ->select(
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) AS totalDP'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) AS totalWD'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) AS totalRF'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Repayment" THEN amount ELSE 0 END) AS totalLN'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Disbursed" THEN amount ELSE 0 END) AS totalDIS'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) AS totalAGTCM'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END) AS totalSCM'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Deposit" THEN 1 END) as totalDPCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Withdraw" THEN 1 END) as totalWDCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Refund" THEN 1 END) as totalRFCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Repayment" THEN 1 END) as totalLNCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Disbursed" THEN 1 END) as totalDISBCOUNT')
+                )
+                ->whereYear('created_at', $year)
                 ->where('is_shown', 1)
                 ->where('row_version', 2)
-                ->get();
+                ->where('comp_id', $compId);
 
-            $totalREGISTERED =  DB::table('nobs_registration')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->whereYear('created_at', date('Y'))
-                ->count('id');
+            if ($agentUser) $query->where('users', $agentUser);
+            $transactionMetrics = $query->first();
 
+            // 2. Count Registered Users
+            $regQuery = DB::table('nobs_registration')->where('comp_id', $compId)->whereYear('created_at', $year);
+            if ($agentUser) $regQuery->where('user', $agentUser);
+            $totalREGISTERED = $regQuery->count('id');
 
-            $totalDPCOUNT =  DB::table('nobs_transactions')
-                ->whereYear('created_at', date('Y'))
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('name_of_transaction', 'Deposit')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
+            // 3. Loan Request Metrics
+            $loanReqQuery = DB::table('nobs_micro_loan_request')
+                ->select(DB::raw('COUNT(id) as count'), DB::raw('SUM(amount) as sum'))
+                ->where('comp_id', $compId)
+                ->where('loan_migrated', 0);
+            if ($agentUser) $loanReqQuery->where('user', $agentUser);
+            $loanRequestMetrics = $loanReqQuery->first();
 
-            $totalWDCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->whereYear('created_at', date('Y'))
-                ->where('name_of_transaction', 'Withdraw')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalRFCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->whereYear('created_at', date('Y'))
-                ->where('name_of_transaction', 'Refund')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalLNCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->whereYear('created_at', date('Y'))
-                ->where('name_of_transaction', 'Loan Repayment')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalDISBCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->whereYear('created_at', date('Y'))
-                ->where('name_of_transaction', 'Loan Disbursed')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalLNREQUESTCOUNT =  DB::table('nobs_micro_loan_request')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('loan_migrated', 0)
-                ->count('id');
-
-            $totalLNREQUESTSUM =  DB::table('nobs_micro_loan_request')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('loan_migrated', 0)->sum('amount');
+            // Format data
+            $balance = $transactionMetrics->totalDP - $transactionMetrics->totalWD - $transactionMetrics->totalRF - $transactionMetrics->totalAGTCM - $transactionMetrics->totalSCM;
+            
+            $dataRow = (object)[
+                'totalDP' => $transactionMetrics->totalDP,
+                'totalWD' => $transactionMetrics->totalWD,
+                'totalRF' => $transactionMetrics->totalRF,
+                'totalLN' => $transactionMetrics->totalLN,
+                'totalDIS' => $transactionMetrics->totalDIS,
+                'totalAGTCM' => $transactionMetrics->totalAGTCM,
+                'totalSCM' => $transactionMetrics->totalSCM,
+                'balance' => $balance
+            ];
 
             $result = new \stdClass();
             $result->current_page = 1;
-            $result->data = $transactions;
-            $result->totalLNREQUESTCOUNT = $totalLNREQUESTCOUNT;
-            $result->totalLNREQUESTSUM = $totalLNREQUESTSUM;
-            $result->totalDPCOUNT = $totalDPCOUNT;
-            $result->totalWDCOUNT = $totalWDCOUNT;
-            $result->totalRFCOUNT = $totalRFCOUNT;
-            $result->totalLNCOUNT = $totalLNCOUNT;
-            $result->totalDISBCOUNT = $totalDISBCOUNT;
+            $result->data = [$dataRow];
+            $result->totalLNREQUESTCOUNT = $loanRequestMetrics->count;
+            $result->totalLNREQUESTSUM = $loanRequestMetrics->sum;
+            $result->totalDPCOUNT = $transactionMetrics->totalDPCOUNT;
+            $result->totalWDCOUNT = $transactionMetrics->totalWDCOUNT;
+            $result->totalRFCOUNT = $transactionMetrics->totalRFCOUNT;
+            $result->totalLNCOUNT = $transactionMetrics->totalLNCOUNT;
+            $result->totalDISBCOUNT = $transactionMetrics->totalDISBCOUNT;
             $result->totalREGISTERED = $totalREGISTERED;
-            $result->first_page_url = request()->fullUrl();
-            $result->from = null;
-            $result->last_page = 1;
-            $result->last_page_url = request()->fullUrl();
-            $result->next_page_url = null;
-            $result->path = request()->url();
-            $result->per_page = 10;
-            $result->prev_page_url = null;
-            $result->to = null;
-            $result->total = $transactions->count();
+            $result->total = 1;
+
             return response()->json($result);
-        } elseif (\Auth::user()->type == 'Agents') {
-
-            // ->where('users', \Auth::user()->created_by_user)
-            $transactions = AccountsTransactions::select(
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) AS totalDP'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) AS totalWD'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) AS totalRF'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Repayment" THEN amount ELSE 0 END) AS totalLN'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Disbursed" THEN amount ELSE 0 END) AS totalDIS'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) AS totalAGTCM'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END) AS totalSCM'),
-                DB::raw('(SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END)) AS balance')
-            )
-                ->whereYear('created_at', date('Y'))
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('users', \Auth::user()->created_by_user)
-                ->where('is_shown', 1)
-                ->where('row_version', 2)
-                ->get();
-
-            $totalREGISTERED =  DB::table('nobs_registration')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('user', \Auth::user()->created_by_user)
-                ->whereYear('created_at', date('Y'))
-                ->count('id');
-
-
-            $totalDPCOUNT =  DB::table('nobs_transactions')
-                ->whereYear('created_at', date('Y'))
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('users', \Auth::user()->created_by_user)
-                ->where('name_of_transaction', 'Deposit')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalWDCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('users', \Auth::user()->created_by_user)
-                ->whereYear('created_at', date('Y'))
-                ->where('name_of_transaction', 'Withdraw')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalRFCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('users', \Auth::user()->created_by_user)
-                ->whereYear('created_at', date('Y'))
-                ->where('name_of_transaction', 'Refund')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalLNCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('users', \Auth::user()->created_by_user)
-                ->whereYear('created_at', date('Y'))
-                ->where('name_of_transaction', 'Loan Repayment')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalDISBCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('users', \Auth::user()->created_by_user)
-                ->whereYear('created_at', date('Y'))
-                ->where('name_of_transaction', 'Loan Disbursed')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalLNREQUESTCOUNT =  DB::table('nobs_micro_loan_request')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('user', \Auth::user()->created_by_user)
-                ->where('loan_migrated', 0)
-                ->count('id');
-
-            $totalLNREQUESTSUM =  DB::table('nobs_micro_loan_request')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('user', \Auth::user()->created_by_user)
-                ->where('loan_migrated', 0)->sum('amount');
-
-            $result = new \stdClass();
-            $result->current_page = 1;
-            $result->data = $transactions;
-            $result->totalLNREQUESTCOUNT = $totalLNREQUESTCOUNT;
-            $result->totalLNREQUESTSUM = $totalLNREQUESTSUM;
-            $result->totalDPCOUNT = $totalDPCOUNT;
-            $result->totalWDCOUNT = $totalWDCOUNT;
-            $result->totalRFCOUNT = $totalRFCOUNT;
-            $result->totalLNCOUNT = $totalLNCOUNT;
-            $result->totalDISBCOUNT = $totalDISBCOUNT;
-            $result->totalREGISTERED = $totalREGISTERED;
-            $result->first_page_url = request()->fullUrl();
-            $result->from = null;
-            $result->last_page = 1;
-            $result->last_page_url = request()->fullUrl();
-            $result->next_page_url = null;
-            $result->path = request()->url();
-            $result->per_page = 10;
-            $result->prev_page_url = null;
-            $result->to = null;
-            $result->total = $transactions->count();
-            return response()->json($result);
-
-            return 'agent_error';
-        } else {
-            return 'non_role_error';
-        }
+        });
     }
 
 
@@ -1342,185 +996,79 @@ class ApiUsersController extends Controller
 
     public function getdashboardlistalltime()
     {
-        //this is literally 'Manage User Register'
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'super admin') {
+        $user = \Auth::user();
+        $compId = $user->comp_id;
+        $userType = $user->type;
+        $agentUser = ($userType == 'Agents') ? $user->created_by_user : null;
+        
+        $cacheKey = "dashboard_alltime_{$compId}_" . ($agentUser ?? 'admin');
 
-            $transactions = AccountsTransactions::select(
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) AS totalDP'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) AS totalWD'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) AS totalRF'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Repayment" THEN amount ELSE 0 END) AS totalLN'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Disbursed" THEN amount ELSE 0 END) AS totalDIS'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) AS totalAGTCM'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END) AS totalSCM'),
-                DB::raw('(SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END)) AS balance')
-            )
+        return \Illuminate\Support\Facades\Cache::remember($cacheKey, 60, function() use ($compId, $agentUser) {
+            // 1. Consolidated Transaction Metrics
+            $query = DB::table('nobs_transactions')
+                ->select(
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) AS totalDP'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) AS totalWD'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) AS totalRF'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Repayment" THEN amount ELSE 0 END) AS totalLN'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Disbursed" THEN amount ELSE 0 END) AS totalDIS'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) AS totalAGTCM'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END) AS totalSCM'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Deposit" THEN 1 END) as totalDPCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Withdraw" THEN 1 END) as totalWDCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Refund" THEN 1 END) as totalRFCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Repayment" THEN 1 END) as totalLNCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Disbursed" THEN 1 END) as totalDISBCOUNT')
+                )
                 ->where('is_shown', 1)
-                ->where('comp_id', \Auth::user()->comp_id)
                 ->where('row_version', 2)
-                ->get();
+                ->where('comp_id', $compId);
 
-            $totalREGISTERED =  DB::table('nobs_registration')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->count('id');
+            if ($agentUser) $query->where('users', $agentUser);
+            $transactionMetrics = $query->first();
 
+            // 2. Count Registered Users
+            $regQuery = DB::table('nobs_registration')->where('comp_id', $compId);
+            if ($agentUser) $regQuery->where('user', $agentUser);
+            $totalREGISTERED = $regQuery->count('id');
 
-            $totalDPCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('name_of_transaction', 'Deposit')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
+            // 3. Loan Request Metrics
+            $loanReqQuery = DB::table('nobs_micro_loan_request')
+                ->select(DB::raw('COUNT(id) as count'), DB::raw('SUM(amount) as sum'))
+                ->where('comp_id', $compId)
+                ->where('loan_migrated', 0);
+            if ($agentUser) $loanReqQuery->where('user', $agentUser);
+            $loanRequestMetrics = $loanReqQuery->first();
 
-            $totalWDCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('name_of_transaction', 'Withdraw')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalRFCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('name_of_transaction', 'Refund')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalLNCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('name_of_transaction', 'Loan Repayment')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalDISBCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('name_of_transaction', 'Loan Disbursed')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalLNREQUESTCOUNT =  DB::table('nobs_micro_loan_request')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('loan_migrated', 0)
-                ->count('id');
-
-            $totalLNREQUESTSUM =  DB::table('nobs_micro_loan_request')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('loan_migrated', 0)->sum('amount');
+            // Format data
+            $balance = $transactionMetrics->totalDP - $transactionMetrics->totalWD - $transactionMetrics->totalRF - $transactionMetrics->totalAGTCM - $transactionMetrics->totalSCM;
+            
+            $dataRow = (object)[
+                'totalDP' => $transactionMetrics->totalDP,
+                'totalWD' => $transactionMetrics->totalWD,
+                'totalRF' => $transactionMetrics->totalRF,
+                'totalLN' => $transactionMetrics->totalLN,
+                'totalDIS' => $transactionMetrics->totalDIS,
+                'totalAGTCM' => $transactionMetrics->totalAGTCM,
+                'totalSCM' => $transactionMetrics->totalSCM,
+                'balance' => $balance
+            ];
 
             $result = new \stdClass();
             $result->current_page = 1;
-            $result->data = $transactions;
-            $result->totalLNREQUESTCOUNT = $totalLNREQUESTCOUNT;
-            $result->totalLNREQUESTSUM = $totalLNREQUESTSUM;
-            $result->totalDPCOUNT = $totalDPCOUNT;
-            $result->totalWDCOUNT = $totalWDCOUNT;
-            $result->totalRFCOUNT = $totalRFCOUNT;
-            $result->totalLNCOUNT = $totalLNCOUNT;
-            $result->totalDISBCOUNT = $totalDISBCOUNT;
+            $result->data = [$dataRow];
+            $result->totalLNREQUESTCOUNT = $loanRequestMetrics->count;
+            $result->totalLNREQUESTSUM = $loanRequestMetrics->sum;
+            $result->totalDPCOUNT = $transactionMetrics->totalDPCOUNT;
+            $result->totalWDCOUNT = $transactionMetrics->totalWDCOUNT;
+            $result->totalRFCOUNT = $transactionMetrics->totalRFCOUNT;
+            $result->totalLNCOUNT = $transactionMetrics->totalLNCOUNT;
+            $result->totalDISBCOUNT = $transactionMetrics->totalDISBCOUNT;
             $result->totalREGISTERED = $totalREGISTERED;
-            $result->first_page_url = request()->fullUrl();
-            $result->from = null;
-            $result->last_page = 1;
-            $result->last_page_url = request()->fullUrl();
-            $result->next_page_url = null;
-            $result->path = request()->url();
-            $result->per_page = 10;
-            $result->prev_page_url = null;
-            $result->to = null;
-            $result->total = $transactions->count();
+            $result->total = 1;
+
             return response()->json($result);
-        } elseif (\Auth::user()->type == 'Agents') {
-            //->where('users', \Auth::user()->created_by_user)
-            $transactions = AccountsTransactions::select(
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) AS totalDP'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) AS totalWD'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) AS totalRF'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Repayment" THEN amount ELSE 0 END) AS totalLN'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Disbursed" THEN amount ELSE 0 END) AS totalDIS'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) AS totalAGTCM'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END) AS totalSCM'),
-                DB::raw('(SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) - SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END)) AS balance')
-            )
-                ->where('is_shown', 1)
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('users', \Auth::user()->created_by_user)
-                ->where('row_version', 2)
-                ->get();
-
-            $totalREGISTERED =  DB::table('nobs_registration')
-                ->where('user', \Auth::user()->created_by_user)
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->count('id');
-
-
-            $totalDPCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('users', \Auth::user()->created_by_user)
-                ->where('name_of_transaction', 'Deposit')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalWDCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('users', \Auth::user()->created_by_user)
-                ->where('name_of_transaction', 'Withdraw')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalRFCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('users', \Auth::user()->created_by_user)
-                ->where('name_of_transaction', 'Refund')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalLNCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('users', \Auth::user()->created_by_user)
-                ->where('name_of_transaction', 'Loan Repayment')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalDISBCOUNT =  DB::table('nobs_transactions')
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('users', \Auth::user()->created_by_user)
-                ->where('name_of_transaction', 'Loan Disbursed')
-                ->where('is_shown', 1)
-                ->where('row_version', 2)->count('id');
-
-            $totalLNREQUESTCOUNT =  DB::table('nobs_micro_loan_request')
-                ->where('user', \Auth::user()->created_by_user)
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('loan_migrated', 0)
-                ->count('id');
-
-            $totalLNREQUESTSUM =  DB::table('nobs_micro_loan_request')
-                ->where('user', \Auth::user()->created_by_user)
-                ->where('comp_id', \Auth::user()->comp_id)
-                ->where('loan_migrated', 0)->sum('amount');
-
-            $result = new \stdClass();
-            $result->current_page = 1;
-            $result->data = $transactions;
-            $result->totalLNREQUESTCOUNT = $totalLNREQUESTCOUNT;
-            $result->totalLNREQUESTSUM = $totalLNREQUESTSUM;
-            $result->totalDPCOUNT = $totalDPCOUNT;
-            $result->totalWDCOUNT = $totalWDCOUNT;
-            $result->totalRFCOUNT = $totalRFCOUNT;
-            $result->totalLNCOUNT = $totalLNCOUNT;
-            $result->totalDISBCOUNT = $totalDISBCOUNT;
-            $result->totalREGISTERED = $totalREGISTERED;
-            $result->first_page_url = request()->fullUrl();
-            $result->from = null;
-            $result->last_page = 1;
-            $result->last_page_url = request()->fullUrl();
-            $result->next_page_url = null;
-            $result->path = request()->url();
-            $result->per_page = 10;
-            $result->prev_page_url = null;
-            $result->to = null;
-            $result->total = $transactions->count();
-            return response()->json($result);
-        } else {
-            return 'non_role_error';
-        }
+        });
     }
 
     public function getwithdrawallist()
@@ -1580,7 +1128,7 @@ class ApiUsersController extends Controller
 
         /*`__id__`, `account_number`, `account_type`, `amount`, `created_at3`, `det_rep_name_of_transaction`, `agentname`, `name_of_transaction`, `phone_number`, `transaction_id`, `users`, `deposit_total`, `updated_at`, `withdrawal_total`, `tid`, `id`, `is_shown`, `foreign_id`, `is_loan`, `created_at`, `updated`, `withdrawrequest_approved`, `withdrawrequest_disapproved`, `approved_by`, `paid_by`, `is_paid`, `paid_withdrawal_msg`, `row_version`*/
 
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
 
             $customers = DB::table('nobs_transactions')->select('__id__', 'account_number', 'account_type', 'amount', 'det_rep_name_of_transaction', 'agentname', 'name_of_transaction', 'transaction_id', 'users', 'id', 'created_at', DB::raw('created_at as created_at2'))->where('name_of_transaction', 'Refund')->where('comp_id', \Auth::user()->comp_id)->orderBy('id', 'DESC')->paginate(10);
             $customers->transform(function ($customer) {
@@ -1953,7 +1501,7 @@ class ApiUsersController extends Controller
     public function withdrawtransaction(Request $request)
     {
         //this is literally 'Manage User Register'
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
 
             $is_transaction_enabled = Companyinfo::where('id', \Auth::user()->comp_id)
                 ->where('transactional_credit', '>', 0)
@@ -2009,7 +1557,7 @@ class ApiUsersController extends Controller
     public function withdrawtransaction_susu(Request $request)
     {
         //this is literally 'Manage User Register'
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
 
             $is_transaction_enabled = Companyinfo::where('id', \Auth::user()->comp_id)
                 ->where('transactional_credit', '>', 0)
@@ -2727,7 +2275,7 @@ class ApiUsersController extends Controller
     public function withdrawalrequests_approved()
     {
         //this is literally 'Manage User Register'
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
             // $agentnames = User::orderBy('name', 'ASC')->where('type','!=','Super Admin')->where('type','!=','owner')->get();
             // $unapprovedcounts = AccountsTransactions::orderBy('id', 'DESC')->where('name_of_transaction','Withdrawal Request')->where('withdrawrequest_approved',0)->count();
             // $approvedcounts = AccountsTransactions::orderBy('id', 'DESC')->where('name_of_transaction','Withdrawal Request')->where('withdrawrequest_approved',1)->where('is_paid',0)->count();
@@ -2765,7 +2313,7 @@ class ApiUsersController extends Controller
     public function deposittransaction_susu(Request $request)
     {
         //this is literally 'Manage User Register'
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
 
             $is_transaction_enabled = Companyinfo::where('id', \Auth::user()->comp_id)
                 ->where('transactional_credit', '>', 0)
@@ -2885,7 +2433,7 @@ class ApiUsersController extends Controller
     public function deposittransaction(Request $request)
     {
         //this is literally 'Manage User Register'
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
             $is_transaction_enabled = Companyinfo::where('id', \Auth::user()->comp_id)
                 ->where('transactional_credit', '>', 0)
                 ->exists();
@@ -2993,7 +2541,7 @@ class ApiUsersController extends Controller
 
     public function registeruserac(Request $request)
     {
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
 
             $mydatey = date("Y-m-d H:i:s");
 
@@ -3230,7 +2778,7 @@ class ApiUsersController extends Controller
 
     public function checkifsusuaccount(Request $request)
     {
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
             $account_exist = SusuCycles::where('account_number', $request->accountid)->where('comp_id', \Auth::user()->comp_id)->first();
 
             if ($account_exist) {
@@ -3248,7 +2796,7 @@ class ApiUsersController extends Controller
     public function getsusuaccount(Request $request)
     {
         // Check user type for permission
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
             // Retrieve existing JSON data as an array
             $susuaccounts = SusuCycles::select('*')
                 ->where('comp_id', \Auth::user()->comp_id)
@@ -3502,7 +3050,7 @@ class ApiUsersController extends Controller
 
 
 
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
 
             //this is literally 'Manage User Register'
             $accountsid = $request->accountid;
@@ -3545,7 +3093,7 @@ class ApiUsersController extends Controller
         $commissionchargetype = '';
 
 
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
 
             $commissionchargetype = '';
 
@@ -3624,7 +3172,7 @@ class ApiUsersController extends Controller
         $accountsid = $request->accountid;
 
 
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
 
             /* $mainaccountnumber = UserAccountNumbers::where('account_number',$accountsid)->pluck('primary_account_number');
        $accounttype = UserAccountNumbers::where('account_number',$accountsid)->pluck('account_type');
@@ -3649,7 +3197,7 @@ class ApiUsersController extends Controller
     public function getuseraccountnumbers(Request $request)
     {
         // Check user type for permission
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
             // Retrieve existing JSON data as an array
             $accountnumbers = UserAccountNumbers::select('id', 'account_number', 'account_type', 'balance')
                 ->where('comp_id', \Auth::user()->comp_id)
@@ -3691,7 +3239,7 @@ class ApiUsersController extends Controller
     public function addaccounttouser(Request $request)
     {
         // Check user type for permission
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
             // Retrieve existing JSON data as an array
             $mydatey = date("Y-m-d H:i:s");
 
@@ -3771,7 +3319,7 @@ class ApiUsersController extends Controller
      public function updatecustomer_accounttype(Request $request)
      {
          // Check user type for permission
-         if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+         if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
              // Retrieve existing JSON data as an array
              $mydatey = date("Y-m-d H:i:s");
      
@@ -3803,7 +3351,7 @@ class ApiUsersController extends Controller
     public function getusertransactions(Request $request)
     {
         // Check user type for permission
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
             // Retrieve existing JSON data as an array
             $usertransactions = AccountsTransactions::select('id', 'account_number', 'amount', 'name_of_transaction', 'balance', 'created_at', 'transaction_id','agentname')
                 ->where('account_number', $request->accountnumber)
@@ -3854,7 +3402,7 @@ class ApiUsersController extends Controller
     public function getprintedstatements(Request $request)
     {
         // Check user type for permission
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
             // Retrieve existing JSON data as an array
             $usertransactions = AccountsTransactions::select('id', 'account_number', 'amount', 'name_of_transaction', 'balance', 'created_at')
                 ->where('account_number', $request->myuseracnumber)
@@ -3897,7 +3445,7 @@ class ApiUsersController extends Controller
 
     public function getprintedtransactionsbyid(Request $request)
     {
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
             // Retrieve existing JSON data as an array
             $usertransactions = AccountsTransactions::select('id', 'account_number', 'amount', 'name_of_transaction', 'balance', 'created_at', 'det_rep_name_of_transaction', 'account_type')
                 ->where('transaction_id', $request->myuseracnumber)
@@ -3939,7 +3487,7 @@ class ApiUsersController extends Controller
     public function getprintedtransactions(Request $request)
     {
         // Check user type for permission
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
             // Retrieve existing JSON data as an array
             $usertransactions = AccountsTransactions::select('id', 'account_number', 'amount', 'name_of_transaction', 'balance', 'created_at')
                 ->where('account_number', $request->accountnumber)
@@ -3969,7 +3517,7 @@ class ApiUsersController extends Controller
     public function getprinteddeposits(Request $request)
     {
         // Check user type for permission
-        if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
+        if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
             // Retrieve existing JSON data as an array
             $usertransactions = AccountsTransactions::select('id', 'account_number', 'amount', 'name_of_transaction', 'balance', 'created_at')
                 ->where('account_number', $request->myuseracnumber)

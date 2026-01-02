@@ -45,61 +45,68 @@ class DashboardController extends Controller
             }
             else
             {
-                $data['totalUser']          = User::where('created_by', \Auth::user()->creatorId())->count();
-                $data['totalAccount']       = Account::where('created_by', \Auth::user()->creatorId())->count();
-                $data['totalContact']       = Contact::where('created_by', \Auth::user()->creatorId())->count();
-                $data['totalLead']          = Lead::where('created_by', \Auth::user()->creatorId())->count();
-                $data['totalSalesorder']    = $totalSalesOrder = SalesOrder::where('created_by', \Auth::user()->creatorId())->count();
-                $data['totalInvoice']       = $totalInvoice = Invoice::where('created_by', \Auth::user()->creatorId())->count();
-                $data['totalQuote']         = $totalQuote = Quote::where('created_by', \Auth::user()->creatorId())->count();
-                $data['totalOpportunities'] = Opportunities::where('created_by', \Auth::user()->creatorId())->count();
-                $data['totalProduct']       = Product::where('created_by', \Auth::user()->creatorId())->count();
-                $data['invoiceColor']       = Invoice::$statuesColor;
+                $creatorId = \Auth::user()->creatorId();
+                $cacheKey = "dashboard_metrics_$creatorId";
+
+                $data = \Illuminate\Support\Facades\Cache::remember($cacheKey, 300, function() use ($creatorId) {
+                    $results = [];
+                    $results['totalUser']          = User::where('created_by', $creatorId)->count();
+                    $results['totalAccount']       = Account::where('created_by', $creatorId)->count();
+                    $results['totalContact']       = Contact::where('created_by', $creatorId)->count();
+                    $results['totalLead']          = Lead::where('created_by', $creatorId)->count();
+                    $results['totalSalesorder']    = $totalSalesOrder = SalesOrder::where('created_by', $creatorId)->count();
+                    $results['totalInvoice']       = $totalInvoice = Invoice::where('created_by', $creatorId)->count();
+                    $results['totalQuote']         = $totalQuote = Quote::where('created_by', $creatorId)->count();
+                    $results['totalOpportunities'] = Opportunities::where('created_by', $creatorId)->count();
+                    $results['totalProduct']       = Product::where('created_by', $creatorId)->count();
+                    $results['invoiceColor']       = Invoice::$statuesColor;
 
 
-                $statuss  = Invoice::$status;
-                $invoices = [];
-                foreach($statuss as $id => $status)
-                {
-                    $invoice                   = $total = Invoice::where('status', $id)->where('created_by', \Auth::user()->creatorId())->count();
-                    $percentage                = ($totalInvoice != 0) ? ($total * 100) / $totalInvoice : '0';
-                    $invoicedata['percentage'] = number_format($percentage, 2);
-                    $invoicedata['data']       = $invoice;
-                    $invoicedata['status']     = $status;
-                    $invoices[]                = $invoicedata;
+                    $statuss  = Invoice::$status;
+                    $invoices = [];
+                    foreach($statuss as $id => $status)
+                    {
+                        $invoice                   = $total = Invoice::where('status', $id)->where('created_by', $creatorId)->count();
+                        $percentage                = ($totalInvoice != 0) ? ($total * 100) / $totalInvoice : '0';
+                        $invoicedata['percentage'] = number_format($percentage, 2);
+                        $invoicedata['data']       = $invoice;
+                        $invoicedata['status']     = $status;
+                        $invoices[]                = $invoicedata;
 
-                }
+                    }
 
-                $data['invoice'] = $invoices;
-
-
-                $statuss = Quote::$status;
-                $quotes  = [];
-                foreach($statuss as $id => $status)
-                {
-                    $quote = $total = Quote::where('status', $id)->where('created_by', \Auth::user()->creatorId())->count();
-
-                    $percentage              = ($totalQuote != 0) ? ($total * 100) / $totalQuote : '0';
-                    $quotedata['percentage'] = number_format($percentage, 2);
-                    $quotedata['data']       = $quote;
-                    $quotedata['status']     = $status;
-                    $quotes[]                = $quotedata;
-                }
-                $data['quote'] = $quotes;
+                    $results['invoice'] = $invoices;
 
 
-                $statuss     = SalesOrder::$status;
-                $salesOrders = [];
-                foreach($statuss as $id => $status)
-                {
-                    $salesorder                   = SalesOrder::where('status', $id)->where('created_by', \Auth::user()->creatorId())->count();
-                    $percentage                   = ($totalSalesOrder != 0) ? ($total * 100) / $totalSalesOrder : '0';
-                    $salesorderdata['percentage'] = number_format($percentage, 2);
-                    $salesorderdata['data']       = $salesorder;
-                    $salesorderdata['status']     = $status;
-                    $salesOrders[]                = $salesorderdata;
-                }
-                $data['salesOrder'] = $salesOrders;
+                    $statuss = Quote::$status;
+                    $quotes  = [];
+                    foreach($statuss as $id => $status)
+                    {
+                        $quote = $total = Quote::where('status', $id)->where('created_by', $creatorId)->count();
+
+                        $percentage              = ($totalQuote != 0) ? ($total * 100) / $totalQuote : '0';
+                        $quotedata['percentage'] = number_format($percentage, 2);
+                        $quotedata['data']       = $quote;
+                        $quotedata['status']     = $status;
+                        $quotes[]                = $quotedata;
+                    }
+                    $results['quote'] = $quotes;
+
+
+                    $statuss     = SalesOrder::$status;
+                    $salesOrders = [];
+                    foreach($statuss as $id => $status)
+                    {
+                        $salesorder                   = SalesOrder::where('status', $id)->where('created_by', $creatorId)->count();
+                        $percentage                   = ($totalSalesOrder != 0) ? ($total * 100) / $totalSalesOrder : '0';
+                        $salesorderdata['percentage'] = number_format($percentage, 2);
+                        $salesorderdata['data']       = $salesorder;
+                        $salesorderdata['status']     = $status;
+                        $salesOrders[]                = $salesorderdata;
+                    }
+                    $results['salesOrder'] = $salesOrders;
+                    return $results;
+                });
 
                 $data['lineChartData'] = \Auth::user()->getIncExpLineChartDate();
 
