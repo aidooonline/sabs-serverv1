@@ -318,8 +318,8 @@ class ApiUsersController extends Controller
             // Optimization: If search term looks like an Account Number or Phone, use direct index lookup
             if (preg_match('/^[A-Z0-9-]{5,}$/i', $searchTerm)) {
                 $query->where(function($q) use ($searchTerm) {
-                    $q->where('account_number', $searchTerm)
-                      ->orWhere('phone_number', 'like', "%$searchTerm%");
+                    $q->where('nobs_registration.account_number', $searchTerm)
+                      ->orWhere('nobs_registration.phone_number', 'like', "%$searchTerm%");
                 });
             } else {
                 // Name search
