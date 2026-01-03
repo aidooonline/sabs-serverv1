@@ -41,7 +41,7 @@ class LoanApplicationController extends Controller
         }
 
         // Order by newest first
-        $applications = $query->orderBy('created_at', 'desc')->get();
+        $applications = $query->orderBy('created_at', 'desc')->paginate(20);
 
         return response()->json([
             'success' => true,
@@ -290,6 +290,28 @@ class LoanApplicationController extends Controller
     }
 
     /**
+     * Submit a pending application for approval.
+     */
+    public function submitForApproval(Request $request, $id)
+    {
+        $application = LoanApplication::find($id);
+
+        if (!$application) {
+            return response()->json(['success' => false, 'message' => 'Loan application not found'], 404);
+        }
+
+        // Anti-Duplicate Logic: Only allow submission if status is 'pending' or 'rejected'
+        if (!in_array($application->status, ['pending', 'rejected'])) {
+            return response()->json(['success' => false, 'message' => 'Application has already been submitted or processed.'], 400);
+        }
+
+        $application->status = 'pending_approval';
+        $application->save();
+
+        return response()->json(['success' => true, 'message' => 'Application submitted for approval.', 'data' => $application], 200);
+    }
+
+    /**
      * Display the specified loan application.
      */
     public function show(Request $request, $id)
@@ -345,7 +367,7 @@ class LoanApplicationController extends Controller
                 $query->where('assigned_to_user_id', $request->agent_id);
             }
 
-            $applications = $query->orderBy('updated_at', 'desc')->get();
+            $applications = $query->orderBy('updated_at', 'desc')->paginate(20);
 
             return response()->json(['success' => true, 'data' => $applications], 200);
 
