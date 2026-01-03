@@ -2,7 +2,7 @@
 
 namespace App;
 
-use Illuminate->Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Model;
 use App\Traits\HasCompany;
 
 class LoanFee extends Model
