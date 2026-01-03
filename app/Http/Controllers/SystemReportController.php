@@ -89,7 +89,7 @@ class SystemReportController extends Controller
     /**
      * Get Top Depositors for a specific date range.
      */
-    public function getTopDepositors(Request $request)
+    public function getTopCustomers(Request $request)
     {
         if (!$this->isManagement()) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
