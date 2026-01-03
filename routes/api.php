@@ -105,6 +105,7 @@ Route::middleware(['auth:api'])->group(function () {
         Route::get('dormancy-stats', [App\Http\Controllers\SystemReportController::class, 'getDormancyStats']);
         Route::get('integrity-check', [App\Http\Controllers\SystemReportController::class, 'getIntegrityReport']);
         Route::get('top-customers', [App\Http\Controllers\SystemReportController::class, 'getTopCustomers']);
+        Route::get('financial-performance', [App\Http\Controllers\SystemReportController::class, 'getFinancialPerformance']);
     });
     // -------------------------------
 
