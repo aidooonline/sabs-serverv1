@@ -11,7 +11,7 @@ class LoanApplicationRequirement extends Model
 
     protected $table = 'loan_application_requirements';
     protected $guarded = ['id'];
-    protected $fillable = ['comp_id']; // Added comp_id to fillable
+    protected $fillable = ['comp_id', 'loan_application_id', 'requirement_id', 'is_met'];
 
     public function requirement()
     {
