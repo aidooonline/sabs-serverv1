@@ -42,6 +42,12 @@ class SystemReportController extends Controller
                 ->where('comp_id', $compId)
                 ->count();
 
+            // 5. Active Customers (Last 90 Days) - Based on account_status from Scheduler
+            $activeCustomers = DB::table('nobs_user_account_numbers')
+                ->where('comp_id', $compId)
+                ->where('account_status', 'active')
+                ->count();
+
             return response()->json([
                 'success' => true,
                 'data' => [
@@ -49,8 +55,90 @@ class SystemReportController extends Controller
                     'total_loan_portfolio' => round($totalLoanPortfolio, 2),
                     'total_pool_cash' => round($totalPoolCash, 2),
                     'total_customers' => $totalCustomers,
+                    'active_customers' => $activeCustomers,
                     'last_updated' => now()->toDateTimeString()
                 ]
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Get Top Withdrawals for a specific date range.
+     */
+    public function getTopWithdrawals(Request $request)
+    {
+        if (!$this->isManagement()) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        try {
+            $compId = auth()->user()->comp_id;
+            $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date')) : Carbon::now()->startOfMonth();
+            $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : Carbon::now()->endOfMonth();
+
+            $topWithdrawals = DB::table('nobs_transactions')
+                ->join('nobs_registration', 'nobs_transactions.account_number', '=', 'nobs_registration.account_number')
+                ->select(
+                    'nobs_transactions.account_number',
+                    DB::raw('CONCAT(first_name, " ", surname) as customer_name'),
+                    DB::raw('SUM(amount) as total_withdrawn')
+                )
+                ->where('nobs_transactions.comp_id', $compId)
+                ->whereIn('name_of_transaction', ['Withdraw', 'Withdrawal'])
+                ->whereBetween('nobs_transactions.created_at', [$startDate, $endDate])
+                ->groupBy('nobs_transactions.account_number', 'customer_name')
+                ->orderBy('total_withdrawn', 'DESC')
+                ->limit(10)
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => $topWithdrawals,
+                'period' => $startDate->toDateString() . ' to ' . $endDate->toDateString()
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Get Top Borrowers (Loan Applicants) for a specific date range.
+     */
+    public function getTopBorrowers(Request $request)
+    {
+        if (!$this->isManagement()) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        try {
+            $compId = auth()->user()->comp_id;
+            $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date')) : Carbon::now()->startOfMonth();
+            $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : Carbon::now()->endOfMonth();
+
+            $topBorrowers = DB::table('loan_applications')
+                ->join('nobs_registration', 'loan_applications.customer_id', '=', 'nobs_registration.id')
+                ->select(
+                    'nobs_registration.account_number',
+                    DB::raw('CONCAT(nobs_registration.first_name, " ", nobs_registration.surname) as customer_name'),
+                    DB::raw('SUM(loan_applications.amount) as total_borrowed'),
+                    DB::raw('COUNT(loan_applications.id) as loan_count')
+                )
+                ->where('loan_applications.comp_id', $compId)
+                ->whereIn('loan_applications.status', ['active', 'disbursed', 'repaid']) // Only count approved loans
+                ->whereBetween('loan_applications.created_at', [$startDate, $endDate])
+                ->groupBy('nobs_registration.account_number', 'customer_name')
+                ->orderBy('total_borrowed', 'DESC')
+                ->limit(10)
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => $topBorrowers,
+                'period' => $startDate->toDateString() . ' to ' . $endDate->toDateString()
             ]);
 
         } catch (\Exception $e) {
