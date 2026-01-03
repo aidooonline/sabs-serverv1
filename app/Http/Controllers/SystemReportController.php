@@ -297,6 +297,130 @@ class SystemReportController extends Controller
         }
     }
 
+    /**
+     * Get Top Account Balances (Highest Savings).
+     */
+    public function getTopAccountBalances()
+    {
+        if (!$this->isManagement()) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        try {
+            $compId = auth()->user()->comp_id;
+
+            $topAccounts = DB::table('nobs_user_account_numbers')
+                ->join('nobs_registration', 'nobs_user_account_numbers.account_number', '=', 'nobs_registration.account_number')
+                ->select(
+                    'nobs_user_account_numbers.account_number',
+                    DB::raw('CONCAT(first_name, " ", surname) as customer_name'),
+                    'nobs_user_account_numbers.balance'
+                )
+                ->where('nobs_user_account_numbers.comp_id', $compId)
+                ->orderBy('balance', 'DESC')
+                ->limit(10)
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => $topAccounts
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Helper to get Top Agents by Transaction Type.
+     */
+    private function getTopAgentsByTransaction($type, $request)
+    {
+        $compId = auth()->user()->comp_id;
+        $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date')) : Carbon::now()->startOfMonth();
+        $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : Carbon::now()->endOfMonth();
+
+        return DB::table('nobs_transactions')
+            ->join('users', 'nobs_transactions.users', '=', 'users.id')
+            ->select(
+                'users.name as agent_name',
+                DB::raw('SUM(amount) as total_amount'),
+                DB::raw('COUNT(nobs_transactions.id) as transaction_count')
+            )
+            ->where('nobs_transactions.comp_id', $compId)
+            ->where('name_of_transaction', $type)
+            ->whereBetween('nobs_transactions.created_at', [$startDate, $endDate])
+            ->groupBy('users.name')
+            ->orderBy('total_amount', 'DESC')
+            ->limit(10)
+            ->get();
+    }
+
+    public function getTopAgentDeposits(Request $request)
+    {
+        if (!$this->isManagement()) return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        try {
+            $data = $this->getTopAgentsByTransaction('Deposit', $request);
+            return response()->json(['success' => true, 'data' => $data]);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    public function getTopAgentWithdrawals(Request $request)
+    {
+        if (!$this->isManagement()) return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        try {
+            // Check for both 'Withdraw' and 'Withdrawal' variants if inconsistent
+            $data = $this->getTopAgentsByTransaction('Withdraw', $request); 
+            return response()->json(['success' => true, 'data' => $data]);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    public function getTopAgentRepayments(Request $request)
+    {
+        if (!$this->isManagement()) return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        try {
+            // 'Loan Repayment' is the standard transaction name
+            $data = $this->getTopAgentsByTransaction('Loan Repayment', $request);
+            return response()->json(['success' => true, 'data' => $data]);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    public function getTopAgentDisbursals(Request $request)
+    {
+        if (!$this->isManagement()) return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        try {
+            $compId = auth()->user()->comp_id;
+            $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date')) : Carbon::now()->startOfMonth();
+            $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : Carbon::now()->endOfMonth();
+
+            $topAgents = DB::table('loan_applications')
+                ->join('users', 'loan_applications.created_by_user_id', '=', 'users.id')
+                ->select(
+                    'users.name as agent_name',
+                    DB::raw('SUM(amount) as total_amount'),
+                    DB::raw('COUNT(loan_applications.id) as transaction_count')
+                )
+                ->where('loan_applications.comp_id', $compId)
+                ->whereIn('status', ['active', 'disbursed', 'repaid'])
+                ->whereBetween('loan_applications.repayment_start_date', [$startDate, $endDate]) // Use disbursement date
+                ->groupBy('users.name')
+                ->orderBy('total_amount', 'DESC')
+                ->limit(10)
+                ->get();
+
+            return response()->json(['success' => true, 'data' => $topAgents]);
+
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
     private function isManagement()
     {
         $user = auth()->user();

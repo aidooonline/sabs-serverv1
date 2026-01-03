@@ -108,6 +108,11 @@ Route::middleware(['auth:api'])->group(function () {
         Route::get('top-withdrawals', [App\Http\Controllers\SystemReportController::class, 'getTopWithdrawals']);
         Route::get('top-borrowers', [App\Http\Controllers\SystemReportController::class, 'getTopBorrowers']);
         Route::get('financial-performance', [App\Http\Controllers\SystemReportController::class, 'getFinancialPerformance']);
+        Route::get('top-balances', [App\Http\Controllers\SystemReportController::class, 'getTopAccountBalances']);
+        Route::get('top-agent-deposits', [App\Http\Controllers\SystemReportController::class, 'getTopAgentDeposits']);
+        Route::get('top-agent-withdrawals', [App\Http\Controllers\SystemReportController::class, 'getTopAgentWithdrawals']);
+        Route::get('top-agent-repayments', [App\Http\Controllers\SystemReportController::class, 'getTopAgentRepayments']);
+        Route::get('top-agent-disbursals', [App\Http\Controllers\SystemReportController::class, 'getTopAgentDisbursals']);
     });
     // -------------------------------
 
