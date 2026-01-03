@@ -129,7 +129,8 @@ class LoanReportController extends Controller
 
 
         // Total Cash Available (from CompanyInfo)
-        $companyCash = CompanyInfo::first()->amount_in_cash ?? 0;
+        $companyId = auth()->user()->comp_id;
+        $companyCash = CompanyInfo::where('id', $companyId)->value('amount_in_cash') ?? 0;
 
         // Pool Balance (Central Loan Account)
         $poolBalance = CentralLoanAccount::sum('balance') ?? 0;

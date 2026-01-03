@@ -6,11 +6,13 @@ use Carbon\Carbon;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Spatie\Permission\Traits\HasRoles;
+use App\Traits\HasCompany;
 
 
 class User extends Authenticatable
 {
     use HasRoles;
+    use HasCompany;
     use Notifiable;
     public $guard_name = 'web';
 

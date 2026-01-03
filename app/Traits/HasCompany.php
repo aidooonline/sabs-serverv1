@@ -14,17 +14,17 @@ trait HasCompany
      */
     protected static function bootHasCompany()
     {
-        if (Auth::check()) {
-            static::addGlobalScope('company', function (Builder $builder) {
+        static::addGlobalScope('company', function (Builder $builder) {
+            if (Auth::check()) {
                 $builder->where($builder->qualifyColumn('comp_id'), Auth::user()->comp_id);
-            });
+            }
+        });
 
-            static::creating(function ($model) {
-                if (Auth::check()) {
-                    $model->comp_id = Auth::user()->comp_id;
-                }
-            });
-        }
+        static::creating(function ($model) {
+            if (Auth::check()) {
+                $model->comp_id = Auth::user()->comp_id;
+            }
+        });
     }
 
     /**

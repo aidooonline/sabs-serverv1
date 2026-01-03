@@ -26,12 +26,11 @@ class SystemReportController extends Controller
                 ->sum('balance');
 
             // 2. Total Loan Portfolio (Principal currently out with customers)
-            // Fix: Join with nobs_registration because loan_applications might not have comp_id yet
+            // Simplified: Query loan_applications directly using the new comp_id column (Sprint 10 Patch)
             $totalLoanPortfolio = DB::table('loan_applications')
-                ->join('nobs_registration', 'loan_applications.customer_id', '=', 'nobs_registration.id')
-                ->where('nobs_registration.comp_id', $compId)
-                ->whereIn('loan_applications.status', ['active', 'disbursed'])
-                ->sum('loan_applications.amount');
+                ->where('comp_id', $compId)
+                ->whereIn('status', ['active', 'disbursed'])
+                ->sum('amount');
 
             // 3. Total Pool Cash (Available cash in the loan system)
             $totalPoolCash = DB::table('central_loan_accounts')

@@ -110,8 +110,8 @@ Route::middleware(['auth:api'])->group(function () {
 
     // --- SYSTEM MAINTENANCE ---
     Route::group(['prefix' => 'maintenance'], function () {
-        Route::post('reset-loans', 'SystemMaintenanceController@resetLoanSystem');
-        Route::post('fix-negative-balances', 'SystemMaintenanceController@fixNegativeBalances');
+        Route::post('reset-loans', [App\Http\Controllers\MaintenanceController::class, 'resetLoans']);
+        Route::post('fix-negative-balances', [App\Http\Controllers\MaintenanceController::class, 'fixNegativeBalances']);
     });
     // --------------------------
 

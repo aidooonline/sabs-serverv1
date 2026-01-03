@@ -33,6 +33,35 @@ class SchedulerController extends Controller
         }
 
         try {
+            // ... existing schema checks ...
+
+            // --- ONE-TIME BACKFILL MECHANISM (Sprint 10 Fix) ---
+            $company = CompanyInfo::find(auth('api')->user()->comp_id);
+            $settings = json_decode($company->loan_cron_settings, true) ?? [];
+
+            if (!isset($settings['sprint10_backfill_done']) || !$settings['sprint10_backfill_done']) {
+                $targetCompId = $company->id; // Use the current admin's company ID
+
+                $tablesToBackfill = [
+                    'nobs_registration', 'loan_applications', 'loan_repayment_schedules', 
+                    'nobs_transactions', 'users', 'nobs_loan_repayment', 'nobs_micro_loan_request',
+                    'central_loan_accounts', 'nobs_user_account_numbers'
+                ];
+
+                foreach ($tablesToBackfill as $t) {
+                    if (Schema::hasTable($t) && Schema::hasColumn($t, 'comp_id')) {
+                        // Only update orphans
+                        DB::table($t)->whereNull('comp_id')->update(['comp_id' => $targetCompId]);
+                    }
+                }
+
+                // Mark as done
+                $settings['sprint10_backfill_done'] = true;
+                $company->loan_cron_settings = json_encode($settings);
+                $company->save();
+            }
+            // ----------------------------------------------------
+
             $tableName = 'accounts'; // CompanyInfo uses this table
 
             // 1. Add Scheduler columns to accounts table

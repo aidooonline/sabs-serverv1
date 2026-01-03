@@ -3,9 +3,11 @@
 namespace App;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Traits\HasCompany;
 
 class Loanrequests extends Model
 {
+    use HasCompany;
 
     protected $table = 'nobs_micro_loan_request';
     protected $primaryKey = 'id';
