@@ -87,45 +87,6 @@ class SystemReportController extends Controller
     }
 
     /**
-     * Integrity Check: Detect duplicate commission deductions in the date range.
-     */
-    public function getIntegrityReport(Request $request)
-    {
-        if (!$this->isManagement()) {
-            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
-        }
-
-        try {
-            $compId = auth()->user()->comp_id;
-            $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date')) : Carbon::now()->startOfMonth();
-            $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : Carbon::now()->endOfMonth();
-
-            // Find accounts with > 1 'Commission' transaction in the period
-            // NOTE: Logic might need adjustment if commissions are daily. Assuming monthly.
-            // If per-transaction commission, this check is invalid. 
-            // Assuming this is for "Monthly Maintenance Fee".
-            
-            $duplicates = DB::table('nobs_transactions')
-                ->select('account_number', DB::raw('count(*) as deduction_count'), DB::raw('SUM(amount) as total_deducted'))
-                ->where('comp_id', $compId)
-                ->where('name_of_transaction', 'Commission')
-                ->whereBetween('created_at', [$startDate, $endDate])
-                ->groupBy('account_number')
-                ->having('deduction_count', '>', 1)
-                ->get();
-
-            return response()->json([
-                'success' => true,
-                'data' => $duplicates,
-                'check_period' => $startDate->toDateString() . ' to ' . $endDate->toDateString()
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
-        }
-    }
-
-    /**
      * Get Top Depositors for a specific date range.
      */
     public function getTopDepositors(Request $request)
@@ -191,11 +152,7 @@ class SystemReportController extends Controller
                 ->whereBetween('updated_at', [$startDate, $endDate])
                 ->sum('fees_paid');
             
-            // Fees Upfront (from Loan Deductions) - Optional, depends on business logic. 
-            // For now, let's track fees collected via repayments.
-
             // Commission Revenue (What the company kept from withdrawals/deposits if applicable)
-            // Implementation depends on if 'Commission' transaction goes to company wallet.
             $commissions = DB::table('nobs_transactions')
                 ->where('comp_id', $compId)
                 ->where('name_of_transaction', 'Commission')
@@ -232,10 +189,6 @@ class SystemReportController extends Controller
             $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : Carbon::now()->endOfMonth();
 
             // Find accounts with > 1 'Commission' transaction in the period
-            // NOTE: Logic might need adjustment if commissions are daily. Assuming monthly.
-            // If per-transaction commission, this check is invalid. 
-            // Assuming this is for "Monthly Maintenance Fee".
-            
             $duplicates = DB::table('nobs_transactions')
                 ->select('account_number', DB::raw('count(*) as deduction_count'), DB::raw('SUM(amount) as total_deducted'))
                 ->where('comp_id', $compId)
