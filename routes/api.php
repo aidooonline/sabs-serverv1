@@ -26,7 +26,6 @@ Route::middleware(['auth:api'])->group(function () {
 
 
     Route::post('users/{id}/toggle-status', [ApiUsersController::class, 'toggleUserStatus']);
-    Route::get('active-agents', [ApiUsersController::class, 'getActiveAgents']);
     Route::get('usersapi', [ApiUsersController::class, 'getagents']);
     Route::get('customerssapi', [ApiUsersController::class, 'getcustomers']);
     Route::get('getcustomerbyid', [ApiUsersController::class, 'getcustomerbyid']);
