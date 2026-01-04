@@ -12,9 +12,16 @@ class LoanProductController extends Controller
     /**
      * List all loan products.
      */
-    public function index()
+    public function index(Request $request)
     {
-        $products = LoanProduct::with('fees')->where('is_active', 1)->latest()->paginate(10);
+        $query = LoanProduct::with('fees')->where('is_active', 1)->latest();
+
+        if ($request->has('all')) {
+            $products = $query->get();
+        } else {
+            $products = $query->paginate(10);
+        }
+
         return response()->json(['success' => true, 'data' => $products], 200);
     }
 
