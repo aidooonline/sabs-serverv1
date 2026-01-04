@@ -48,6 +48,58 @@ class LoanProductController extends Controller
     }
 
     /**
+     * Show a specific loan product.
+     */
+    public function show($id)
+    {
+        $product = LoanProduct::with('fees')->find($id);
+
+        if (!$product) {
+            return response()->json(['success' => false, 'message' => 'Loan Product not found'], 404);
+        }
+
+        return response()->json(['success' => true, 'data' => $product], 200);
+    }
+
+    /**
+     * Update a loan product.
+     */
+    public function update(Request $request, $id)
+    {
+        $product = LoanProduct::find($id);
+
+        if (!$product) {
+            return response()->json(['success' => false, 'message' => 'Loan Product not found'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255',
+            'interest_rate' => 'required|numeric|min:0',
+            'duration' => 'required|integer|min:1',
+            'duration_unit' => 'required|in:month,week,day',
+            'repayment_frequency' => 'required|in:monthly,weekly,daily',
+            'description' => 'nullable|string',
+            'fees' => 'nullable|array',
+            'fees.*' => 'exists:loan_fees,id'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'message' => $validator->errors()], 400);
+        }
+
+        $product->update($request->except('fees'));
+
+        if ($request->has('fees')) {
+            $product->fees()->sync($request->fees);
+        }
+
+        // Reload to include fees in response
+        $product->load('fees');
+
+        return response()->json(['success' => true, 'data' => $product, 'message' => 'Loan Product updated successfully'], 200);
+    }
+
+    /**
      * List all available fees.
      */
     public function getFees()

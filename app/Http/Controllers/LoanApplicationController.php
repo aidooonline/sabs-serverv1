@@ -101,6 +101,8 @@ class LoanApplicationController extends Controller
             $totalFees += $feeAmount;
             $breakdownFees[] = [
                 'name' => $fee->name,
+                'type' => $fee->type,
+                'value' => $fee->value,
                 'amount' => $feeAmount
             ];
         }
@@ -124,6 +126,7 @@ class LoanApplicationController extends Controller
             'data' => [
                 'principal' => (float)$amount,
                 'total_interest' => $totalInterest,
+                'interest_rate' => $product->interest_rate,
                 'total_fees' => $totalFees,
                 'total_repayment' => $totalRepayment,
                 'disbursement_amount' => $disbursementAmount,
@@ -146,9 +149,6 @@ class LoanApplicationController extends Controller
             'loan_product_id' => 'required|exists:loan_products,id',
             'amount' => 'required|numeric|min:1',
             'fee_payment_method' => 'required|in:deduct_upfront,pay_separately',
-            // Pre-calculated values passed from frontend for consistency, OR re-calculate here.
-            // Better to re-calculate here to prevent tampering, but for speed we might trust logic if secure.
-            // Let's re-calculate to be safe.
         ]);
 
         if ($validator->fails()) {
@@ -175,14 +175,25 @@ class LoanApplicationController extends Controller
 
         $totalInterest = $amount * ($product->interest_rate / 100) * $durationInMonths;
 
-        // Calculate Fees
+        // Calculate Fees & Create Snapshot
         $totalFees = 0;
+        $feesSnapshot = [];
+
         foreach ($product->fees as $fee) {
+            $feeAmount = 0;
             if ($fee->type == 'fixed' || $fee->type == 'flat') {
-                $totalFees += $fee->value;
+                $feeAmount = $fee->value;
             } elseif ($fee->type == 'percent' || $fee->type == 'percentage') {
-                $totalFees += $amount * ($fee->value / 100);
+                $feeAmount = $amount * ($fee->value / 100);
             }
+            $totalFees += $feeAmount;
+            
+            $feesSnapshot[] = [
+                'name' => $fee->name,
+                'type' => $fee->type,
+                'value' => $fee->value,
+                'amount' => $feeAmount
+            ];
         }
 
         $totalRepayment = $amount + $totalInterest;
@@ -201,7 +212,9 @@ class LoanApplicationController extends Controller
             'assigned_to_user_id' => $assignedUserId,
             'amount' => $amount,
             'total_interest' => $totalInterest,
+            'interest_rate_snapshot' => $product->interest_rate,
             'total_fees' => $totalFees,
+            'applied_fees_snapshot' => json_encode($feesSnapshot),
             'total_repayment' => $totalRepayment,
             'duration' => $product->duration,
             'repayment_frequency' => $product->repayment_frequency,
@@ -264,24 +277,37 @@ class LoanApplicationController extends Controller
 
         // Calculate Fees
         $totalFees = 0;
+        $feesSnapshot = [];
+
         // Need to load fees if not loaded
         if (!$product->relationLoaded('fees')) {
              $product->load('fees');
         }
         
         foreach ($product->fees as $fee) {
+            $feeAmount = 0;
             if ($fee->type == 'fixed' || $fee->type == 'flat') {
-                $totalFees += $fee->value;
+                $feeAmount = $fee->value;
             } elseif ($fee->type == 'percent' || $fee->type == 'percentage') {
-                $totalFees += $amount * ($fee->value / 100);
+                $feeAmount = $amount * ($fee->value / 100);
             }
+            $totalFees += $feeAmount;
+            
+            $feesSnapshot[] = [
+                'name' => $fee->name,
+                'type' => $fee->type,
+                'value' => $fee->value,
+                'amount' => $feeAmount
+            ];
         }
 
         $totalRepayment = $amount + $totalInterest;
 
         $application->amount = $amount;
         $application->total_interest = $totalInterest;
+        $application->interest_rate_snapshot = $product->interest_rate;
         $application->total_fees = $totalFees;
+        $application->applied_fees_snapshot = json_encode($feesSnapshot);
         $application->total_repayment = $totalRepayment;
         
         $application->save();
