@@ -237,82 +237,88 @@ class LoanApplicationController extends Controller
             return response()->json(['success' => false, 'message' => 'Loan application not found'], 404);
         }
 
-        // Only allow updates if status is pending or pending_approval
-        if (!in_array($application->status, ['pending', 'pending_approval'])) {
-            return response()->json(['success' => false, 'message' => 'Cannot edit application in current status.'], 400);
-        }
+        // Scenario 1: Loan is active, only allow agent reassignment
+        if ($application->status === 'active') {
+            $validator = Validator::make($request->all(), [
+                'assigned_to_user_id' => 'required|exists:users,id',
+            ]);
 
-        $validator = Validator::make($request->all(), [
-            'amount' => 'required|numeric|min:1',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['success' => false, 'message' => $validator->errors()], 400);
-        }
-
-        // Re-calculate based on new amount
-        $amount = $request->amount;
-        $product = $application->loan_product; // Relationship must be defined
-
-        if (!$product) {
-            // Fallback if relation not loaded or missing
-             $product = LoanProduct::with('fees')->find($application->loan_product_id);
-        }
-
-        // Calculate Interest
-        $durationInMonths = 0;
-        $unit = strtolower($product->duration_unit);
-        
-        if ($unit == 'month' || $unit == 'months') {
-            $durationInMonths = $product->duration;
-        } elseif ($unit == 'week' || $unit == 'weeks') {
-            $durationInMonths = ($product->duration * 7) / 30;
-        } elseif ($unit == 'day' || $unit == 'days') {
-            $durationInMonths = $product->duration / 30;
-        } else {
-            $durationInMonths = $product->duration;
-        }
-
-        $totalInterest = $amount * ($product->interest_rate / 100) * $durationInMonths;
-
-        // Calculate Fees
-        $totalFees = 0;
-        $feesSnapshot = [];
-
-        // Need to load fees if not loaded
-        if (!$product->relationLoaded('fees')) {
-             $product->load('fees');
-        }
-        
-        foreach ($product->fees as $fee) {
-            $feeAmount = 0;
-            if ($fee->type == 'fixed' || $fee->type == 'flat') {
-                $feeAmount = $fee->value;
-            } elseif ($fee->type == 'percent' || $fee->type == 'percentage') {
-                $feeAmount = $amount * ($fee->value / 100);
+            if ($validator->fails()) {
+                return response()->json(['success' => false, 'message' => $validator->errors()], 400);
             }
-            $totalFees += $feeAmount;
             
-            $feesSnapshot[] = [
-                'name' => $fee->name,
-                'type' => $fee->type,
-                'value' => $fee->value,
-                'amount' => $feeAmount
-            ];
+            $newAgent = User::find($request->assigned_to_user_id);
+            if (!$newAgent || !$newAgent->hasRole('Agent')) {
+                 return response()->json(['success' => false, 'message' => 'Invalid agent selected.'], 400);
+            }
+
+            $application->assigned_to_user_id = $request->assigned_to_user_id;
+            $application->save();
+            
+            // Eager load the new agent's data to return
+            $application->load('assignedTo');
+
+            return response()->json(['success' => true, 'message' => 'Loan agent updated successfully.', 'data' => $application], 200);
         }
 
-        $totalRepayment = $amount + $totalInterest;
+        // Scenario 2: Loan is pending, allow amount update
+        if (in_array($application->status, ['pending', 'pending_approval'])) {
+            $validator = Validator::make($request->all(), [
+                'amount' => 'required|numeric|min:1',
+            ]);
 
-        $application->amount = $amount;
-        $application->total_interest = $totalInterest;
-        $application->interest_rate_snapshot = $product->interest_rate;
-        $application->total_fees = $totalFees;
-        $application->applied_fees_snapshot = json_encode($feesSnapshot);
-        $application->total_repayment = $totalRepayment;
-        
-        $application->save();
+            if ($validator->fails()) {
+                return response()->json(['success' => false, 'message' => $validator->errors()], 400);
+            }
 
-        return response()->json(['success' => true, 'message' => 'Application updated successfully.', 'data' => $application], 200);
+            // Re-calculate based on new amount
+            $amount = $request->amount;
+            $product = $application->loan_product; // Relationship must be defined
+
+            if (!$product) {
+                // Fallback if relation not loaded or missing
+                $product = LoanProduct::with('fees')->find($application->loan_product_id);
+            }
+
+            // ... (rest of the calculation logic)
+            $durationInMonths = 0;
+            $unit = strtolower($product->duration_unit);
+            
+            if ($unit == 'month' || $unit == 'months') {
+                $durationInMonths = $product->duration;
+            } elseif ($unit == 'week' || $unit == 'weeks') {
+                $durationInMonths = ($product->duration * 7) / 30;
+            } elseif ($unit == 'day' || $unit == 'days') {
+                $durationInMonths = $product->duration / 30;
+            }
+
+            $totalInterest = $amount * ($product->interest_rate / 100) * $durationInMonths;
+
+            $totalFees = 0;
+            $feesSnapshot = [];
+            if (!$product->relationLoaded('fees')) {
+                $product->load('fees');
+            }
+            
+            foreach ($product->fees as $fee) {
+                $feeAmount = ($fee->type == 'fixed' || $fee->type == 'flat') ? $fee->value : $amount * ($fee->value / 100);
+                $totalFees += $feeAmount;
+                $feesSnapshot[] = ['name' => $fee->name, 'type' => $fee->type, 'value' => $fee->value, 'amount' => $feeAmount];
+            }
+
+            $application->amount = $amount;
+            $application->total_interest = $totalInterest;
+            $application->total_fees = $totalFees;
+            $application->applied_fees_snapshot = json_encode($feesSnapshot);
+            $application->total_repayment = $amount + $totalInterest;
+            
+            $application->save();
+
+            return response()->json(['success' => true, 'message' => 'Application updated successfully.', 'data' => $application], 200);
+        }
+
+        // Default: If status is not editable
+        return response()->json(['success' => false, 'message' => 'Cannot edit application in its current status.'], 400);
     }
 
     /**
@@ -342,7 +348,7 @@ class LoanApplicationController extends Controller
      */
     public function show(Request $request, $id)
     {
-        $application = LoanApplication::with(['loan_product', 'customer', 'requirements.requirement'])->find($id);
+        $application = LoanApplication::with(['loan_product', 'customer', 'requirements.requirement', 'assignedTo'])->find($id);
 
         if (!$application) {
             return response()->json(['success' => false, 'message' => 'Loan application not found'], 404);

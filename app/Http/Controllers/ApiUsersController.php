@@ -36,19 +36,54 @@ class ApiUsersController extends Controller
      * @return \Illuminate\Http\Response
      */
 
+    public function toggleUserStatus(Request $request, $id)
+    {
+        if (!$this->isManagement()) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        $user = User::where('id', $id)->where('comp_id', \Auth::user()->comp_id)->first();
+
+        if (!$user) {
+            return response()->json(['success' => false, 'message' => 'User not found'], 404);
+        }
+
+        // Toggle the is_disabled status
+        $user->is_disabled = !$user->is_disabled;
+        $user->save();
+
+        return response()->json([
+            'success' => true, 
+            'message' => 'User status updated successfully.',
+            'is_disabled' => $user->is_disabled
+        ]);
+    }
+
     public function getagents()
     {
 
         //this is literally 'Manage User Register'
         if ($this->isManagement()) {
-            return DB::table('users')->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender')->where('type', '!=', 'Super Admin')->where('type', '!=', 'owner')->where('comp_id', \Auth::user()->comp_id)->orderBy('id', 'DESC')->paginate(10);
+            return DB::table('users')->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender', 'is_disabled')->where('type', '!=', 'Super Admin')->where('type', '!=', 'owner')->where('comp_id', \Auth::user()->comp_id)->orderBy('id', 'DESC')->paginate(10);
         } else {
             if (\Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
-                return DB::table('users')->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender')->orderBy('id', 'DESC')->where('id', \Auth::user()->id)->paginate(10);
+                return DB::table('users')->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender', 'is_disabled')->orderBy('id', 'DESC')->where('id', \Auth::user()->id)->paginate(10);
             } else {
                 return 'error: Type=[' . \Auth::user()->type . '] Roles=' . json_encode(\Auth::user()->getRoleNames());
             }
         }
+    }
+
+    public function getActiveAgents()
+    {
+        $agents = User::select('id', 'name')
+            ->whereIn('type', ['Agent', 'Agents'])
+            ->where('comp_id', \Auth::user()->comp_id)
+            ->where('is_disabled', 0)
+            ->orderBy('name', 'asc')
+            ->get();
+
+        return response()->json($agents);
     }
 
         private function isManagement()
