@@ -14,7 +14,7 @@ class LoanProductController extends Controller
      */
     public function index()
     {
-        $products = LoanProduct::with('fees')->where('is_active', 1)->latest()->get();
+        $products = LoanProduct::with('fees')->where('is_active', 1)->latest()->paginate(10);
         return response()->json(['success' => true, 'data' => $products], 200);
     }
 
