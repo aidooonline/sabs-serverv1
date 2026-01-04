@@ -3,11 +3,12 @@
 namespace App;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use App\Traits\HasCompany;
 
 class LoanProduct extends Model
 {
-    use HasCompany;
+    use HasCompany, SoftDeletes;
 
     protected $table = 'loan_products';
 

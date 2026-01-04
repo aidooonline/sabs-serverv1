@@ -100,6 +100,24 @@ class LoanProductController extends Controller
     }
 
     /**
+     * Delete a loan product.
+     */
+    public function destroy($id)
+    {
+        $product = LoanProduct::find($id);
+
+        if (!$product) {
+            return response()->json(['success' => false, 'message' => 'Loan Product not found'], 404);
+        }
+
+        // Optional: Check active loans if we want to be strict, but User said it's fine.
+        // SoftDelete will preserve the record for FK integrity anyway.
+        $product->delete();
+
+        return response()->json(['success' => true, 'message' => 'Loan Product deleted successfully'], 200);
+    }
+
+    /**
      * List all available fees.
      */
     public function getFees()

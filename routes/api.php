@@ -48,6 +48,7 @@ Route::middleware(['auth:api'])->group(function () {
         Route::delete('fees/{id}', [LoanProductController::class, 'deleteFee']);
         Route::get('products', [LoanProductController::class, 'index']);
         Route::post('products', [LoanProductController::class, 'store']);
+        Route::delete('products/{id}', [LoanProductController::class, 'destroy']);
 
         // Applications
         Route::get('applications/active', [App\Http\Controllers\LoanApplicationController::class, 'getActiveLoans']); // New route for active loans
