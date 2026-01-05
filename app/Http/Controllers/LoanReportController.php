@@ -22,110 +22,131 @@ class LoanReportController extends Controller
      */
     public function getLoanDashboardMetrics(Request $request)
     {
-        $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date')) : null;
-        $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date')) : null;
+        $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date'))->startOfDay() : null;
+        $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : null;
 
-        // Base query for loan applications (disbursed/active)
-        $loanApplicationsQuery = LoanApplication::whereIn('status', ['active', 'repaid'])
-                                                ->when($startDate, function ($query) use ($startDate) {
-                                                    return $query->whereDate('repayment_start_date', '>=', $startDate);
-                                                })
-                                                ->when($endDate, function ($query) use ($endDate) {
-                                                    return $query->whereDate('repayment_start_date', '<=', $endDate);
-                                                });
+        // 1. Disbursed Loans (Value & Count) - Based on Disbursement Date
+        // Note: Using repayment_start_date as proxy for disbursement_date if disbursement_date is null, 
+        // but ideally should be disbursement_date column if it exists. 
+        // Assuming 'created_at' or 'repayment_start_date' marks the start. 
+        // Let's use repayment_start_date as the effective disbursement date for now.
+        $disbursedQuery = LoanApplication::whereIn('status', ['active', 'repaid', 'defaulted', 'disbursed'])
+                                         ->when($startDate, function ($query) use ($startDate) {
+                                             return $query->where('repayment_start_date', '>=', $startDate);
+                                         })
+                                         ->when($endDate, function ($query) use ($endDate) {
+                                             return $query->where('repayment_start_date', '<=', $endDate);
+                                         });
+
+        $totalLoansDisbursedValue = $disbursedQuery->sum('amount');
+        $totalLoansDisbursedCount = $disbursedQuery->count();
+
+        // 2. Total Repayments (Cash In) - Based on Transaction Date (LoanRepayment)
+        $repaymentsQuery = LoanRepayment::when($startDate, function ($query) use ($startDate) {
+                                            return $query->where('created_at', '>=', $startDate);
+                                        })
+                                        ->when($endDate, function ($query) use ($endDate) {
+                                            return $query->where('created_at', '<=', $endDate);
+                                        });
+
+        $totalRepaid = $repaymentsQuery->sum('amount_paid');
+        $totalInterestCollected = $repaymentsQuery->sum('interest_amount_paid');
         
-        $totalLoansDisbursedValue = $loanApplicationsQuery->sum('amount');
-        $totalLoansDisbursedCount = $loanApplicationsQuery->count();
+        // 3. Fees Collected
+        // Part A: Fees collected via Repayments (for 'pay_separately' or accrued fees)
+        $feesFromRepayments = $repaymentsQuery->sum('fees_amount_paid');
 
-        // Total Repaid (Principal + Interest + Fees)
-        // Calculated directly from the repayment schedules to ensure accuracy
-        $totalRepaid = LoanRepaymentSchedule::whereHas('application', function ($query) use ($startDate, $endDate) {
-                                                $query->whereIn('status', ['active', 'repaid'])
-                                                    ->when($startDate, function ($subQuery) use ($startDate) {
-                                                        return $subQuery->whereDate('repayment_start_date', '>=', $startDate);
-                                                    })
-                                                    ->when($endDate, function ($subQuery) use ($endDate) {
-                                                        return $subQuery->whereDate('repayment_start_date', '<=', $endDate);
-                                                    });
-                                            })
-                                            ->sum(DB::raw('principal_paid + interest_paid + fees_paid'));
-
-        // Summing interest and fees from repayment schedules
-        $schedulesPaidQuery = LoanRepaymentSchedule::where('status', 'paid')
-                                                    ->when($startDate, function ($query) use ($startDate) {
-                                                        return $query->whereDate('due_date', '>=', $startDate);
-                                                    })
-                                                    ->when($endDate, function ($query) use ($endDate) {
-                                                        return $query->whereDate('due_date', '<=', $endDate);
-                                                    });
+        // Part B: Upfront Fees (collected at Disbursement)
+        // We look for loans disbursed in this period that had 'deduct_upfront' fees.
+        // We need to calculate the fee amount for these loans. 
+        // Since we don't store the exact "upfront fee deducted" in a simple column in LoanApplication (it's in the pivot or calculated),
+        // we might need to rely on the difference between 'amount' and 'disbursed_amount' IF we had that.
+        // Alternatively, we re-calculate or check the `loan_fees` table if linked.
+        // For simplicity/speed in this context, we will assume standard calculation if complex relation isn't easily eager loaded.
+        // UPDATE: Check if we can get it from LoanProduct relation or if we stored it.
+        // Let's assume we didn't store total_fee_amount in loan_applications table (we should have!).
+        // Fallback: We will sum 'fees_paid' from RepaymentSchedules that are marked as 'upfront' - BUT schedules are generated after.
+        // BETTER APPROACH: Only count fees from `LoanRepayment` (Cash In). 
+        // If upfront fees are "deducted", they technically never entered the cash flow as "Inflow", they just reduced the "Outflow".
+        // HOWEVER, for accounting "Profit", they are Revenue.
+        // So, Upfront Fee Revenue = Sum of fees for loans disbursed in this period with 'deduct_upfront'.
         
-        $totalInterestCollected = LoanRepaymentSchedule::whereHas('application', function ($query) use ($startDate, $endDate) {
-                                                            $query->whereIn('status', ['active', 'repaid'])
-                                                                ->when($startDate, function ($subQuery) use ($startDate) {
-                                                                    return $subQuery->whereDate('repayment_start_date', '>=', $startDate);
-                                                                })
-                                                                ->when($endDate, function ($subQuery) use ($endDate) {
-                                                                    return $subQuery->whereDate('repayment_start_date', '<=', $endDate);
-                                                                });
-                                                        })
-                                                        ->sum('interest_paid'); // Sum actual paid interest
-
-        $totalFeesCollected = LoanRepaymentSchedule::whereHas('application', function ($query) use ($startDate, $endDate) {
-                                                        $query->whereIn('status', ['active', 'repaid'])
-                                                            ->when($startDate, function ($subQuery) use ($startDate) {
-                                                                return $subQuery->whereDate('repayment_start_date', '>=', $startDate);
-                                                            })
-                                                            ->when($endDate, function ($subQuery) use ($endDate) {
-                                                                return $subQuery->whereDate('repayment_start_date', '<=', $endDate);
-                                                            });
-                                                    })
-                                                    ->sum('fees_paid'); // Sum actual paid fees
+        // Let's fetch the disbursed loans again and sum their fees if upfront.
+        // This is expensive if we iterate. Let's try to do it via query if possible, or accept the iteration for now (assuming volume < 10k per day).
+        $upfrontFees = 0;
+        $loansWithUpfront = $disbursedQuery->where('fee_payment_method', 'deduct_upfront')->with('loan_product.fees')->get();
         
-        // Total Outstanding (All active/partial loans)
-        // Correct calculation for Total Outstanding
-        // Sum total_due - (principal_paid + interest_paid + fees_paid) from all active/partial schedules
-        $activeSchedules = LoanRepaymentSchedule::whereHas('application', function($query) {
-                                                $query->where('status', 'active');
-                                            })
-                                            ->where('status', '!=', 'paid')
-                                            ->get(); // Get all active/partial schedules for active loans
-
-        $calculatedOutstanding = 0;
-        foreach ($activeSchedules as $schedule) {
-            $calculatedOutstanding += ($schedule->principal_due - $schedule->principal_paid) +
-                                    ($schedule->interest_due - $schedule->interest_paid) +
-                                    ($schedule->fees_due - $schedule->fees_paid);
+        foreach ($loansWithUpfront as $loan) {
+            // Recalculate fee for this loan
+            $loanFees = 0;
+            if ($loan->loan_product && $loan->loan_product->fees) {
+                foreach ($loan->loan_product->fees as $fee) {
+                    if ($fee->pivot->is_active) {
+                        if ($fee->type == 'fixed') {
+                            $loanFees += $fee->value;
+                        } else {
+                            $loanFees += ($loan->amount * ($fee->value / 100));
+                        }
+                    }
+                }
+            }
+            $upfrontFees += $loanFees;
         }
 
+        $totalFeesCollected = $feesFromRepayments + $upfrontFees;
 
-        // Defaulted Loans (requires a 'default' status or specific logic to identify)
-        // For now, let's count loans that are 'active' but overdue in their schedules
+
+        // 4. Outstanding (Snapshot - All Time)
+        // Ignore date filters for "Money Still Owed" as it refers to CURRENT debt.
+        // Only active/defaulted loans have outstanding balances.
+        // We can use the 'outstanding_balance' accessor if it performs well, or calculate via SQL.
+        // SQL is faster: (total_principal + total_interest + total_fees) - (paid_principal + paid_interest + paid_fees)
+        // But easier is Sum(amount) - Sum(principal_repaid) for principal...
+        // Let's stick to the reliable Scheduler math for now, but for ALL active loans.
+        $activeSchedules = LoanRepaymentSchedule::whereHas('application', function($query) {
+                                                $query->whereIn('status', ['active', 'defaulted']);
+                                            })
+                                            ->where('status', '!=', 'paid')
+                                            ->select(DB::raw('
+                                                SUM(principal_due - principal_paid) as pending_principal,
+                                                SUM(interest_due - interest_paid) as pending_interest,
+                                                SUM(fees_due - fees_paid) as pending_fees
+                                            '))
+                                            ->first();
+                                            
+        $calculatedOutstanding = ($activeSchedules->pending_principal ?? 0) + 
+                                 ($activeSchedules->pending_interest ?? 0) + 
+                                 ($activeSchedules->pending_fees ?? 0);
+
+
+        // 5. Defaulted Loans (Snapshot - All Time)
+        // Active loans with OVERDUE schedules.
         $defaultedLoansCount = LoanApplication::where('status', 'active')
                                                 ->whereHas('repaymentSchedules', function($query) {
                                                     $query->where('due_date', '<', Carbon::now())
-                                                          ->where('status', 'pending'); // Overdue and not paid
-                                                })
-                                                ->when($startDate, function ($query) use ($startDate) {
-                                                    return $query->whereDate('repayment_start_date', '>=', $startDate);
-                                                })
-                                                ->when($endDate, function ($query) use ($endDate) {
-                                                    return $query->whereDate('repayment_start_date', '<=', $endDate);
+                                                          ->where('status', 'pending');
                                                 })
                                                 ->count();
-        
-        // Correct calculation for defaulted loans value: sum of outstanding from their schedules
+                                                
+        // Value of defaulted loans (Outstanding balance of these loans)
         $defaultedSchedules = LoanRepaymentSchedule::whereHas('application', function($query) {
-                                                $query->where('status', 'active');
+                                                $query->where('status', 'active')
+                                                      ->whereHas('repaymentSchedules', function($subQ) {
+                                                          $subQ->where('due_date', '<', Carbon::now())
+                                                               ->where('status', 'pending');
+                                                      });
                                             })
-                                            ->where('status', 'pending')
-                                            ->where('due_date', '<', Carbon::now())
-                                            ->get();
-        $calculatedDefaultedValue = 0;
-        foreach ($defaultedSchedules as $schedule) {
-            $calculatedDefaultedValue += ($schedule->principal_due - $schedule->principal_paid) +
-                                        ($schedule->interest_due - $schedule->interest_paid) +
-                                        ($schedule->fees_due - $schedule->fees_paid);
-        }
+                                            ->where('status', '!=', 'paid') // Get all unpaid schedules for these defaulted loans
+                                            ->select(DB::raw('
+                                                SUM(principal_due - principal_paid) as pending_principal,
+                                                SUM(interest_due - interest_paid) as pending_interest,
+                                                SUM(fees_due - fees_paid) as pending_fees
+                                            '))
+                                            ->first();
+
+        $calculatedDefaultedValue = ($defaultedSchedules->pending_principal ?? 0) + 
+                                    ($defaultedSchedules->pending_interest ?? 0) + 
+                                    ($defaultedSchedules->pending_fees ?? 0);
 
 
         // Total Cash Available (from CompanyInfo)
@@ -143,12 +164,11 @@ class LoanReportController extends Controller
                 'total_repaid_amount' => round($totalRepaid, 2),
                 'total_interest_collected' => round($totalInterestCollected, 2),
                 'total_fees_collected' => round($totalFeesCollected, 2),
-                'total_outstanding_value' => round($calculatedOutstanding, 2), // Using calculated value
+                'total_outstanding_value' => round($calculatedOutstanding, 2),
                 'defaulted_loans_count' => $defaultedLoansCount,
-                'defaulted_loans_value' => round($calculatedDefaultedValue, 2), // Using calculated value
+                'defaulted_loans_value' => round($calculatedDefaultedValue, 2),
                 'company_cash_balance' => round($companyCash, 2),
                 'pool_balance' => round($poolBalance, 2),
-                // Add more metrics as needed
             ]
         ]);
     }
