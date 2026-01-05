@@ -189,6 +189,7 @@ Route::middleware(['auth:api'])->group(function () {
     Route::get('addaccounttouser', [ApiUsersController::class, 'addaccounttouser']);
     Route::get('updateaccounttouser', [ApiUsersController::class, 'updatecustomer_accounttype']);
     Route::get('getcustomeraccountslist', [ApiUsersController::class, 'getcustomeraccountslist']);
+    Route::get('accounts/balances', [ApiUsersController::class, 'getAccountBalances']);
 
     // accounts
     Route::post('reactivate-account', [ApiUsersController::class, 'reactivateAccount']);

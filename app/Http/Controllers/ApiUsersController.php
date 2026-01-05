@@ -204,7 +204,7 @@ class ApiUsersController extends Controller
                 )
                 ->where('nobs_registration.comp_id', \Auth::user()->comp_id)
                 ->orderBy('nobs_registration.id', 'DESC')
-                ->paginate(15); // Increased page size slightly for better perceived performance
+                ->paginate(8); // Reduced to 8 for better performance
             $customers->getCollection()->transform(function ($customer) {
                 $customer->created_at = Carbon::parse($customer->created_at)->diffForHumans();
                 return $customer;
@@ -246,6 +246,66 @@ class ApiUsersController extends Controller
             return 'error'; */
         }
     }
+
+    public function getAccountBalances(Request $request)
+    {
+        if (!$this->isManagement()) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        $query = DB::table('nobs_user_account_numbers as ua')
+            ->leftJoin('nobs_registration as reg', 'ua.primary_account_number', '=', 'reg.account_number')
+            ->leftJoin('users', 'reg.user', '=', 'users.id')
+            ->where('ua.comp_id', \Auth::user()->comp_id)
+            ->select(
+                'ua.account_number',
+                'ua.account_type',
+                'ua.balance',
+                'ua.account_status',
+                'reg.first_name',
+                'reg.surname',
+                'users.is_disabled'
+            );
+
+        // Apply filters
+        if ($request->filled('search')) {
+            $searchTerm = $request->search;
+            $query->where(function ($q) use ($searchTerm) {
+                $q->where('ua.account_number', 'like', "%{$searchTerm}%")
+                    ->orWhere(DB::raw("CONCAT(reg.first_name, ' ', reg.surname)"), 'like', "%{$searchTerm}%");
+            });
+        }
+
+        if ($request->filled('balance_min')) {
+            $query->where('ua.balance', '>=', $request->balance_min);
+        }
+
+        if ($request->filled('balance_max')) {
+            $query->where('ua.balance', '<=', $request->balance_max);
+        }
+
+        if ($request->filled('account_type')) {
+            $query->where('ua.account_type', $request->account_type);
+        }
+        
+        // Clone the query for summary calculation before applying pagination
+        $summaryQuery = clone $query;
+        $summary = $summaryQuery->select(
+            'ua.account_type', 
+            DB::raw('SUM(ua.balance) as total_balance'),
+            DB::raw('COUNT(ua.id) as account_count')
+        )->groupBy('ua.account_type')->get();
+
+
+        $balances = $query->orderBy('ua.balance', 'DESC')->paginate(20);
+        
+        // Add the summary to the pagination response
+        $balances->appends($request->all());
+        $balances->summary = $summary;
+
+        return response()->json($balances);
+    }
+
 
     public  function searchbyaccountnumber(Request $request)
     {
