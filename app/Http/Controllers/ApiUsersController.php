@@ -3432,8 +3432,12 @@ class ApiUsersController extends Controller
 
             } catch (\Exception $e) {
                 DB::rollBack();
-                // Return actual error for debugging
-                return 'ERROR: ' . $e->getMessage();
+                // Return detailed error for debugging
+                $fullMessage = $e->getMessage();
+                if ($e->getPrevious()) {
+                    $fullMessage .= " >> Caused by: " . $e->getPrevious()->getMessage();
+                }
+                return 'ERROR: ' . $fullMessage;
             }
 
         } else {
