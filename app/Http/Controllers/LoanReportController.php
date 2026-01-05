@@ -25,16 +25,14 @@ class LoanReportController extends Controller
         $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : null;
 
         // 1. Disbursed Loans (Value & Count) - Based on Disbursement Date
-        // Note: Using repayment_start_date as proxy for disbursement_date if disbursement_date is null, 
-        // but ideally should be disbursement_date column if it exists. 
-        // Assuming 'created_at' or 'repayment_start_date' marks the start. 
-        // Let's use repayment_start_date as the effective disbursement date for now.
+        // Using 'updated_at' as proxy for disbursement timestamp because 'repayment_start_date' 
+        // is typically set to a future date (e.g., 1 month after disbursement).
         $disbursedQuery = LoanApplication::whereIn('status', ['active', 'repaid', 'defaulted', 'disbursed'])
                                          ->when($startDate, function ($query) use ($startDate) {
-                                             return $query->where('repayment_start_date', '>=', $startDate);
+                                             return $query->where('updated_at', '>=', $startDate);
                                          })
                                          ->when($endDate, function ($query) use ($endDate) {
-                                             return $query->where('repayment_start_date', '<=', $endDate);
+                                             return $query->where('updated_at', '<=', $endDate);
                                          });
 
         $totalLoansDisbursedValue = $disbursedQuery->sum('amount');
@@ -209,21 +207,21 @@ class LoanReportController extends Controller
 
         switch ($metric) {
             case 'disbursed':
-                // Align with metric: uses repayment_start_date
+                // Align with metric: uses updated_at (proxy for disbursement)
                 $query = LoanApplication::with('customer')
                     ->whereIn('status', ['active', 'repaid', 'defaulted', 'disbursed']);
 
-                if ($startDate) $query->whereDate('repayment_start_date', '>=', $startDate);
-                if ($endDate) $query->whereDate('repayment_start_date', '<=', $endDate);
+                if ($startDate) $query->whereDate('updated_at', '>=', $startDate);
+                if ($endDate) $query->whereDate('updated_at', '<=', $endDate);
 
-                $data = $query->orderBy('repayment_start_date', 'desc')
+                $data = $query->orderBy('updated_at', 'desc')
                     ->get()
                     ->map(function ($loan) {
                         return [
                             'id' => $loan->id,
                             'customer' => $loan->customer,
                             'amount' => $loan->amount,
-                            'date' => $loan->repayment_start_date, // Display disbursement date
+                            'date' => $loan->updated_at, // Display disbursement date
                         ];
                     });
                 break;
