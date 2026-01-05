@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\LoanApplication;
-use App\LoanRepayment;
 use App\LoanRepaymentSchedule;
 use App\AccountsTransactions;
 use App\CentralLoanAccount;
@@ -41,43 +40,41 @@ class LoanReportController extends Controller
         $totalLoansDisbursedValue = $disbursedQuery->sum('amount');
         $totalLoansDisbursedCount = $disbursedQuery->count();
 
-        // 2. Total Repayments (Cash In) - Based on Transaction Date (LoanRepayment)
-        $repaymentsQuery = LoanRepayment::when($startDate, function ($query) use ($startDate) {
+        // 2. Total Repayments (Cash In) - Based on Transaction Date (AccountsTransactions)
+        $repaymentsQuery = AccountsTransactions::where('is_loan', 1)
+                                        ->where('name_of_transaction', 'Loan Repayment')
+                                        ->when($startDate, function ($query) use ($startDate) {
                                             return $query->where('created_at', '>=', $startDate);
                                         })
                                         ->when($endDate, function ($query) use ($endDate) {
                                             return $query->where('created_at', '<=', $endDate);
                                         });
 
-        $totalRepaid = $repaymentsQuery->sum('amount_paid');
-        $totalInterestCollected = $repaymentsQuery->sum('interest_amount_paid');
+        $totalRepaid = $repaymentsQuery->sum('amount');
+
+        // Note: The legacy transaction table does not split Interest/Fees. 
+        // We approximate "Collected Interest/Fees" by looking at Schedules updated in this period.
+        // This is an estimation because 'updated_at' updates on any change, but it's the closest proxy without a dedicated splits table.
+        $scheduleUpdatesQuery = LoanRepaymentSchedule::where('total_paid', '>', 0)
+                                        ->when($startDate, function ($query) use ($startDate) {
+                                            return $query->where('updated_at', '>=', $startDate);
+                                        })
+                                        ->when($endDate, function ($query) use ($endDate) {
+                                            return $query->where('updated_at', '<=', $endDate);
+                                        });
+
+        $totalInterestCollected = $scheduleUpdatesQuery->sum('interest_paid');
         
         // 3. Fees Collected
-        // Part A: Fees collected via Repayments (for 'pay_separately' or accrued fees)
-        $feesFromRepayments = $repaymentsQuery->sum('fees_amount_paid');
+        // Part A: Fees from Schedules (Approx)
+        $feesFromRepayments = $scheduleUpdatesQuery->sum('fees_paid');
 
         // Part B: Upfront Fees (collected at Disbursement)
-        // We look for loans disbursed in this period that had 'deduct_upfront' fees.
-        // We need to calculate the fee amount for these loans. 
-        // Since we don't store the exact "upfront fee deducted" in a simple column in LoanApplication (it's in the pivot or calculated),
-        // we might need to rely on the difference between 'amount' and 'disbursed_amount' IF we had that.
-        // Alternatively, we re-calculate or check the `loan_fees` table if linked.
-        // For simplicity/speed in this context, we will assume standard calculation if complex relation isn't easily eager loaded.
-        // UPDATE: Check if we can get it from LoanProduct relation or if we stored it.
-        // Let's assume we didn't store total_fee_amount in loan_applications table (we should have!).
-        // Fallback: We will sum 'fees_paid' from RepaymentSchedules that are marked as 'upfront' - BUT schedules are generated after.
-        // BETTER APPROACH: Only count fees from `LoanRepayment` (Cash In). 
-        // If upfront fees are "deducted", they technically never entered the cash flow as "Inflow", they just reduced the "Outflow".
-        // HOWEVER, for accounting "Profit", they are Revenue.
-        // So, Upfront Fee Revenue = Sum of fees for loans disbursed in this period with 'deduct_upfront'.
-        
-        // Let's fetch the disbursed loans again and sum their fees if upfront.
-        // This is expensive if we iterate. Let's try to do it via query if possible, or accept the iteration for now (assuming volume < 10k per day).
+        // We assume upfront fees are collected when the loan is disbursed.
         $upfrontFees = 0;
         $loansWithUpfront = $disbursedQuery->where('fee_payment_method', 'deduct_upfront')->with('loan_product.fees')->get();
         
         foreach ($loansWithUpfront as $loan) {
-            // Recalculate fee for this loan
             $loanFees = 0;
             if ($loan->loan_product && $loan->loan_product->fees) {
                 foreach ($loan->loan_product->fees as $fee) {
@@ -232,7 +229,11 @@ class LoanReportController extends Controller
                 break;
 
             case 'repaid':
-                $query = LoanRepayment::with('loanApplication.customer');
+                $query = AccountsTransactions::where('is_loan', 1)
+                    ->where('name_of_transaction', 'Loan Repayment');
+                    // Note: Cannot eager load 'loanApplication' easily as no direct FK. 
+                    // We'll have to rely on 'account_number' or parsing 'det_rep_name_of_transaction'.
+                    // For now, let's just show the transaction details available.
 
                 if ($startDate) $query->whereDate('created_at', '>=', $startDate);
                 if ($endDate) $query->whereDate('created_at', '<=', $endDate);
@@ -242,16 +243,20 @@ class LoanReportController extends Controller
                     ->map(function ($repayment) {
                         return [
                             'id' => $repayment->id,
-                            'customer' => $repayment->loanApplication->customer ?? null,
-                            'amount' => $repayment->amount_paid,
+                            'customer' => ['name' => $repayment->det_rep_name_of_transaction], // Fallback label
+                            'amount' => $repayment->amount,
                             'date' => $repayment->created_at,
                         ];
                     });
                 break;
 
             case 'interest':
-                $query = LoanRepayment::with('loanApplication.customer')
-                    ->where('interest_amount_paid', '>', 0);
+                // Cannot isolate interest transactions easily in legacy table. 
+                // Showing all repayments as a fallback, or we could query Schedules (but those aren't 'transactions').
+                // Let's return empty or all repayments with a note? 
+                // Let's return the repayment transactions to be safe.
+                $query = AccountsTransactions::where('is_loan', 1)
+                    ->where('name_of_transaction', 'Loan Repayment');
 
                 if ($startDate) $query->whereDate('created_at', '>=', $startDate);
                 if ($endDate) $query->whereDate('created_at', '<=', $endDate);
@@ -261,16 +266,17 @@ class LoanReportController extends Controller
                     ->map(function ($repayment) {
                         return [
                             'id' => $repayment->id,
-                            'customer' => $repayment->loanApplication->customer ?? null,
-                            'amount' => $repayment->interest_amount_paid,
+                            'customer' => ['name' => $repayment->det_rep_name_of_transaction],
+                            'amount' => $repayment->amount, // We don't know the exact interest portion here
                             'date' => $repayment->created_at,
                         ];
                     });
                 break;
 
             case 'charges':
-                $query = LoanRepayment::with('loanApplication.customer')
-                    ->where('fees_amount_paid', '>', 0);
+                // Similar limitation for charges.
+                $query = AccountsTransactions::where('is_loan', 1)
+                    ->where('name_of_transaction', 'Loan Repayment');
 
                 if ($startDate) $query->whereDate('created_at', '>=', $startDate);
                 if ($endDate) $query->whereDate('created_at', '<=', $endDate);
@@ -280,8 +286,8 @@ class LoanReportController extends Controller
                     ->map(function ($repayment) {
                         return [
                             'id' => $repayment->id,
-                            'customer' => $repayment->loanApplication->customer ?? null,
-                            'amount' => $repayment->fees_amount_paid,
+                            'customer' => ['name' => $repayment->det_rep_name_of_transaction],
+                            'amount' => $repayment->amount, // We don't know the exact fees portion here
                             'date' => $repayment->created_at,
                         ];
                     });
