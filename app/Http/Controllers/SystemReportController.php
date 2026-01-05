@@ -328,7 +328,7 @@ class SystemReportController extends Controller
     /**
      * Get Top Account Balances (Highest Savings).
      */
-    public function getTopAccountBalances()
+    public function getTopAccountBalances(Request $request)
     {
         if (!$this->isManagement()) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
