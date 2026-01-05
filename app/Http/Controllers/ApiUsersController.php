@@ -3364,74 +3364,78 @@ class ApiUsersController extends Controller
     {
         // Check user type for permission
         if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
-            // Retrieve existing JSON data as an array
-            $mydatey = date("Y-m-d H:i:s");
+            
+            DB::beginTransaction();
+            try {
+                // Retrieve existing JSON data as an array
+                $mydatey = date("Y-m-d H:i:s");
 
-            if ($request->mainaccounttypeselected === "1") {
-                $susucycle  = new SusuCycles;
+                if ($request->mainaccounttypeselected === "1") {
+                    $susucycle  = new SusuCycles;
+                    $susucycle['date_start']  =  $mydatey;
+                    $susucycle['cycle_rate']  =  $request->susurate;
+                    $susucycle['account_number']  =  $request->newaccountnogenerated;
+                    $susucycle['total_paid']  =  $request->initialdeposit;
+                    $susucycle['is_complete']  =  0;
+                    $susucycle['cycle_closed']  =  0;
+                    $susucycle['cycle_value']  =   $request->daystocomplete;
+                    $susucycle['comp_id'] = \Auth::user()->comp_id;
+                    $susucycle['balance']  =  $request->initialdeposit;
+                    $susucycle->save();
+                }
 
-                $susucycle['date_start']  =  $mydatey;
-                $susucycle['cycle_rate']  =  $request->susurate;
-                $susucycle['account_number']  =  $request->newaccountnogenerated;
-                $susucycle['total_paid']  =  $request->initialdeposit;
-                $susucycle['is_complete']  =  0;
-                $susucycle['cycle_closed']  =  0;
-                $susucycle['cycle_value']  =   $request->daystocomplete;
-                $susucycle['comp_id'] = \Auth::user()->comp_id;
-                $susucycle['balance']  =  $request->initialdeposit;
-                $susucycle->save();
-            }
+                $useracountnumbs  = new UserAccountNumbers;
+                $useracountnumbs->account_number  = $request->newaccountnogenerated;
+                $useracountnumbs->account_type  = $request->selecteddefaultaccount;
+                $useracountnumbs->__id__  =  \Str::random(20);
+                $useracountnumbs->primary_account_number  = $request->accountnumber;
+                $useracountnumbs->balance  = $request->initialdeposit;
+                $useracountnumbs->created_by_user  = \Auth::user()->created_by_user;
+                $useracountnumbs->comp_id = \Auth::user()->comp_id;
+                // Ensure status is set
+                $useracountnumbs->account_status = 'active'; 
+                $useracountnumbs->save();
 
-            $useracountnumbs  = new UserAccountNumbers;
+                //saving initial deposit
+                $randomCode = \Str::random(8);
+                $myid = \Str::random(30);
 
-            $useracountnumbs->account_number  = $request->newaccountnogenerated;
-            $useracountnumbs->account_type  = $request->selecteddefaultaccount;
-            $useracountnumbs->__id__  =  \Str::random(20);
-            $useracountnumbs->primary_account_number  = $request->accountnumber;
+                $accounttype =  $request->selecteddefaultaccount;
+                // $mainaccountnumber =  $request->accountnumber; // Unused variable
 
-            $useracountnumbs->balance  = $request->initialdeposit;
+                $firstname = $request->firstname;
+                $middlename = $request->middlename;
+                $surname = $request->surname;
+                $customerName = $firstname . ' ' . $middlename . ' ' . $surname;
 
-            $useracountnumbs->created_by_user  = \Auth::user()->created_by_user;
-            $useracountnumbs->comp_id = \Auth::user()->comp_id;
+                $transaction = new AccountsTransactions();
+                $transaction->__id__ = $myid;
+                $transaction->account_number = $request->newaccountnogenerated;
+                $transaction->account_type = $accounttype;
+                $transaction->created_at = $mydatey;
+                $transaction->transaction_id = $randomCode;
+                $transaction->phone_number = $request->phonenumber;
+                $transaction->det_rep_name_of_transaction =  $customerName;
+                $transaction->amount = $request->initialdeposit;
+                $transaction->agentname = \Auth::user()->name;
+                $transaction->name_of_transaction = 'Deposit';
+                $transaction->users = \Auth::user()->created_by_user;
+                $transaction->is_shown = 1;
+                $transaction->is_loan = 0;
+                $transaction->row_version = 2;
+                $transaction['balance']  =  $request->initialdeposit;
+                $transaction->comp_id = \Auth::user()->comp_id;
+                $transaction->save();
 
-            $useracountnumbs->save();
-
-            //saving initial deposit
-            $randomCode = \Str::random(8);
-            $myid = \Str::random(30);
-
-            $accounttype =  $request->selecteddefaultaccount;
-            $mainaccountnumber =  $request->accountnumber;
-
-            $firstname = $request->firstname;
-            $middlename = $request->middlename;
-            $surname = $request->surname;
-            $customerName = $firstname . ' ' . $middlename . ' ' . $surname;
-
-            $transaction = new AccountsTransactions();
-            $transaction->__id__ = $myid;
-            $transaction->account_number = $request->newaccountnogenerated;
-            $transaction->account_type = $accounttype;
-            $transaction->created_at = $mydatey;
-            $transaction->transaction_id = $randomCode;
-            $transaction->phone_number = $request->phonenumber;
-            $transaction->det_rep_name_of_transaction =  $customerName;
-            $transaction->amount = $request->initialdeposit;
-            $transaction->agentname = \Auth::user()->name;
-            $transaction->name_of_transaction = 'Deposit';
-            $transaction->users = \Auth::user()->created_by_user;
-            $transaction->is_shown = 1;
-            $transaction->is_loan = 0;
-            $transaction->row_version = 2;
-            $transaction['balance']  =  $request->initialdeposit;
-            $transaction->comp_id = \Auth::user()->comp_id;
-
-            if ($transaction->save()) {
-
+                DB::commit();
                 return 'account number added successfully';
-            } else {
-                return 'ERROR';
+
+            } catch (\Exception $e) {
+                DB::rollBack();
+                // Return actual error for debugging
+                return 'ERROR: ' . $e->getMessage();
             }
+
         } else {
             // Handle permission denied
             return 403;
