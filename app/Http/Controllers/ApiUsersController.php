@@ -3367,6 +3367,11 @@ class ApiUsersController extends Controller
             
             DB::beginTransaction();
             try {
+                // Validation check
+                if (!$request->accountnumber) {
+                    throw new \Exception("Primary Account Number is missing from the request.");
+                }
+
                 // Retrieve existing JSON data as an array
                 $mydatey = date("Y-m-d H:i:s");
 
