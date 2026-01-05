@@ -21,6 +21,8 @@ class LoanApplication extends Model
         'total_fees',
         'total_repayment',
         'duration',
+        'number_of_installments',
+        'installment_amount',
         'repayment_frequency',
         'fee_payment_method',
         'status',

@@ -69,21 +69,39 @@ class LoanApplicationController extends Controller
         $product = LoanProduct::with('fees')->find($request->loan_product_id);
         $method = $request->fee_payment_method;
 
-        // 1. Calculate Interest (Per Period / Monthly)
-        // Rate is per month. Duration needs to be normalized to months.
-        $durationInMonths = 0;
-        $unit = strtolower($product->duration_unit);
+        // --- THE GOLDEN FORMULA: DURATION & FREQUENCY NORMALIZATION ---
         
-        if ($unit == 'month' || $unit == 'months') {
-            $durationInMonths = $product->duration;
-        } elseif ($unit == 'week' || $unit == 'weeks') {
-            $durationInMonths = ($product->duration * 7) / 30;
-        } elseif ($unit == 'day' || $unit == 'days') {
-            $durationInMonths = $product->duration / 30;
-        } else {
-            $durationInMonths = $product->duration; // Default fallback
+        // 1. Normalize Duration to Total Days
+        $durationValue = (float)$product->duration;
+        $unit = strtolower($product->duration_unit);
+        $totalDays = 0;
+        
+        if (str_contains($unit, 'year')) {
+            $totalDays = $durationValue * 360;
+        } elseif (str_contains($unit, 'month')) {
+            $totalDays = $durationValue * 30;
+        } elseif (str_contains($unit, 'week')) {
+            $totalDays = $durationValue * 7;
+        } else { // Days
+            $totalDays = $durationValue;
         }
 
+        // 2. Normalize Frequency to Interval Days
+        $frequency = strtolower($product->repayment_frequency);
+        $intervalDays = 1; // Default Daily
+        
+        if ($frequency === 'monthly') {
+            $intervalDays = 30;
+        } elseif ($frequency === 'weekly') {
+            $intervalDays = 7;
+        }
+
+        // 3. Calculate Number of Installments
+        $numberOfInstallments = floor($totalDays / $intervalDays);
+        if ($numberOfInstallments <= 0) $numberOfInstallments = 1;
+
+        // 4. Calculate Interest based on normalized months (Standard for banking)
+        $durationInMonths = $totalDays / 30;
         $totalInterest = $amount * ($product->interest_rate / 100) * $durationInMonths;
 
         // 2. Calculate Fees
@@ -111,9 +129,7 @@ class LoanApplicationController extends Controller
         $totalRepayment = $amount + $totalInterest; // Client pays back Principal + Interest
         
         // Installment
-        // If repayment_frequency is monthly
-        $numberOfInstallments = $product->duration; // e.g. 6 months
-        $installmentAmount = $totalRepayment / ($numberOfInstallments > 0 ? $numberOfInstallments : 1);
+        $installmentAmount = $totalRepayment / $numberOfInstallments;
 
         // Disbursement Logic
         $disbursementAmount = $amount;
@@ -131,6 +147,7 @@ class LoanApplicationController extends Controller
                 'total_repayment' => $totalRepayment,
                 'disbursement_amount' => $disbursementAmount,
                 'installment_amount' => $installmentAmount,
+                'number_of_installments' => $numberOfInstallments,
                 'duration' => $product->duration,
                 'duration_unit' => $product->duration_unit,
                 'fee_breakdown' => $breakdownFees
@@ -159,21 +176,43 @@ class LoanApplicationController extends Controller
         $amount = $request->amount;
         $product = LoanProduct::with('fees')->find($request->loan_product_id);
         
-        // Calculate Interest
-        $durationInMonths = 0;
+        // --- THE GOLDEN FORMULA ---
+        $durationValue = (float)$product->duration;
         $unit = strtolower($product->duration_unit);
+        $totalDays = 0;
         
-        if ($unit == 'month' || $unit == 'months') {
-            $durationInMonths = $product->duration;
-        } elseif ($unit == 'week' || $unit == 'weeks') {
-            $durationInMonths = ($product->duration * 7) / 30;
-        } elseif ($unit == 'day' || $unit == 'days') {
-            $durationInMonths = $product->duration / 30;
+        if (str_contains($unit, 'year')) {
+            $totalDays = $durationValue * 360;
+        } elseif (str_contains($unit, 'month')) {
+            $totalDays = $durationValue * 30;
+        } elseif (str_contains($unit, 'week')) {
+            $totalDays = $durationValue * 7;
         } else {
-            $durationInMonths = $product->duration;
+            $totalDays = $durationValue;
         }
 
+        $durationInMonths = $totalDays / 30;
         $totalInterest = $amount * ($product->interest_rate / 100) * $durationInMonths;
+
+        // --- Calculate Installments (Golden Formula) ---
+        $frequency = strtolower($product->repayment_frequency);
+        $intervalDays = 1;
+        if ($frequency === 'monthly') {
+            $intervalDays = 30;
+        } elseif ($frequency === 'weekly') {
+            $intervalDays = 7;
+        }
+        
+        $durationVal = (float)$product->duration;
+        $unit = strtolower($product->duration_unit);
+        $tDays = 0;
+        if (str_contains($unit, 'year')) $tDays = $durationVal * 360;
+        elseif (str_contains($unit, 'month')) $tDays = $durationVal * 30;
+        elseif (str_contains($unit, 'week')) $tDays = $durationVal * 7;
+        else $tDays = $durationVal;
+
+        $numInstallments = floor($tDays / $intervalDays);
+        if ($numInstallments <= 0) $numInstallments = 1;
 
         // Calculate Fees & Create Snapshot
         $totalFees = 0;
@@ -217,6 +256,8 @@ class LoanApplicationController extends Controller
             'applied_fees_snapshot' => json_encode($feesSnapshot),
             'total_repayment' => $totalRepayment,
             'duration' => $product->duration,
+            'number_of_installments' => $numInstallments,
+            'installment_amount' => $totalRepayment / $numInstallments,
             'repayment_frequency' => $product->repayment_frequency,
             'fee_payment_method' => $request->fee_payment_method,
             'status' => 'pending',
@@ -280,19 +321,34 @@ class LoanApplicationController extends Controller
                 $product = LoanProduct::with('fees')->find($application->loan_product_id);
             }
 
-            // ... (rest of the calculation logic)
-            $durationInMonths = 0;
+            // --- THE GOLDEN FORMULA ---
+            $durationValue = (float)$product->duration;
             $unit = strtolower($product->duration_unit);
+            $totalDays = 0;
             
-            if ($unit == 'month' || $unit == 'months') {
-                $durationInMonths = $product->duration;
-            } elseif ($unit == 'week' || $unit == 'weeks') {
-                $durationInMonths = ($product->duration * 7) / 30;
-            } elseif ($unit == 'day' || $unit == 'days') {
-                $durationInMonths = $product->duration / 30;
+            if (str_contains($unit, 'year')) {
+                $totalDays = $durationValue * 360;
+            } elseif (str_contains($unit, 'month')) {
+                $totalDays = $durationValue * 30;
+            } elseif (str_contains($unit, 'week')) {
+                $totalDays = $durationValue * 7;
+            } else {
+                $totalDays = $durationValue;
             }
 
+            $durationInMonths = $totalDays / 30;
             $totalInterest = $amount * ($product->interest_rate / 100) * $durationInMonths;
+
+            // --- Calculate Installments (Golden Formula) ---
+            $frequency = strtolower($product->repayment_frequency);
+            $intervalDays = 1;
+            if ($frequency === 'monthly') {
+                $intervalDays = 30;
+            } elseif ($frequency === 'weekly') {
+                $intervalDays = 7;
+            }
+            $numInstallments = floor($totalDays / $intervalDays);
+            if ($numInstallments <= 0) $numInstallments = 1;
 
             $totalFees = 0;
             $feesSnapshot = [];
@@ -311,6 +367,8 @@ class LoanApplicationController extends Controller
             $application->total_fees = $totalFees;
             $application->applied_fees_snapshot = json_encode($feesSnapshot);
             $application->total_repayment = $amount + $totalInterest;
+            $application->number_of_installments = $numInstallments;
+            $application->installment_amount = $application->total_repayment / $numInstallments;
             
             $application->save();
 
