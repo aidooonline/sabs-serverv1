@@ -21,16 +21,21 @@ class CommissionController extends Controller
      */
     public function summary(Request $request)
     {
-        if (!Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Manager'])) {
-            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
-        }
+        $user = Auth::user();
+        $canManage = $user->hasRole(['Admin', 'Owner', 'super admin', 'Manager']);
 
-        // Group by Agent and sum 'earned' status
-        $summary = AgentCommission::where('status', 'earned')
+        // Base query for earned commissions
+        $query = AgentCommission::where('status', 'earned')
             ->select('agent_id', DB::raw('SUM(amount) as total_unpaid'))
             ->with('agent:id,name,phone,email') // Eager load agent details
-            ->groupBy('agent_id')
-            ->get();
+            ->groupBy('agent_id');
+
+        // If not an admin/manager, only show their own commissions
+        if (!$canManage) {
+            $query->where('agent_id', $user->id);
+        }
+
+        $summary = $query->get();
 
         // Also get global settings
         $percentage = SystemSetting::where('key', 'agent_commission_percent')->value('value') ?? 1.00;
@@ -38,7 +43,8 @@ class CommissionController extends Controller
         return response()->json([
             'success' => true,
             'data' => $summary,
-            'settings' => ['percentage' => $percentage]
+            'settings' => ['percentage' => $percentage],
+            'can_manage' => $canManage
         ], 200);
     }
 
