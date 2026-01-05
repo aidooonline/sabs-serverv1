@@ -106,6 +106,19 @@ class ApiUsersController extends Controller
     /**
      * Search for agent users by name or phone number.
      */
+    public function getActiveAgentsList()
+    {
+        $agents = DB::table('users')
+            ->select('id', 'name')
+            ->where('comp_id', \Auth::user()->comp_id)
+            ->whereIn('type', ['Agent', 'Agents', 'Admin', 'Manager', 'owner', 'super admin'])
+            ->where('is_disabled', 0)
+            ->orderBy('name', 'ASC')
+            ->get();
+
+        return response()->json($agents);
+    }
+
     public function searchAgents(Request $request)
     {
         if (!\Auth::user()->hasAnyRole(['Admin', 'Owner', 'super admin', 'Manager'])) {

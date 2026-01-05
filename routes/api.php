@@ -27,7 +27,8 @@ Route::middleware(['auth:api'])->group(function () {
 
     Route::post('users/{id}/toggle-status', [ApiUsersController::class, 'toggleUserStatus']);
     Route::get('usersapi', [ApiUsersController::class, 'getagents']);
-    Route::get('customerssapi', [ApiUsersController::class, 'getcustomers']);
+    Route::get('active-agents-list', [ApiUsersController::class, 'getActiveAgentsList']);
+Route::get('customerssapi', [ApiUsersController::class, 'getcustomers']);
     Route::get('getcustomerbyid', [ApiUsersController::class, 'getcustomerbyid']);
 
     // --- NEW LOAN SYSTEM ROUTES (Moved from loans.php) ---
