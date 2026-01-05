@@ -83,7 +83,7 @@ class SystemReportController extends Controller
             $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date')) : Carbon::now()->startOfMonth();
             $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : Carbon::now()->endOfMonth();
 
-            $topWithdrawals = DB::table('nobs_transactions')
+            $query = DB::table('nobs_transactions')
                 ->join('nobs_registration', 'nobs_transactions.account_number', '=', 'nobs_registration.account_number')
                 ->select(
                     'nobs_transactions.account_number',
@@ -94,9 +94,13 @@ class SystemReportController extends Controller
                 ->where('name_of_transaction', 'LIKE', '%Withdraw%') // Catch 'Withdraw', 'Withdrawal', 'Cash Withdrawal' etc.
                 ->whereBetween('nobs_transactions.created_at', [$startDate, $endDate])
                 ->groupBy('nobs_transactions.account_number', 'customer_name')
-                ->orderBy('total_withdrawn', 'DESC')
-                ->limit(10)
-                ->get();
+                ->orderBy('total_withdrawn', 'DESC');
+
+            if ($request->has('paginate')) {
+                $topWithdrawals = $query->paginate(20);
+            } else {
+                $topWithdrawals = $query->limit(10)->get();
+            }
 
             return response()->json([
                 'success' => true,
@@ -123,7 +127,7 @@ class SystemReportController extends Controller
             $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date')) : Carbon::now()->startOfMonth();
             $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : Carbon::now()->endOfMonth();
 
-            $topBorrowers = DB::table('loan_applications')
+            $query = DB::table('loan_applications')
                 ->join('nobs_registration', 'loan_applications.customer_id', '=', 'nobs_registration.id')
                 ->select(
                     'nobs_registration.account_number',
@@ -135,9 +139,13 @@ class SystemReportController extends Controller
                 ->whereIn('loan_applications.status', ['active', 'disbursed', 'repaid'])
                 ->whereBetween('loan_applications.created_at', [$startDate, $endDate])
                 ->groupBy('nobs_registration.account_number', 'customer_name')
-                ->orderBy('total_borrowed', 'DESC')
-                ->limit(10)
-                ->get();
+                ->orderBy('total_borrowed', 'DESC');
+
+            if ($request->has('paginate')) {
+                $topBorrowers = $query->paginate(20);
+            } else {
+                $topBorrowers = $query->limit(10)->get();
+            }
 
             return response()->json([
                 'success' => true,
@@ -203,7 +211,7 @@ class SystemReportController extends Controller
             $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date')) : Carbon::now()->startOfMonth();
             $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : Carbon::now()->endOfMonth();
 
-            $topCustomers = DB::table('nobs_transactions')
+            $query = DB::table('nobs_transactions')
                 ->join('nobs_registration', 'nobs_transactions.account_number', '=', 'nobs_registration.account_number')
                 ->select(
                     'nobs_transactions.account_number',
@@ -214,9 +222,13 @@ class SystemReportController extends Controller
                 ->where('name_of_transaction', 'Deposit')
                 ->whereBetween('nobs_transactions.created_at', [$startDate, $endDate])
                 ->groupBy('nobs_transactions.account_number', 'customer_name')
-                ->orderBy('total_deposited', 'DESC')
-                ->limit(10)
-                ->get();
+                ->orderBy('total_deposited', 'DESC');
+
+            if ($request->has('paginate')) {
+                $topCustomers = $query->paginate(20);
+            } else {
+                $topCustomers = $query->limit(10)->get();
+            }
 
             return response()->json([
                 'success' => true,
@@ -325,7 +337,7 @@ class SystemReportController extends Controller
         try {
             $compId = auth()->user()->comp_id;
 
-            $topAccounts = DB::table('nobs_user_account_numbers')
+            $query = DB::table('nobs_user_account_numbers')
                 ->join('nobs_registration', 'nobs_user_account_numbers.account_number', '=', 'nobs_registration.account_number')
                 ->select(
                     'nobs_user_account_numbers.account_number',
@@ -333,9 +345,13 @@ class SystemReportController extends Controller
                     'nobs_user_account_numbers.balance'
                 )
                 ->where('nobs_user_account_numbers.comp_id', $compId)
-                ->orderBy('balance', 'DESC')
-                ->limit(10)
-                ->get();
+                ->orderBy('balance', 'DESC');
+
+            if ($request->has('paginate')) {
+                $topAccounts = $query->paginate(20);
+            } else {
+                $topAccounts = $query->limit(10)->get();
+            }
 
             return response()->json([
                 'success' => true,
@@ -357,7 +373,7 @@ class SystemReportController extends Controller
         $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : Carbon::now()->endOfMonth();
 
         // Use LIKE for robust matching (e.g., 'Withdraw' vs 'Withdrawal')
-        return DB::table('nobs_transactions')
+        $query = DB::table('nobs_transactions')
             ->join('users', 'nobs_transactions.users', '=', 'users.id')
             ->select(
                 'users.name as agent_name',
@@ -368,9 +384,13 @@ class SystemReportController extends Controller
             ->where('name_of_transaction', 'LIKE', "%{$type}%") 
             ->whereBetween('nobs_transactions.created_at', [$startDate, $endDate])
             ->groupBy('users.name')
-            ->orderBy('total_amount', 'DESC')
-            ->limit(10)
-            ->get();
+            ->orderBy('total_amount', 'DESC');
+
+        if ($request->has('paginate')) {
+            return $query->paginate(20);
+        } else {
+            return $query->limit(10)->get();
+        }
     }
 
     public function getTopAgentDeposits(Request $request)
@@ -415,7 +435,7 @@ class SystemReportController extends Controller
             $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : Carbon::now()->endOfMonth();
 
             // This returns ALL users who disbursed loans, including Admins.
-            $topAgents = DB::table('loan_applications')
+            $query = DB::table('loan_applications')
                 ->join('users', 'loan_applications.created_by_user_id', '=', 'users.id')
                 ->select(
                     'users.name as agent_name',
@@ -424,11 +444,15 @@ class SystemReportController extends Controller
                 )
                 ->where('loan_applications.comp_id', $compId)
                 ->whereIn('status', ['active', 'disbursed', 'repaid'])
-                ->whereBetween('loan_applications.repayment_start_date', [$startDate, $endDate])
+                ->whereBetween('loan_applications.created_at', [$startDate, $endDate])
                 ->groupBy('users.name')
-                ->orderBy('total_amount', 'DESC')
-                ->limit(10)
-                ->get();
+                ->orderBy('total_amount', 'DESC');
+
+            if ($request->has('paginate')) {
+                $topAgents = $query->paginate(20);
+            } else {
+                $topAgents = $query->limit(10)->get();
+            }
 
             return response()->json(['success' => true, 'data' => $topAgents]);
 
