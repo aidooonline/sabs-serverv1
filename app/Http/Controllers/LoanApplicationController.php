@@ -278,6 +278,14 @@ class LoanApplicationController extends Controller
             return response()->json(['success' => false, 'message' => 'Loan application not found'], 404);
         }
 
+        $user = Auth::user();
+        $managerRoles = ['Admin', 'Manager', 'super admin', 'Owner'];
+        $isManager = $user->hasRole($managerRoles) || in_array($user->type, $managerRoles);
+
+        if (!$isManager) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized: Agents cannot edit submitted loans.'], 403);
+        }
+
         // Scenario 1: Loan is active, only allow agent reassignment
         if ($application->status === 'active') {
             $validator = Validator::make($request->all(), [
@@ -384,6 +392,12 @@ class LoanApplicationController extends Controller
      */
     public function submitForApproval(Request $request, $id)
     {
+        $user = Auth::user();
+        $managerRoles = ['Admin', 'Manager', 'super admin', 'Owner'];
+        if (!$user->hasRole($managerRoles) && !in_array($user->type, $managerRoles)) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
+        }
+
         $application = LoanApplication::find($id);
 
         if (!$application) {
