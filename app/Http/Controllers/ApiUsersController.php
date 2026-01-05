@@ -187,41 +187,25 @@ class ApiUsersController extends Controller
             $customers = DB::table('nobs_registration')
                 ->leftJoin('nobs_user_account_numbers', 'nobs_registration.account_number', '=', 'nobs_user_account_numbers.account_number')
                 ->select(
-                    'nobs_registration.id', 
-                    'nobs_registration.user_image', 
-                    'nobs_registration.is_dataimage', 
-                    'nobs_registration.customer_picture', 
-                    'nobs_registration.first_name', 
-                    'nobs_registration.middle_name', 
-                    'nobs_registration.surname', 
-                    'nobs_registration.phone_number', 
-                    'nobs_registration.email', 
-                    'nobs_registration.residential_address', 
-                    'nobs_registration.account_number', 
-                    'nobs_registration.created_at', 
-                    DB::raw('nobs_registration.created_at as created_at2'), 
-                    'nobs_registration.date_of_birth2', 
-                    'nobs_registration.user', 
-                    'nobs_registration.sec_phone_number', 
-                    'nobs_registration.postal_address', 
-                    'nobs_registration.occupation', 
-                    'nobs_registration.next_of_kin_phone_number', 
-                    'nobs_registration.next_of_kin_id_number', 
-                    'nobs_registration.next_of_kin', 
-                    'nobs_registration.nationality', 
-                    'nobs_registration.marital_status', 
-                    'nobs_registration.id_type', 
-                    'nobs_registration.id_number', 
-                    'nobs_registration.gender', 
-                    'nobs_registration.accounttype_num', 
-                    'nobs_registration.account_types', 
-                    'nobs_registration.__id__',
+                    'nobs_registration.id',
+                    'nobs_registration.user_image',
+                    'nobs_registration.is_dataimage',
+                    'nobs_registration.customer_picture',
+                    'nobs_registration.first_name',
+                    'nobs_registration.middle_name',
+                    'nobs_registration.surname',
+                    'nobs_registration.phone_number',
+                    'nobs_registration.occupation',
+                    'nobs_registration.residential_address',
+                    'nobs_registration.account_number',
+                    'nobs_registration.created_at',
+                    DB::raw('nobs_registration.created_at as created_at2'),
                     'nobs_user_account_numbers.account_status'
                 )
                 ->where('nobs_registration.comp_id', \Auth::user()->comp_id)
                 ->orderBy('nobs_registration.id', 'DESC')
-                ->paginate(10);
-            $customers->transform(function ($customer) {
+                ->paginate(15); // Increased page size slightly for better perceived performance
+            $customers->getCollection()->transform(function ($customer) {
                 $customer->created_at = Carbon::parse($customer->created_at)->diffForHumans();
                 return $customer;
             });
