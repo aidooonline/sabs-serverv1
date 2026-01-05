@@ -113,31 +113,49 @@ class LoanDisbursementController extends Controller
 
     private function generateSchedule($application, $startDate)
     {
-        $duration = $application->duration;
-        $totalRepayment = $application->total_repayment;
+        // Use the calculated number of installments from the application
+        $numInstallments = $application->number_of_installments; 
         
         // Simple Equal Installments
-        $principalPerInstallment = $application->amount / ($duration > 0 ? $duration : 1);
-        $interestPerInstallment = $application->total_interest / ($duration > 0 ? $duration : 1);
+        $principalPerInstallment = $application->amount / ($numInstallments > 0 ? $numInstallments : 1);
+        $interestPerInstallment = $application->total_interest / ($numInstallments > 0 ? $numInstallments : 1);
         $feesPerInstallment = 0; 
 
         $frequency = $application->repayment_frequency; // monthly, weekly
 
-        for ($i = 0; $i < $duration; $i++) {
-            $dueDate = $startDate->copy();
+        $dueDate = $startDate->copy();
+
+        // Ensure the FIRST due date is not a weekend if it was just set blindly
+        while ($dueDate->isWeekend()) {
+            $dueDate->addDay();
+        }
+
+        for ($i = 0; $i < $numInstallments; $i++) {
             
-            if ($frequency == 'monthly') {
-                $dueDate->addMonths($i);
-            } elseif ($frequency == 'weekly') {
-                $dueDate->addWeeks($i);
-            } else {
-                $dueDate->addDays($i * 30); // Fallback
+            // For subsequent installments, we calculate the next date from the *previous* due date
+            if ($i > 0) {
+                if ($frequency == 'monthly') {
+                    $dueDate->addMonth();
+                } elseif ($frequency == 'weekly') {
+                    $dueDate->addWeek();
+                } else {
+                    // Daily: Add 1 day
+                    $dueDate->addDay();
+                }
+                
+                // CRITICAL: Skip Weekends (Saturday & Sunday)
+                // If the new date lands on a weekend, move it forward to Monday.
+                // For "Daily" frequency, this effectively skips the weekend entirely.
+                // For "Monthly/Weekly", it just adjusts the due date.
+                while ($dueDate->isWeekend()) {
+                    $dueDate->addDay();
+                }
             }
 
             LoanRepaymentSchedule::create([
                 'loan_application_id' => $application->id,
                 'installment_number' => $i + 1,
-                'due_date' => $dueDate,
+                'due_date' => $dueDate->copy(), // Use copy to avoid reference issues
                 'principal_due' => $principalPerInstallment,
                 'interest_due' => $interestPerInstallment,
                 'fees_due' => $feesPerInstallment,

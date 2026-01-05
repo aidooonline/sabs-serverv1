@@ -176,42 +176,34 @@ class LoanApplicationController extends Controller
         $amount = $request->amount;
         $product = LoanProduct::with('fees')->find($request->loan_product_id);
         
-        // --- THE GOLDEN FORMULA ---
+        // --- THE GOLDEN FORMULA (WORKING DAYS) ---
         $durationValue = (float)$product->duration;
         $unit = strtolower($product->duration_unit);
         $totalDays = 0;
         
         if (str_contains($unit, 'year')) {
-            $totalDays = $durationValue * 360;
+            $totalDays = $durationValue * 240;
         } elseif (str_contains($unit, 'month')) {
-            $totalDays = $durationValue * 30;
+            $totalDays = $durationValue * 20;
         } elseif (str_contains($unit, 'week')) {
-            $totalDays = $durationValue * 7;
+            $totalDays = $durationValue * 5;
         } else {
             $totalDays = $durationValue;
         }
 
-        $durationInMonths = $totalDays / 30;
+        $durationInMonths = $totalDays / 20;
         $totalInterest = $amount * ($product->interest_rate / 100) * $durationInMonths;
 
         // --- Calculate Installments (Golden Formula) ---
         $frequency = strtolower($product->repayment_frequency);
         $intervalDays = 1;
         if ($frequency === 'monthly') {
-            $intervalDays = 30;
+            $intervalDays = 20;
         } elseif ($frequency === 'weekly') {
-            $intervalDays = 7;
+            $intervalDays = 5;
         }
         
-        $durationVal = (float)$product->duration;
-        $unit = strtolower($product->duration_unit);
-        $tDays = 0;
-        if (str_contains($unit, 'year')) $tDays = $durationVal * 360;
-        elseif (str_contains($unit, 'month')) $tDays = $durationVal * 30;
-        elseif (str_contains($unit, 'week')) $tDays = $durationVal * 7;
-        else $tDays = $durationVal;
-
-        $numInstallments = floor($tDays / $intervalDays);
+        $numInstallments = floor($totalDays / $intervalDays);
         if ($numInstallments <= 0) $numInstallments = 1;
 
         // Calculate Fees & Create Snapshot
@@ -329,31 +321,31 @@ class LoanApplicationController extends Controller
                 $product = LoanProduct::with('fees')->find($application->loan_product_id);
             }
 
-            // --- THE GOLDEN FORMULA ---
+            // --- THE GOLDEN FORMULA (WORKING DAYS) ---
             $durationValue = (float)$product->duration;
             $unit = strtolower($product->duration_unit);
             $totalDays = 0;
             
             if (str_contains($unit, 'year')) {
-                $totalDays = $durationValue * 360;
+                $totalDays = $durationValue * 240;
             } elseif (str_contains($unit, 'month')) {
-                $totalDays = $durationValue * 30;
+                $totalDays = $durationValue * 20;
             } elseif (str_contains($unit, 'week')) {
-                $totalDays = $durationValue * 7;
+                $totalDays = $durationValue * 5;
             } else {
                 $totalDays = $durationValue;
             }
 
-            $durationInMonths = $totalDays / 30;
+            $durationInMonths = $totalDays / 20;
             $totalInterest = $amount * ($product->interest_rate / 100) * $durationInMonths;
 
             // --- Calculate Installments (Golden Formula) ---
             $frequency = strtolower($product->repayment_frequency);
             $intervalDays = 1;
             if ($frequency === 'monthly') {
-                $intervalDays = 30;
+                $intervalDays = 20;
             } elseif ($frequency === 'weekly') {
-                $intervalDays = 7;
+                $intervalDays = 5;
             }
             $numInstallments = floor($totalDays / $intervalDays);
             if ($numInstallments <= 0) $numInstallments = 1;
