@@ -69,7 +69,8 @@ class LoanApplicationController extends Controller
         $product = LoanProduct::with('fees')->find($request->loan_product_id);
         $method = $request->fee_payment_method;
 
-        // --- THE GOLDEN FORMULA: DURATION & FREQUENCY NORMALIZATION ---
+        // --- THE GOLDEN FORMULA: DURATION & FREQUENCY NORMALIZATION (WORKING DAYS) ---
+        // Year = 240 days, Month = 20 days, Week = 5 days
         
         // 1. Normalize Duration to Total Days
         $durationValue = (float)$product->duration;
@@ -77,11 +78,11 @@ class LoanApplicationController extends Controller
         $totalDays = 0;
         
         if (str_contains($unit, 'year')) {
-            $totalDays = $durationValue * 360;
+            $totalDays = $durationValue * 240;
         } elseif (str_contains($unit, 'month')) {
-            $totalDays = $durationValue * 30;
+            $totalDays = $durationValue * 20;
         } elseif (str_contains($unit, 'week')) {
-            $totalDays = $durationValue * 7;
+            $totalDays = $durationValue * 5;
         } else { // Days
             $totalDays = $durationValue;
         }
@@ -91,17 +92,17 @@ class LoanApplicationController extends Controller
         $intervalDays = 1; // Default Daily
         
         if ($frequency === 'monthly') {
-            $intervalDays = 30;
+            $intervalDays = 20;
         } elseif ($frequency === 'weekly') {
-            $intervalDays = 7;
+            $intervalDays = 5;
         }
 
         // 3. Calculate Number of Installments
         $numberOfInstallments = floor($totalDays / $intervalDays);
         if ($numberOfInstallments <= 0) $numberOfInstallments = 1;
 
-        // 4. Calculate Interest based on normalized months (Standard for banking)
-        $durationInMonths = $totalDays / 30;
+        // 4. Calculate Interest based on normalized months (Working Months)
+        $durationInMonths = $totalDays / 20;
         $totalInterest = $amount * ($product->interest_rate / 100) * $durationInMonths;
 
         // 2. Calculate Fees
