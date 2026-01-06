@@ -112,7 +112,7 @@ class MaintenanceController extends Controller
             }
 
             if (in_array('pool', $targets)) {
-                DB::table('central_loan_accounts')->where('comp_id', $compId)->update(['balance' => 0, 'total_deposited' => 0]);
+                DB::table('central_loan_accounts')->where('comp_id', $compId)->update(['balance' => 0]);
                 DB::table('capital_accounts')->where('comp_id', $compId)->delete();
                 $actionsTaken[] = 'Pool & Capital';
             }
