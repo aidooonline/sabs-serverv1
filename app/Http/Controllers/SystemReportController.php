@@ -461,6 +461,67 @@ class SystemReportController extends Controller
         }
     }
 
+    /**
+     * Get Operational Metrics (Migrated from Dashboard).
+     */
+    public function getOperationalMetrics(Request $request)
+    {
+        if (!$this->isManagement()) return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+
+        try {
+            $compId = auth()->user()->comp_id;
+            $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date')) : Carbon::now()->startOfMonth();
+            $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : Carbon::now()->endOfMonth();
+
+            // 1. Transaction Metrics
+            $metrics = DB::table('nobs_transactions')
+                ->select(
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) AS total_deposits'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) AS total_withdrawals'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Withdrawal Request" THEN amount ELSE 0 END) AS withdrawal_requests_amount'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Withdrawal Request" THEN 1 END) AS withdrawal_requests_count'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Agent Commission" THEN amount ELSE 0 END) AS agent_commission'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Commission" THEN amount ELSE 0 END) AS system_commission'),
+                    DB::raw('SUM(CASE WHEN name_of_transaction = "Refund" THEN amount ELSE 0 END) AS total_refunds')
+                )
+                ->where('comp_id', $compId)
+                ->whereBetween('created_at', [$startDate, $endDate])
+                ->where('is_shown', 1) // Match legacy filter
+                ->first();
+
+            // 2. New Customers (Registered in period)
+            $totalCustomers = DB::table('nobs_registration')
+                ->where('comp_id', $compId)
+                ->whereBetween('created_at', [$startDate, $endDate])
+                ->count();
+
+            // 3. Balance Calculation (Deposit - Withdrawal - Refunds - Commissions)
+            // Matches legacy logic: totalDP - totalWD - totalRF - totalAGTCM - totalSCM
+            $balance = $metrics->total_deposits 
+                     - $metrics->total_withdrawals 
+                     - $metrics->total_refunds
+                     - $metrics->agent_commission 
+                     - $metrics->system_commission;
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'total_customers' => $totalCustomers,
+                    'total_deposits' => $metrics->total_deposits,
+                    'total_withdrawals' => $metrics->total_withdrawals,
+                    'withdrawal_requests_count' => $metrics->withdrawal_requests_count,
+                    'withdrawal_requests_amount' => $metrics->withdrawal_requests_amount,
+                    'agent_commission' => $metrics->agent_commission,
+                    'system_commission' => $metrics->system_commission,
+                    'balance' => $balance
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
     private function isManagement()
     {
         $user = auth()->user();
