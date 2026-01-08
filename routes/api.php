@@ -246,6 +246,22 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::get('insertcompanyinfo', [ApiUsersController::class, 'insertcompanyinfo']);
 Route::get('mymtn', [ApiUsersController::class, 'mymtn']);
 
+    // --- ADMIN USER & ROLE MANAGEMENT ---
+    Route::group(['prefix' => 'admin', 'namespace' => 'Admin'], function () {
+        // User Management
+        Route::get('users', [App\Http\Controllers\Admin\UserManagementController::class, 'index']);
+        Route::post('users', [App\Http\Controllers\Admin\UserManagementController::class, 'store']);
+        Route::get('users/{id}', [App\Http\Controllers\Admin\UserManagementController::class, 'show']);
+        Route::put('users/{id}', [App\Http\Controllers\Admin\UserManagementController::class, 'update']);
+        Route::post('users/{id}/toggle-status', [App\Http\Controllers\Admin\UserManagementController::class, 'toggleStatus']);
+
+        // Role & Permission Management
+        Route::get('roles', [App\Http\Controllers\Admin\RoleManagementController::class, 'index']);
+        Route::get('permissions', [App\Http\Controllers\Admin\RoleManagementController::class, 'getAllPermissions']);
+        Route::put('roles/{id}', [App\Http\Controllers\Admin\RoleManagementController::class, 'updatePermissions']);
+    });
+    // ------------------------------------
+
     // --- SCHEDULER (SOFT CRON) ---
     Route::group(['prefix' => 'scheduler'], function () {
         Route::post('setup', [App\Http\Controllers\SchedulerController::class, 'setup']);
