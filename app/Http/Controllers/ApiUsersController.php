@@ -477,7 +477,8 @@ class ApiUsersController extends Controller
                     DB::raw('COUNT(CASE WHEN name_of_transaction = "Withdraw" THEN 1 END) as totalWDCOUNT'),
                     DB::raw('COUNT(CASE WHEN name_of_transaction = "Refund" THEN 1 END) as totalRFCOUNT'),
                     DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Repayment" THEN 1 END) as totalLNCOUNT'),
-                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Disbursed" THEN 1 END) as totalDISBCOUNT')
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Disbursed" THEN 1 END) as totalDISBCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Withdrawal Request" THEN 1 END) as totalWDREQCOUNT')
                 )
                 ->whereDate('created_at', $today)
                 ->where('is_shown', 1)
@@ -527,6 +528,7 @@ class ApiUsersController extends Controller
             $result->totalRFCOUNT = $transactionMetrics->totalRFCOUNT;
             $result->totalLNCOUNT = $transactionMetrics->totalLNCOUNT;
             $result->totalDISBCOUNT = $transactionMetrics->totalDISBCOUNT;
+            $result->totalWDREQCOUNT = $transactionMetrics->totalWDREQCOUNT;
             $result->totalREGISTERED = $totalREGISTERED;
             $result->total = 1;
 
@@ -562,7 +564,8 @@ class ApiUsersController extends Controller
                     DB::raw('COUNT(CASE WHEN name_of_transaction = "Withdraw" THEN 1 END) as totalWDCOUNT'),
                     DB::raw('COUNT(CASE WHEN name_of_transaction = "Refund" THEN 1 END) as totalRFCOUNT'),
                     DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Repayment" THEN 1 END) as totalLNCOUNT'),
-                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Disbursed" THEN 1 END) as totalDISBCOUNT')
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Disbursed" THEN 1 END) as totalDISBCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Withdrawal Request" THEN 1 END) as totalWDREQCOUNT')
                 )
                 ->whereBetween('created_at', [$start, $end])
                 ->where('is_shown', 1)
@@ -609,6 +612,7 @@ class ApiUsersController extends Controller
             $result->totalRFCOUNT = $transactionMetrics->totalRFCOUNT;
             $result->totalLNCOUNT = $transactionMetrics->totalLNCOUNT;
             $result->totalDISBCOUNT = $transactionMetrics->totalDISBCOUNT;
+            $result->totalWDREQCOUNT = $transactionMetrics->totalWDREQCOUNT;
             $result->totalREGISTERED = $totalREGISTERED;
             $result->total = 1;
 
@@ -918,7 +922,8 @@ class ApiUsersController extends Controller
                     DB::raw('COUNT(CASE WHEN name_of_transaction = "Withdraw" THEN 1 END) as totalWDCOUNT'),
                     DB::raw('COUNT(CASE WHEN name_of_transaction = "Refund" THEN 1 END) as totalRFCOUNT'),
                     DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Repayment" THEN 1 END) as totalLNCOUNT'),
-                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Disbursed" THEN 1 END) as totalDISBCOUNT')
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Disbursed" THEN 1 END) as totalDISBCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Withdrawal Request" THEN 1 END) as totalWDREQCOUNT')
                 )
                 ->whereMonth('created_at', $month)
                 ->whereYear('created_at', $year)
@@ -966,6 +971,7 @@ class ApiUsersController extends Controller
             $result->totalRFCOUNT = $transactionMetrics->totalRFCOUNT;
             $result->totalLNCOUNT = $transactionMetrics->totalLNCOUNT;
             $result->totalDISBCOUNT = $transactionMetrics->totalDISBCOUNT;
+            $result->totalWDREQCOUNT = $transactionMetrics->totalWDREQCOUNT;
             $result->totalREGISTERED = $totalREGISTERED;
             $result->total = 1;
 
@@ -1001,7 +1007,8 @@ class ApiUsersController extends Controller
                     DB::raw('COUNT(CASE WHEN name_of_transaction = "Withdraw" THEN 1 END) as totalWDCOUNT'),
                     DB::raw('COUNT(CASE WHEN name_of_transaction = "Refund" THEN 1 END) as totalRFCOUNT'),
                     DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Repayment" THEN 1 END) as totalLNCOUNT'),
-                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Disbursed" THEN 1 END) as totalDISBCOUNT')
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Disbursed" THEN 1 END) as totalDISBCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Withdrawal Request" THEN 1 END) as totalWDREQCOUNT')
                 )
                 ->whereYear('created_at', $year)
                 ->where('is_shown', 1)
@@ -1048,6 +1055,7 @@ class ApiUsersController extends Controller
             $result->totalRFCOUNT = $transactionMetrics->totalRFCOUNT;
             $result->totalLNCOUNT = $transactionMetrics->totalLNCOUNT;
             $result->totalDISBCOUNT = $transactionMetrics->totalDISBCOUNT;
+            $result->totalWDREQCOUNT = $transactionMetrics->totalWDREQCOUNT;
             $result->totalREGISTERED = $totalREGISTERED;
             $result->total = 1;
 
@@ -1082,7 +1090,8 @@ class ApiUsersController extends Controller
                     DB::raw('COUNT(CASE WHEN name_of_transaction = "Withdraw" THEN 1 END) as totalWDCOUNT'),
                     DB::raw('COUNT(CASE WHEN name_of_transaction = "Refund" THEN 1 END) as totalRFCOUNT'),
                     DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Repayment" THEN 1 END) as totalLNCOUNT'),
-                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Disbursed" THEN 1 END) as totalDISBCOUNT')
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Loan Disbursed" THEN 1 END) as totalDISBCOUNT'),
+                    DB::raw('COUNT(CASE WHEN name_of_transaction = "Withdrawal Request" THEN 1 END) as totalWDREQCOUNT')
                 )
                 ->where('is_shown', 1)
                 ->where('row_version', 2)
@@ -1128,6 +1137,7 @@ class ApiUsersController extends Controller
             $result->totalRFCOUNT = $transactionMetrics->totalRFCOUNT;
             $result->totalLNCOUNT = $transactionMetrics->totalLNCOUNT;
             $result->totalDISBCOUNT = $transactionMetrics->totalDISBCOUNT;
+            $result->totalWDREQCOUNT = $transactionMetrics->totalWDREQCOUNT;
             $result->totalREGISTERED = $totalREGISTERED;
             $result->total = 1;
 
