@@ -59,6 +59,27 @@ class ApiUsersController extends Controller
         ]);
     }
 
+    public function checkPhoneNumber(Request $request)
+    {
+        $phone = $request->input('phone');
+        $excludeId = $request->input('exclude_id');
+        
+        if (!$phone) {
+            return response()->json(['exists' => false]);
+        }
+
+        $query = Accounts::where('phone_number', $phone)
+            ->where('comp_id', \Auth::user()->comp_id);
+
+        if ($excludeId) {
+            $query->where('id', '!=', $excludeId);
+        }
+
+        $exists = $query->exists();
+
+        return response()->json(['exists' => $exists]);
+    }
+
     public function getagents()
     {
 
