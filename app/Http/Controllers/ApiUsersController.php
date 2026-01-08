@@ -1156,7 +1156,7 @@ class ApiUsersController extends Controller
                 return $customer;
             });
             return $customers;
-        } else if (\Auth::user()->type == 'Agents') {
+        } else if (\Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent') {
             $customers = DB::table('nobs_transactions')->select('__id__', 'account_number', 'account_type', 'amount', 'det_rep_name_of_transaction', 'agentname', 'name_of_transaction', 'transaction_id', 'users', 'id', 'created_at', DB::raw('created_at as created_at2'))->where('name_of_transaction', 'Withdraw')->where('comp_id', \Auth::user()->comp_id)->where('users', \Auth::user()->created_by_user)->orderBy('id', 'DESC')->paginate(100);
             $customers->transform(function ($customer) {
                 $customer->created_at = Carbon::parse($customer->created_at)->diffForHumans();
@@ -1182,7 +1182,7 @@ class ApiUsersController extends Controller
                 return $customer;
             });
             return $customers;
-        } else if (\Auth::user()->type == 'Agents') {
+        } else if (\Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent') {
             $customers = DB::table('nobs_transactions')->select('__id__', 'account_number', 'account_type', 'amount', 'det_rep_name_of_transaction', 'agentname', 'name_of_transaction', 'transaction_id', 'users', 'id', 'created_at', DB::raw('created_at as created_at2'))->where('name_of_transaction', 'Deposit')->where('comp_id', \Auth::user()->comp_id)->where('users', \Auth::user()->created_by_user)->orderBy('id', 'DESC')->paginate(100);
             $customers->transform(function ($customer) {
                 $customer->created_at = Carbon::parse($customer->created_at)->diffForHumans();
@@ -1210,7 +1210,7 @@ class ApiUsersController extends Controller
                 return $customer;
             });
             return $customers;
-        } else if (\Auth::user()->type == 'Agents') {
+        } else if (\Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent') {
             $customers = DB::table('nobs_transactions')->select('__id__', 'account_number', 'account_type', 'amount', 'det_rep_name_of_transaction', 'agentname', 'name_of_transaction', 'transaction_id', 'users', 'id', 'created_at', DB::raw('created_at as created_at2'))->where('name_of_transaction', 'Refund')->where('comp_id', \Auth::user()->comp_id)->orderBy('id', 'DESC')->paginate(10);
             $customers->transform(function ($customer) {
                 $customer->created_at = Carbon::parse($customer->created_at)->diffForHumans();
@@ -1322,7 +1322,7 @@ class ApiUsersController extends Controller
             $result->to = null;
             $result->total = $accounts->count();
             return response()->json($result);
-        } else  if (\Auth::user()->type == 'Agents') {
+        } else  if (\Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent') {
             $accounts = AccountsTransactions::orderBy('id', 'DESC')->where('comp_id', \Auth::user()->comp_id)->where('name_of_transaction', 'Withdrawal Request')->where('withdrawrequest_approved', 0)->where('users', \Auth::user()->created_by_user)->paginate(20);
 
             $accountsapproved = AccountsTransactions::orderBy('id', 'DESC')->where('comp_id', \Auth::user()->comp_id)->where('users', \Auth::user()->created_by_user)->where('name_of_transaction', 'Withdrawal Request')->where('withdrawrequest_approved', 1)->where('is_paid', 0)->paginate(10);
