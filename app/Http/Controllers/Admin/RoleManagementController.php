@@ -45,23 +45,17 @@ class RoleManagementController extends Controller
         foreach ($categories as $key => $values) {
             $grouped[$key] = [];
         }
-        $grouped['Other'] = [];
+        // $grouped['Other'] = []; // Hiding 'Other' category per user request
 
         foreach ($permissions as $perm) {
-            $found = false;
             foreach ($categories as $cat => $names) {
                 if (in_array($perm->name, $names)) {
                     $grouped[$cat][] = $perm;
-                    $found = true;
-                    break;
+                    break; 
                 }
-            }
-            if (!$found) {
-                $grouped['Other'][] = $perm;
             }
         }
 
-        // Filter out empty 'Other' if needed, or just return keys
         return response()->json($grouped);
     }
 
