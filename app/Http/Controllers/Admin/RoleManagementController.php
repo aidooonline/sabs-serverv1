@@ -15,7 +15,10 @@ class RoleManagementController extends Controller
      */
     public function index()
     {
-        $roles = Role::with('permissions')->where('guard_name', 'web')->get();
+        $roles = Role::with('permissions')
+            ->where('guard_name', 'web')
+            ->whereNotIn('name', ['Owner', 'super admin', 'Super Admin'])
+            ->get();
         return response()->json($roles);
     }
 
