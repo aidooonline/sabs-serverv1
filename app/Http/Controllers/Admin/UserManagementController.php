@@ -109,6 +109,14 @@ class UserManagementController extends Controller
             return response()->json(['message' => 'User not found'], 404);
         }
 
+        // Security: If current user is not Admin/Super Admin/Owner, restrict what they can update
+        $currentUser = Auth::user();
+        $isRestricted = !$currentUser->hasRole(['Admin', 'Super Admin', 'Owner']);
+
+        if ($isRestricted && $currentUser->id !== $user->id) {
+             return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|required|string|max:255',
             'email' => 'sometimes|required|string|email|max:255|unique:users,email,' . $id,
@@ -122,7 +130,13 @@ class UserManagementController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $user->fill($request->except(['password', 'role']));
+        if ($isRestricted) {
+            // Agents can only update Name and Password
+            $user->fill($request->only(['name']));
+        } else {
+            // Admins can update everything except password (handled below) and role (handled below)
+            $user->fill($request->except(['password', 'role']));
+        }
 
         if ($request->filled('password')) {
             $user->password = Hash::make($request->password);
@@ -130,8 +144,8 @@ class UserManagementController extends Controller
 
         $user->save();
 
-        // Sync Role if provided
-        if ($request->has('role')) {
+        // Sync Role only if NOT restricted
+        if (!$isRestricted && $request->has('role')) {
             $user->syncRoles([$request->role]);
         }
 
