@@ -69,6 +69,11 @@ class UserManagementController extends Controller
      */
     public function store(Request $request)
     {
+        $currentUser = Auth::guard('api')->user();
+        if (!$currentUser) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
+
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
@@ -106,6 +111,11 @@ class UserManagementController extends Controller
      */
     public function show($id)
     {
+        $currentUser = Auth::guard('api')->user();
+        if (!$currentUser) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
+
         $user = User::with('roles')->find($id);
 
         if (!$user) {
@@ -191,6 +201,11 @@ class UserManagementController extends Controller
      */
     public function toggleStatus($id)
     {
+        $currentUser = Auth::guard('api')->user();
+        if (!$currentUser) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
+
         $user = User::find($id);
 
         if (!$user) {
