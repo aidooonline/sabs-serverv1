@@ -19,6 +19,11 @@ class UserManagementController extends Controller
     {
         $query = User::with('roles');
         $currentUser = Auth::user();
+        
+        // Ensure roles are loaded
+        if (!$currentUser->relationLoaded('roles')) {
+            $currentUser->load('roles');
+        }
 
         // Robust Security: Check loaded role names directly (Case-Insensitive)
         $userRoles = $currentUser->roles->pluck('name')->map(function($name) {
@@ -119,7 +124,17 @@ class UserManagementController extends Controller
 
         // Security: If current user is not Admin/Super Admin/Owner, restrict what they can update
         $currentUser = Auth::user();
-        $isRestricted = !$currentUser->hasRole(['Admin', 'Super Admin', 'Owner']);
+        
+        if (!$currentUser->relationLoaded('roles')) {
+            $currentUser->load('roles');
+        }
+        
+        $userRoles = $currentUser->roles->pluck('name')->map(function($name) {
+            return strtolower($name);
+        })->toArray();
+        $isAdmin = (bool) array_intersect($userRoles, ['admin', 'super admin', 'owner']);
+        
+        $isRestricted = !$isAdmin;
 
         if ($isRestricted && $currentUser->id !== $user->id) {
              return response()->json(['message' => 'Unauthorized'], 403);
