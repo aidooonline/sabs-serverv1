@@ -20,8 +20,12 @@ class UserManagementController extends Controller
         $query = User::with('roles');
         $currentUser = Auth::user();
 
-        // Security: If user cannot manage users, restrict to self
-        if (!$currentUser->can('manage_users') && !$currentUser->hasRole(['Admin', 'Super Admin', 'Owner'])) {
+        // Robust Security: Check loaded role names directly to avoid Guard (api/web) mismatches
+        $userRoles = $currentUser->roles->pluck('name')->toArray();
+        $isAdmin = (bool) array_intersect($userRoles, ['Admin', 'Super Admin', 'Owner']);
+
+        // If not an Admin, restrict list to ONLY their own profile
+        if (!$isAdmin) {
             $query->where('id', $currentUser->id);
         }
 
