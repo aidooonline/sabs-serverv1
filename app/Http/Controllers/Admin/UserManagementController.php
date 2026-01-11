@@ -18,6 +18,12 @@ class UserManagementController extends Controller
     public function index(Request $request)
     {
         $query = User::with('roles');
+        $currentUser = Auth::user();
+
+        // Security: If user cannot manage users, restrict to self
+        if (!$currentUser->can('manage_users') && !$currentUser->hasRole(['Admin', 'Super Admin', 'Owner'])) {
+            $query->where('id', $currentUser->id);
+        }
 
         if ($request->has('search')) {
             $search = $request->search;
