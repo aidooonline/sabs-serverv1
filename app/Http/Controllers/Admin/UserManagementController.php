@@ -18,7 +18,11 @@ class UserManagementController extends Controller
     public function index(Request $request)
     {
         $query = User::with('roles');
-        $currentUser = Auth::user();
+        $currentUser = Auth::guard('api')->user();
+
+        if (!$currentUser) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
         
         // Ensure roles are loaded
         if (!$currentUser->relationLoaded('roles')) {
@@ -123,7 +127,11 @@ class UserManagementController extends Controller
         }
 
         // Security: If current user is not Admin/Super Admin/Owner, restrict what they can update
-        $currentUser = Auth::user();
+        $currentUser = Auth::guard('api')->user();
+
+        if (!$currentUser) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
         
         if (!$currentUser->relationLoaded('roles')) {
             $currentUser->load('roles');
