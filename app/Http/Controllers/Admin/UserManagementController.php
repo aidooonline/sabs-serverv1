@@ -20,9 +20,13 @@ class UserManagementController extends Controller
         $query = User::with('roles');
         $currentUser = Auth::user();
 
-        // Robust Security: Check loaded role names directly to avoid Guard (api/web) mismatches
-        $userRoles = $currentUser->roles->pluck('name')->toArray();
-        $isAdmin = (bool) array_intersect($userRoles, ['Admin', 'Super Admin', 'Owner']);
+        // Robust Security: Check loaded role names directly (Case-Insensitive)
+        $userRoles = $currentUser->roles->pluck('name')->map(function($name) {
+            return strtolower($name);
+        })->toArray();
+        
+        $allowedRoles = ['admin', 'super admin', 'owner'];
+        $isAdmin = (bool) array_intersect($userRoles, $allowedRoles);
 
         // If not an Admin, restrict list to ONLY their own profile
         if (!$isAdmin) {
