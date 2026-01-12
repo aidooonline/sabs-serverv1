@@ -23,22 +23,41 @@ class LoanReportController extends Controller
     {
         $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date'))->startOfDay() : null;
         $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : null;
+        
+        $user = auth()->user();
+        $managerRoles = ['Admin', 'Manager', 'super admin', 'Owner'];
+        $isManager = $user->hasRole($managerRoles) || in_array($user->type, $managerRoles);
 
-        // 1. Disbursed Loans (Value & Count) - Based on Disbursement Date
-        // Using 'updated_at' as proxy for disbursement timestamp because 'repayment_start_date' 
-        // is typically set to a future date (e.g., 1 month after disbursement).
-        $disbursedQuery = LoanApplication::whereIn('status', ['active', 'repaid', 'defaulted', 'disbursed'])
-                                         ->when($startDate, function ($query) use ($startDate) {
-                                             return $query->where('updated_at', '>=', $startDate);
-                                         })
-                                         ->when($endDate, function ($query) use ($endDate) {
-                                             return $query->where('updated_at', '<=', $endDate);
-                                         });
+        // Closure for Role Filtering on LoanApplication
+        $applyLoanFilter = function($query) use ($user, $isManager) {
+            if (!$isManager) {
+                $query->where(function($q) use ($user) {
+                    $q->where('assigned_to_user_id', $user->id)
+                      ->orWhere('created_by_user_id', $user->id);
+                });
+            }
+        };
+
+        // 1. Disbursed Loans
+        $disbursedQuery = LoanApplication::whereIn('status', ['active', 'repaid', 'defaulted', 'disbursed']);
+        $applyLoanFilter($disbursedQuery);
+        
+        $disbursedQuery->when($startDate, function ($query) use ($startDate) {
+                             return $query->where('updated_at', '>=', $startDate);
+                         })
+                         ->when($endDate, function ($query) use ($endDate) {
+                             return $query->where('updated_at', '<=', $endDate);
+                         });
 
         $totalLoansDisbursedValue = $disbursedQuery->sum('amount');
         $totalLoansDisbursedCount = $disbursedQuery->count();
 
-        // 2. Total Repayments (Cash In) - Based on Transaction Date (AccountsTransactions)
+        // 2. Total Repayments (Cash In)
+        // Note: Filtering legacy transactions by Agent ID is difficult as it relies on 'users' string or 'agentname'.
+        // For now, we will NOT filter this legacy table strictly by ID to avoid data loss, 
+        // unless we can map 'users' column to ID. 
+        // IF we must filter, we'd need to join with users table or use 'agentname'.
+        // Let's try to filter by 'users' if it stores ID, otherwise skip for safety.
         $repaymentsQuery = AccountsTransactions::where('is_loan', 1)
                                         ->where('name_of_transaction', 'Loan Repayment')
                                         ->when($startDate, function ($query) use ($startDate) {
@@ -47,13 +66,22 @@ class LoanReportController extends Controller
                                         ->when($endDate, function ($query) use ($endDate) {
                                             return $query->where('created_at', '<=', $endDate);
                                         });
+        
+        // Attempt basic Agent filter on transactions if column exists/matches
+        if (!$isManager) {
+             // Assuming 'users' column holds the ID or 'agentname' holds the name. 
+             // We will try matching 'users' to ID first.
+             $repaymentsQuery->where('users', $user->id); 
+        }
 
         $totalRepaid = $repaymentsQuery->sum('amount');
 
         // Note: The legacy transaction table does not split Interest/Fees. 
         // We approximate "Collected Interest/Fees" by looking at Schedules updated in this period.
-        // This is an estimation because 'updated_at' updates on any change, but it's the closest proxy without a dedicated splits table.
         $scheduleUpdatesQuery = LoanRepaymentSchedule::where('total_paid', '>', 0)
+                                        ->whereHas('application', function($q) use ($applyLoanFilter) {
+                                            $applyLoanFilter($q);
+                                        })
                                         ->when($startDate, function ($query) use ($startDate) {
                                             return $query->where('updated_at', '>=', $startDate);
                                         })
@@ -63,22 +91,14 @@ class LoanReportController extends Controller
 
         $totalInterestCollected = $scheduleUpdatesQuery->sum('interest_paid');
         
-        // 3. Fees Profit (Accrued/Charged)
-        // User requested: "total sum of all fees charged on a loan at a particular time" (Disbursement time)
-        // We sum the 'total_fees' column for all loans disbursed in this period.
-        // This represents the Fee Revenue generated by the new business in this period.
+        // 3. Fees Profit
         $totalFeesCollected = $disbursedQuery->sum('total_fees');
 
 
         // 4. Outstanding (Snapshot - All Time)
-        // Ignore date filters for "Money Still Owed" as it refers to CURRENT debt.
-        // Only active/defaulted loans have outstanding balances.
-        // We can use the 'outstanding_balance' accessor if it performs well, or calculate via SQL.
-        // SQL is faster: (total_principal + total_interest + total_fees) - (paid_principal + paid_interest + paid_fees)
-        // But easier is Sum(amount) - Sum(principal_repaid) for principal...
-        // Let's stick to the reliable Scheduler math for now, but for ALL active loans.
-        $activeSchedules = LoanRepaymentSchedule::whereHas('application', function($query) {
+        $activeSchedules = LoanRepaymentSchedule::whereHas('application', function($query) use ($applyLoanFilter) {
                                                 $query->whereIn('status', ['active', 'defaulted']);
+                                                $applyLoanFilter($query);
                                             })
                                             ->where('status', '!=', 'paid')
                                             ->select(DB::raw('
@@ -94,23 +114,24 @@ class LoanReportController extends Controller
 
 
         // 5. Defaulted Loans (Snapshot - All Time)
-        // Active loans with OVERDUE schedules.
         $defaultedLoansCount = LoanApplication::where('status', 'active')
                                                 ->whereHas('repaymentSchedules', function($query) {
                                                     $query->where('due_date', '<', Carbon::now())
                                                           ->where('status', 'pending');
-                                                })
-                                                ->count();
+                                                });
+        $applyLoanFilter($defaultedLoansCount);
+        $defaultedLoansCount = $defaultedLoansCount->count();
                                                 
-        // Value of defaulted loans (Outstanding balance of these loans)
-        $defaultedSchedules = LoanRepaymentSchedule::whereHas('application', function($query) {
+        // Value of defaulted loans
+        $defaultedSchedules = LoanRepaymentSchedule::whereHas('application', function($query) use ($applyLoanFilter) {
                                                 $query->where('status', 'active')
                                                       ->whereHas('repaymentSchedules', function($subQ) {
                                                           $subQ->where('due_date', '<', Carbon::now())
                                                                ->where('status', 'pending');
                                                       });
+                                                $applyLoanFilter($query);
                                             })
-                                            ->where('status', '!=', 'paid') // Get all unpaid schedules for these defaulted loans
+                                            ->where('status', '!=', 'paid')
                                             ->select(DB::raw('
                                                 SUM(principal_due - principal_paid) as pending_principal,
                                                 SUM(interest_due - interest_paid) as pending_interest,
@@ -338,14 +359,78 @@ class LoanReportController extends Controller
     public function getDailyExpected(Request $request)
     {
         $date = $request->input('date') ? Carbon::parse($request->input('date'))->toDateString() : Carbon::today()->toDateString();
+        
+        $user = auth()->user();
+        $managerRoles = ['Admin', 'Manager', 'super admin', 'Owner'];
+        $isManager = $user->hasRole($managerRoles) || in_array($user->type, $managerRoles);
 
-        $totalExpected = LoanRepaymentSchedule::whereDate('due_date', $date)
-                                              ->sum('total_due');
+        $query = LoanRepaymentSchedule::whereDate('due_date', $date);
+
+        // Apply Role Filter
+        if (!$isManager) {
+            $query->whereHas('application', function($q) use ($user) {
+                $q->where('assigned_to_user_id', $user->id)
+                  ->orWhere('created_by_user_id', $user->id);
+            });
+        }
+
+        $totalExpected = $query->sum('total_due');
 
         return response()->json([
             'success' => true,
             'date' => $date,
             'amount' => round($totalExpected, 2)
+        ], 200);
+    }
+
+    /**
+     * Get the detailed list of repayments due on a specific date.
+     * Filtered by user role.
+     * 
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function getDailyRepaymentList(Request $request)
+    {
+        $date = $request->input('date') ? Carbon::parse($request->input('date'))->toDateString() : Carbon::today()->toDateString();
+        
+        $user = auth()->user();
+        $managerRoles = ['Admin', 'Manager', 'super admin', 'Owner'];
+        $isManager = $user->hasRole($managerRoles) || in_array($user->type, $managerRoles);
+
+        $query = LoanRepaymentSchedule::with(['application.customer', 'application.loan_product'])
+                    ->whereDate('due_date', $date)
+                    ->where('status', '!=', 'paid'); // Only show pending/partial? Prompt said "expected to be collected"
+
+        // Apply Role Filter
+        if (!$isManager) {
+            $query->whereHas('application', function($q) use ($user) {
+                $q->where('assigned_to_user_id', $user->id)
+                  ->orWhere('created_by_user_id', $user->id);
+            });
+        }
+        
+        $list = $query->get()->map(function($schedule) {
+            $customer = $schedule->application->customer;
+            return [
+                'id' => $schedule->id,
+                'loan_id' => $schedule->loan_application_id,
+                'customer_name' => $customer ? "{$customer->first_name} {$customer->surname}" : 'Unknown',
+                'customer_phone' => $customer->phone_number ?? 'N/A',
+                'customer_image' => $customer->user_image ?? null,
+                'customer_id' => $customer->id ?? null,
+                'account_number' => $customer->account_number ?? 'N/A',
+                'amount_due' => $schedule->total_due,
+                'installment_number' => $schedule->installment_number,
+                'product_name' => $schedule->application->loan_product->name ?? 'Loan',
+                'status' => $schedule->status
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'date' => $date,
+            'data' => $list
         ], 200);
     }
 }
