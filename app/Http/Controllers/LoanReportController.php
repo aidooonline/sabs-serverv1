@@ -326,6 +326,8 @@ class LoanReportController extends Controller
             'success' => true,
             'data' => $data
         ], 200);
+    }
+
     /**
      * Get the total daily expected repayment amount.
      * Sums all installments due on the specified date.
