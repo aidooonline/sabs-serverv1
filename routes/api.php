@@ -101,6 +101,7 @@ Route::get('customerssapi', [ApiUsersController::class, 'getcustomers']);
 
     // --- NEW LOAN SYSTEM REPORTS ---
     Route::group(['prefix' => 'reports'], function () {
+        Route::get('daily-expected', [App\Http\Controllers\LoanReportController::class, 'getDailyExpected']); // New route for daily expected
         Route::get('loan-dashboard-metrics', [App\Http\Controllers\LoanReportController::class, 'getLoanDashboardMetrics']);
         Route::get('loan-dashboard/history', [App\Http\Controllers\LoanReportController::class, 'getDashboardTransactionHistory']); // New route for dashboard metric history
         Route::get('defaulted-loans', [App\Http\Controllers\LoanReportController::class, 'getActualDefaultedLoans']); // New route for defaulted loans

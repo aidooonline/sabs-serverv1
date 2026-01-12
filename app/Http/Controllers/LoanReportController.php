@@ -326,5 +326,24 @@ class LoanReportController extends Controller
             'success' => true,
             'data' => $data
         ], 200);
+    /**
+     * Get the total daily expected repayment amount.
+     * Sums all installments due on the specified date.
+     * 
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function getDailyExpected(Request $request)
+    {
+        $date = $request->input('date') ? Carbon::parse($request->input('date'))->toDateString() : Carbon::today()->toDateString();
+
+        $totalExpected = LoanRepaymentSchedule::whereDate('due_date', $date)
+                                              ->sum('total_due');
+
+        return response()->json([
+            'success' => true,
+            'date' => $date,
+            'amount' => round($totalExpected, 2)
+        ], 200);
     }
 }
