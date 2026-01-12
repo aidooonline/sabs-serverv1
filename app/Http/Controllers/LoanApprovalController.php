@@ -29,6 +29,14 @@ class LoanApprovalController extends Controller
             return response()->json(['success' => false, 'message' => 'Application is not awaiting approval.'], 400);
         }
 
+        // Enforce Compliance Score of 10/10
+        if ($application->compliance_score < 10) {
+            return response()->json([
+                'success' => false, 
+                'message' => 'Compliance Check Failed: Score is ' . $application->compliance_score . '/10. All required documents (Agreement, Applicant Pic, Guarantor Pic) must be uploaded.'
+            ], 400);
+        }
+
         // Logic for approval
         // For now, just change status. 
         // In future sprints, this might trigger document checks or schedule generation if not done yet.
