@@ -19,38 +19,61 @@ class SystemReportController extends Controller
 
         try {
             $compId = auth()->user()->comp_id;
+            $userId = auth()->id();
+            $isAgent = $this->isAgentOnly();
 
-            // 1. Customer Savings Liability (What the company owes customers in savings)
-            $totalLiability = DB::table('nobs_user_account_numbers')
-                ->where('comp_id', $compId)
-                ->sum('balance');
+            // 1. Customer Savings Liability
+            $liabilityQuery = DB::table('nobs_user_account_numbers')
+                ->where('comp_id', $compId);
+            
+            if ($isAgent) {
+                $liabilityQuery->whereIn('account_number', function($query) use ($compId, $userId) {
+                    $query->select('account_number')
+                        ->from('nobs_registration')
+                        ->where('comp_id', $compId)
+                        ->where('user', $userId);
+                });
+            }
+            $totalLiability = $liabilityQuery->sum('balance');
 
-            // 2. Total Loan Portfolio (Principal currently out with customers)
-            $totalLoanPortfolio = DB::table('loan_applications')
+            // 2. Total Loan Portfolio
+            $loanQuery = DB::table('loan_applications')
                 ->where('comp_id', $compId)
-                ->whereIn('status', ['active', 'disbursed'])
-                ->sum('amount');
+                ->whereIn('status', ['active', 'disbursed']);
+            
+            if ($isAgent) {
+                $loanQuery->where('created_by_user_id', $userId);
+            }
+            $totalLoanPortfolio = $loanQuery->sum('amount');
+            $activeLoansCount = $loanQuery->count();
 
-            // 3. Loan Pool Balance (Available cash in the central loan account)
-            $totalPoolCash = DB::table('central_loan_accounts')
-                ->where('comp_id', $compId)
-                ->sum('balance');
+            // 3. Loan Pool Balance (Only for Management)
+            $totalPoolCash = 0;
+            if (!$isAgent) {
+                $totalPoolCash = DB::table('central_loan_accounts')
+                    ->where('comp_id', $compId)
+                    ->sum('balance');
+            }
 
-            // 4. Customer Count (Total Registered)
-            $totalCustomers = DB::table('nobs_registration')
-                ->where('comp_id', $compId)
-                ->count();
+            // 4. Customer Count
+            $customerQuery = DB::table('nobs_registration')
+                ->where('comp_id', $compId);
+            
+            if ($isAgent) {
+                $customerQuery->where('user', $userId);
+            }
+            $totalCustomers = $customerQuery->count();
 
             // 5. Active Customers (Last 90 Days)
-            // Fix: Count DISTINCT accounts that have transacted in the last 90 days.
-            // This ignores the "zero balance" reset and focuses on actual activity.
             $ninetyDaysAgo = Carbon::now()->subDays(90);
-            
-            $activeCustomers = DB::table('nobs_transactions')
+            $activeQuery = DB::table('nobs_transactions')
                 ->where('comp_id', $compId)
-                ->where('created_at', '>=', $ninetyDaysAgo)
-                ->distinct('account_number')
-                ->count('account_number');
+                ->where('created_at', '>=', $ninetyDaysAgo);
+            
+            if ($isAgent) {
+                $activeQuery->where('users', $userId);
+            }
+            $activeCustomers = $activeQuery->distinct('account_number')->count('account_number');
 
             return response()->json([
                 'success' => true,
@@ -60,6 +83,7 @@ class SystemReportController extends Controller
                     'total_pool_cash' => round($totalPoolCash, 2),
                     'total_customers' => $totalCustomers,
                     'active_customers' => $activeCustomers,
+                    'active_loans_count' => $activeLoansCount,
                     'last_updated' => now()->toDateTimeString()
                 ]
             ]);
@@ -80,6 +104,9 @@ class SystemReportController extends Controller
 
         try {
             $compId = auth()->user()->comp_id;
+            $userId = auth()->id();
+            $isAgent = $this->isAgentOnly();
+
             $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date')) : Carbon::now()->startOfMonth();
             $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : Carbon::now()->endOfMonth();
 
@@ -91,10 +118,14 @@ class SystemReportController extends Controller
                     DB::raw('SUM(amount) as total_withdrawn')
                 )
                 ->where('nobs_transactions.comp_id', $compId)
-                ->where('name_of_transaction', 'LIKE', '%Withdraw%') // Catch 'Withdraw', 'Withdrawal', 'Cash Withdrawal' etc.
+                ->where('name_of_transaction', 'LIKE', '%Withdraw%')
                 ->whereBetween('nobs_transactions.created_at', [$startDate, $endDate])
                 ->groupBy('nobs_transactions.account_number', 'customer_name')
                 ->orderBy('total_withdrawn', 'DESC');
+
+            if ($isAgent) {
+                $query->where('nobs_transactions.users', $userId);
+            }
 
             if ($request->has('paginate')) {
                 $topWithdrawals = $query->paginate(20);
@@ -124,6 +155,9 @@ class SystemReportController extends Controller
 
         try {
             $compId = auth()->user()->comp_id;
+            $userId = auth()->id();
+            $isAgent = $this->isAgentOnly();
+
             $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date')) : Carbon::now()->startOfMonth();
             $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : Carbon::now()->endOfMonth();
 
@@ -140,6 +174,10 @@ class SystemReportController extends Controller
                 ->whereBetween('loan_applications.created_at', [$startDate, $endDate])
                 ->groupBy('nobs_registration.account_number', 'customer_name')
                 ->orderBy('total_borrowed', 'DESC');
+
+            if ($isAgent) {
+                $query->where('loan_applications.created_by_user_id', $userId);
+            }
 
             if ($request->has('paginate')) {
                 $topBorrowers = $query->paginate(20);
@@ -160,8 +198,6 @@ class SystemReportController extends Controller
 
     /**
      * Get counts of active vs dormant accounts.
-     * Note: This endpoint might be redundant if Executive Summary handles it, 
-     * but we keep it for specific charts if needed.
      */
     public function getDormancyStats()
     {
@@ -170,18 +206,23 @@ class SystemReportController extends Controller
         }
 
         try {
-            // Reusing logic from Executive Summary for consistency
             $compId = auth()->user()->comp_id;
+            $userId = auth()->id();
+            $isAgent = $this->isAgentOnly();
             $ninetyDaysAgo = Carbon::now()->subDays(90);
 
-            $total = DB::table('nobs_registration')->where('comp_id', $compId)->count();
-            
-            $active = DB::table('nobs_transactions')
+            $totalQuery = DB::table('nobs_registration')->where('comp_id', $compId);
+            $activeQuery = DB::table('nobs_transactions')
                 ->where('comp_id', $compId)
-                ->where('created_at', '>=', $ninetyDaysAgo)
-                ->distinct('account_number')
-                ->count('account_number');
-                
+                ->where('created_at', '>=', $ninetyDaysAgo);
+            
+            if ($isAgent) {
+                $totalQuery->where('user', $userId);
+                $activeQuery->where('users', $userId);
+            }
+
+            $total = $totalQuery->count();
+            $active = $activeQuery->distinct('account_number')->count('account_number');
             $dormant = $total - $active;
 
             return response()->json([
@@ -208,6 +249,9 @@ class SystemReportController extends Controller
 
         try {
             $compId = auth()->user()->comp_id;
+            $userId = auth()->id();
+            $isAgent = $this->isAgentOnly();
+
             $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date')) : Carbon::now()->startOfMonth();
             $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : Carbon::now()->endOfMonth();
 
@@ -223,6 +267,10 @@ class SystemReportController extends Controller
                 ->whereBetween('nobs_transactions.created_at', [$startDate, $endDate])
                 ->groupBy('nobs_transactions.account_number', 'customer_name')
                 ->orderBy('total_deposited', 'DESC');
+
+            if ($isAgent) {
+                $query->where('nobs_transactions.users', $userId);
+            }
 
             if ($request->has('paginate')) {
                 $topCustomers = $query->paginate(20);
@@ -250,25 +298,37 @@ class SystemReportController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
+        // Return zeros for Agents - they shouldn't see system revenue
+        if ($this->isAgentOnly()) {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'interest_collected' => 0,
+                    'fees_collected' => 0,
+                    'commissions_collected' => 0,
+                    'total_revenue' => 0
+                ]
+            ]);
+        }
+
         try {
             $compId = auth()->user()->comp_id;
             $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date')) : Carbon::now()->startOfMonth();
             $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : Carbon::now()->endOfMonth();
 
-            // Interest Collected (from Loan Repayments)
+            // Interest Collected
             $interest = DB::table('loan_repayment_schedules')
                 ->where('comp_id', $compId)
                 ->whereBetween('updated_at', [$startDate, $endDate])
                 ->sum('interest_paid');
 
-            // Fees Collected (from Loan Repayments)
-            // Ensure we are tracking 'fees_paid' correctly. 
+            // Fees Collected
             $feesRepaid = DB::table('loan_repayment_schedules')
                 ->where('comp_id', $compId)
                 ->whereBetween('updated_at', [$startDate, $endDate])
                 ->sum('fees_paid');
             
-            // Commission Revenue (What the company kept from withdrawals/deposits)
+            // Commission Revenue
             $commissions = DB::table('nobs_transactions')
                 ->where('comp_id', $compId)
                 ->where('name_of_transaction', 'Commission')
@@ -291,12 +351,12 @@ class SystemReportController extends Controller
     }
 
     /**
-     * Integrity Check: Detect duplicate commission deductions in the date range.
+     * Integrity Check.
      */
     public function getIntegrityReport(Request $request)
     {
-        if (!$this->isManagement()) {
-            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        if (!$this->isManagement() || $this->isAgentOnly()) {
+            return response()->json(['success' => true, 'data' => []]); // Return empty for Agents
         }
 
         try {
@@ -304,7 +364,6 @@ class SystemReportController extends Controller
             $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date')) : Carbon::now()->startOfMonth();
             $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : Carbon::now()->endOfMonth();
 
-            // Find accounts with > 1 'Commission' transaction in the period
             $duplicates = DB::table('nobs_transactions')
                 ->select('account_number', DB::raw('count(*) as deduction_count'), DB::raw('SUM(amount) as total_deducted'))
                 ->where('comp_id', $compId)
@@ -326,7 +385,7 @@ class SystemReportController extends Controller
     }
 
     /**
-     * Get Top Account Balances (Highest Savings).
+     * Get Top Account Balances.
      */
     public function getTopAccountBalances(Request $request)
     {
@@ -336,6 +395,8 @@ class SystemReportController extends Controller
 
         try {
             $compId = auth()->user()->comp_id;
+            $userId = auth()->id();
+            $isAgent = $this->isAgentOnly();
 
             $query = DB::table('nobs_user_account_numbers')
                 ->join('nobs_registration', 'nobs_user_account_numbers.account_number', '=', 'nobs_registration.account_number')
@@ -346,6 +407,10 @@ class SystemReportController extends Controller
                 )
                 ->where('nobs_user_account_numbers.comp_id', $compId)
                 ->orderBy('balance', 'DESC');
+
+            if ($isAgent) {
+                $query->where('nobs_registration.user', $userId);
+            }
 
             if ($request->has('paginate')) {
                 $topAccounts = $query->paginate(20);
@@ -364,15 +429,17 @@ class SystemReportController extends Controller
     }
 
     /**
-     * Helper to get Top Agents by Transaction Type.
+     * Helper to get Top Agents.
      */
     private function getTopAgentsByTransaction($type, $request)
     {
         $compId = auth()->user()->comp_id;
+        $userId = auth()->id();
+        $isAgent = $this->isAgentOnly();
+
         $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date')) : Carbon::now()->startOfMonth();
         $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : Carbon::now()->endOfMonth();
 
-        // Use LIKE for robust matching (e.g., 'Withdraw' vs 'Withdrawal')
         $query = DB::table('nobs_transactions')
             ->join('users', 'nobs_transactions.users', '=', 'users.id')
             ->select(
@@ -385,6 +452,10 @@ class SystemReportController extends Controller
             ->whereBetween('nobs_transactions.created_at', [$startDate, $endDate])
             ->groupBy('users.name')
             ->orderBy('total_amount', 'DESC');
+
+        if ($isAgent) {
+            $query->where('nobs_transactions.users', $userId);
+        }
 
         if ($request->has('paginate')) {
             return $query->paginate(20);
@@ -470,11 +541,14 @@ class SystemReportController extends Controller
 
         try {
             $compId = auth()->user()->comp_id;
+            $userId = auth()->id();
+            $isAgent = $this->isAgentOnly();
+
             $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date')) : Carbon::now()->startOfMonth();
             $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : Carbon::now()->endOfMonth();
 
             // 1. Transaction Metrics
-            $metrics = DB::table('nobs_transactions')
+            $metricQuery = DB::table('nobs_transactions')
                 ->select(
                     DB::raw('SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) AS total_deposits'),
                     DB::raw('SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) AS total_withdrawals'),
@@ -486,14 +560,22 @@ class SystemReportController extends Controller
                 )
                 ->where('comp_id', $compId)
                 ->whereBetween('created_at', [$startDate, $endDate])
-                ->where('is_shown', 1) // Match legacy filter
-                ->first();
+                ->where('is_shown', 1);
+            
+            if ($isAgent) {
+                $metricQuery->where('users', $userId);
+            }
+            $metrics = $metricQuery->first();
 
             // 2. New Customers (Registered in period)
-            $totalCustomers = DB::table('nobs_registration')
+            $customerQuery = DB::table('nobs_registration')
                 ->where('comp_id', $compId)
-                ->whereBetween('created_at', [$startDate, $endDate])
-                ->count();
+                ->whereBetween('created_at', [$startDate, $endDate]);
+            
+            if ($isAgent) {
+                $customerQuery->where('user', $userId);
+            }
+            $totalCustomers = $customerQuery->count();
 
             // 3. Balance Calculation (Deposit - Withdrawal - Refunds - Commissions)
             // Matches legacy logic: totalDP - totalWD - totalRF - totalAGTCM - totalSCM
@@ -527,9 +609,18 @@ class SystemReportController extends Controller
         $user = auth()->user();
         if (!$user) return false;
 
-        $managementTypes = ['Admin', 'owner', 'super admin', 'God Admin', 'Manager'];
-        $managementRoles = ['Admin', 'Owner', 'super admin', 'Manager'];
+        $managementTypes = ['Admin', 'owner', 'super admin', 'God Admin', 'Manager', 'Agents'];
+        $managementRoles = ['Admin', 'Owner', 'super admin', 'Manager', 'Agents'];
 
         return in_array($user->type, $managementTypes) || $user->hasRole($managementRoles);
+    }
+
+    private function isAgentOnly()
+    {
+        $user = auth()->user();
+        $mgmtRoles = ['Admin', 'Owner', 'super admin', 'Manager'];
+        
+        // They are an Agent ONLY if they don't have management roles but have the Agent type/role
+        return !$user->hasRole($mgmtRoles) && ($user->type === 'Agents' || $user->hasRole('Agents'));
     }
 }
