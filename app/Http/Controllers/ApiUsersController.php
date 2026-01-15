@@ -85,7 +85,7 @@ class ApiUsersController extends Controller
 
         //this is literally 'Manage User Register'
         if ($this->isManagement()) {
-            return DB::table('users')->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender', DB::raw('IFNULL(is_disabled, 0) as is_disabled'))->where('type', '!=', 'Super Admin')->where('type', '!=', 'owner')->where('comp_id', \Auth::user()->comp_id)->orderBy('id', 'DESC')->paginate(10);
+            return DB::table('users')->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender', DB::raw('IFNULL(is_disabled, 0) as is_disabled'))->where('comp_id', \Auth::user()->comp_id)->orderBy('id', 'DESC')->paginate(10);
         } else {
             if (\Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
                 return DB::table('users')->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender', DB::raw('IFNULL(is_disabled, 0) as is_disabled'))->orderBy('id', 'DESC')->where('id', \Auth::user()->id)->paginate(10);
