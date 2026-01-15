@@ -50,6 +50,60 @@ class LoanApplicationController extends Controller
     }
 
     /**
+     * Get loans with installments due today (or overdue).
+     */
+    public function getLoansDueToday(Request $request)
+    {
+        $user = Auth::user();
+        if (!$user) return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+
+        // Join applications with schedules
+        // We want the application details AND the specific schedule details
+        $query = LoanApplication::join('loan_repayment_schedules', 'loan_applications.id', '=', 'loan_repayment_schedules.loan_application_id')
+            ->join('nobs_registration', 'loan_applications.customer_id', '=', 'nobs_registration.id')
+            ->select(
+                'loan_applications.*',
+                'nobs_registration.first_name',
+                'nobs_registration.surname',
+                'nobs_registration.phone_number',
+                'nobs_registration.account_number',
+                'nobs_registration.user_image',
+                'loan_repayment_schedules.due_date',
+                'loan_repayment_schedules.amount as installment_amount',
+                'loan_repayment_schedules.id as schedule_id'
+            )
+            ->where('loan_applications.status', 'active') // Only active loans
+            ->where('loan_repayment_schedules.status', 'pending')
+            ->whereDate('loan_repayment_schedules.due_date', '<=', now()->toDateString()); // Today or Overdue
+
+        // Role-based filtering
+        $managerRoles = ['Admin', 'Manager', 'super admin', 'Owner'];
+        if (!$user->hasRole($managerRoles) && !in_array($user->type, $managerRoles)) {
+            $query->where(function($q) use ($user) {
+                $q->where('loan_applications.assigned_to_user_id', $user->id)
+                  ->orWhere('loan_applications.created_by_user_id', $user->id);
+            });
+        }
+
+        // Search
+        if ($request->has('search') && !empty($request->search)) {
+            $term = $request->search;
+            $query->where(function($q) use ($term) {
+                $q->where('nobs_registration.first_name', 'like', "%$term%")
+                  ->orWhere('nobs_registration.surname', 'like', "%$term%")
+                  ->orWhere('nobs_registration.account_number', 'like', "%$term%");
+            });
+        }
+
+        $loans = $query->orderBy('loan_repayment_schedules.due_date', 'asc')->paginate(20);
+
+        return response()->json([
+            'success' => true,
+            'data' => $loans
+        ], 200);
+    }
+
+    /**
      * Calculate loan details (Preview).
      * Does NOT save to database.
      */
