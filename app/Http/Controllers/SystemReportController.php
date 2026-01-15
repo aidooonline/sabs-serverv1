@@ -75,6 +75,40 @@ class SystemReportController extends Controller
             }
             $activeCustomers = $activeQuery->distinct('account_number')->count('account_number');
 
+            // 6. Detailed Data (Loans & Commissions)
+            // For Agents: Only their data. For Management: Global totals.
+            $loanStatsQuery = DB::table('loan_applications')
+                ->select('status', DB::raw('count(*) as total'))
+                ->where('comp_id', $compId);
+            
+            if ($isAgent) {
+                $loanStatsQuery->where('created_by_user_id', $userId);
+            }
+            
+            $loanStats = $loanStatsQuery->groupBy('status')
+                ->pluck('total', 'status')
+                ->toArray();
+
+            $loanData = [
+                'pending' => $loanStats['pending'] ?? 0,
+                'approved' => $loanStats['approved'] ?? 0,
+                'rejected' => $loanStats['rejected'] ?? 0,
+                'repaid' => $loanStats['repaid'] ?? 0,
+                'active' => $loanStats['active'] ?? 0,
+                'disbursed' => $loanStats['disbursed'] ?? 0,
+            ];
+
+            // Unpaid Commission
+            $commissionQuery = DB::table('agent_commissions')
+                ->where('comp_id', $compId)
+                ->where('status', 'earned')
+                ->whereNull('payout_id');
+            
+            if ($isAgent) {
+                $commissionQuery->where('agent_id', $userId);
+            }
+            $unpaidCommission = $commissionQuery->sum('amount');
+
             return response()->json([
                 'success' => true,
                 'data' => [
@@ -84,6 +118,8 @@ class SystemReportController extends Controller
                     'total_customers' => $totalCustomers,
                     'active_customers' => $activeCustomers,
                     'active_loans_count' => $activeLoansCount,
+                    'loans' => $loanData,
+                    'unpaid_commission' => round($unpaidCommission, 2),
                     'last_updated' => now()->toDateTimeString()
                 ]
             ]);
