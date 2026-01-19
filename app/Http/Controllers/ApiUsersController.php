@@ -3973,9 +3973,7 @@ class ApiUsersController extends Controller
     // creating new account for the business which can be used for susu, business account or even loans.
     public function updatesystemuser(Request $request)
     {
-        return response()->json(['message' => 'Reached Controller. Request data: ' . json_encode($request->all())], 200);
-        
-        /* 
+
         if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
             
             $validator = \Validator::make(
@@ -4034,6 +4032,5 @@ class ApiUsersController extends Controller
                 return $e->getMessage();
             }
         }
-        */
     }
 }
