@@ -161,7 +161,7 @@ class UserManagementController extends Controller
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|required|string|max:255',
             'email' => 'sometimes|required|string|email|max:255|unique:users,email,' . $id,
-            'phone' => 'nullable|string|unique:users,phone,' . $id,
+            'phone' => 'nullable|string',
             'password' => 'nullable|string|min:6',
             'role' => 'sometimes|required|exists:roles,name',
             'is_active' => 'boolean'

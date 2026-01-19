@@ -3979,9 +3979,9 @@ class ApiUsersController extends Controller
             $validator = \Validator::make(
                 $request->all(),
                 [
-                    'name' => 'nullable|max:120',
-                    'email' => 'nullable', 
-                    'phone' => 'nullable',
+                    'name' => 'required|max:120',
+                    'email' => 'required', 
+                    'phone' => 'nullable|min:10',
                 ]
             );
 
