@@ -3975,13 +3975,13 @@ class ApiUsersController extends Controller
     {
 
         if (\Auth::user()->type == 'Admin' || \Auth::user()->type == 'owner' || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->type == 'super admin' || \Auth::user()->hasRole(['Admin', 'Owner', 'super admin', 'Agent', 'Manager'])) {
-            /* 
+            
             $validator = \Validator::make(
                 $request->all(),
                 [
-                    'name' => 'required|max:120',
-                    'email' => 'required', 
-                    'phone' => 'required|min:10',
+                    'name' => 'nullable|max:120',
+                    'email' => 'nullable', 
+                    'phone' => 'nullable',
                 ]
             );
 
@@ -3990,7 +3990,7 @@ class ApiUsersController extends Controller
 
                 return $messages->first();
             } 
-            */
+            
 
             try {
                 if ($request->password == '' || $request->password == null) {
