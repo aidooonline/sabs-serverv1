@@ -3979,8 +3979,8 @@ class ApiUsersController extends Controller
                 $request->all(),
                 [
                     'name' => 'required|max:120',
-                    'email' => 'required|', // Allow email to remain the same
-                    'phone' => 'required|min:10', // Allow phone to remain the same
+                    'email' => 'required', // Removed trailing pipe
+                    'phone' => 'required|min:10',
                 ]
             );
 
@@ -3991,8 +3991,8 @@ class ApiUsersController extends Controller
             }
 
             try {
-                if ($request->password == '') {
-                    // Update the User record
+                if ($request->password == '' || $request->password == null) {
+                    // Update the User record without password
                     User::where('id', $request->id)->update([
                         'username' => $request->name,
                         'name' => $request->name,
@@ -4000,6 +4000,17 @@ class ApiUsersController extends Controller
                         'email' => $request->email,
                         'type'  => $request->accountrole,
                         'gender'  => $request->gender
+                    ]);
+                } else {
+                    // Update the User record WITH password
+                    User::where('id', $request->id)->update([
+                        'username' => $request->name,
+                        'name' => $request->name,
+                        'phone' => $request->phone,
+                        'email' => $request->email,
+                        'type'  => $request->accountrole,
+                        'gender'  => $request->gender,
+                        'password' => Hash::make($request->password)
                     ]);
                 }
                 
