@@ -83,10 +83,24 @@ class ApiUsersController extends Controller
     public function getagents(Request $request)
     {
         $limit = $request->input('limit', 10); // Default to 10 if not specified
+        $type = $request->input('type'); // Optional filter by user type
 
         //this is literally 'Manage User Register'
         if ($this->isManagement()) {
-            return DB::table('users')->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender', DB::raw('IFNULL(is_disabled, 0) as is_disabled'))->where('comp_id', \Auth::user()->comp_id)->orderBy('id', 'DESC')->paginate($limit);
+            $query = DB::table('users')
+                ->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender', DB::raw('IFNULL(is_disabled, 0) as is_disabled'))
+                ->where('comp_id', \Auth::user()->comp_id);
+
+            if ($type) {
+                // Handle multiple variations of 'Agent'
+                if ($type === 'Agent' || $type === 'Agents') {
+                    $query->whereIn('type', ['Agent', 'Agents']);
+                } else {
+                    $query->where('type', $type);
+                }
+            }
+
+            return $query->orderBy('id', 'DESC')->paginate($limit);
         } else {
             if (\Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
                 return DB::table('users')->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender', DB::raw('IFNULL(is_disabled, 0) as is_disabled'))->orderBy('id', 'DESC')->where('id', \Auth::user()->id)->paginate($limit);
