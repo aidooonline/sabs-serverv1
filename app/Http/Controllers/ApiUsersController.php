@@ -80,15 +80,16 @@ class ApiUsersController extends Controller
         return response()->json(['exists' => $exists]);
     }
 
-    public function getagents()
+    public function getagents(Request $request)
     {
+        $limit = $request->input('limit', 10); // Default to 10 if not specified
 
         //this is literally 'Manage User Register'
         if ($this->isManagement()) {
-            return DB::table('users')->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender', DB::raw('IFNULL(is_disabled, 0) as is_disabled'))->where('comp_id', \Auth::user()->comp_id)->orderBy('id', 'DESC')->paginate(10);
+            return DB::table('users')->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender', DB::raw('IFNULL(is_disabled, 0) as is_disabled'))->where('comp_id', \Auth::user()->comp_id)->orderBy('id', 'DESC')->paginate($limit);
         } else {
             if (\Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
-                return DB::table('users')->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender', DB::raw('IFNULL(is_disabled, 0) as is_disabled'))->orderBy('id', 'DESC')->where('id', \Auth::user()->id)->paginate(10);
+                return DB::table('users')->select('id', 'created_by', 'created_by_user', 'email', 'name', 'phone', 'type', 'avatar', 'gender', DB::raw('IFNULL(is_disabled, 0) as is_disabled'))->orderBy('id', 'DESC')->where('id', \Auth::user()->id)->paginate($limit);
             } else {
                 return 'error: Type=[' . \Auth::user()->type . '] Roles=' . json_encode(\Auth::user()->getRoleNames());
             }
