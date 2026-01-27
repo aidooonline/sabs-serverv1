@@ -226,6 +226,9 @@ Route::get('/getdailycollectionsloanrepayment', 'ApiUsersController@getdailycoll
     Route::get('getcommissionvalue', [ApiUsersController::class, 'getcommissionvalue']);
     Route::get('getaccountbalaceandcharges', [ApiUsersController::class, 'getaccountbalaceandcharges']);
 
+    // Aggregated Endpoint for Deposit/Withdrawal Page (Performance Optimization)
+    Route::get('customer-deposit-data', [App\Http\Controllers\CustomerTransactionHelperController::class, 'getDepositPageData']);
+
     //For sms credit transactions
 
     Route::get('company_sms_transaction2', [ApiUsersController::class, 'company_sms_transaction2']);
