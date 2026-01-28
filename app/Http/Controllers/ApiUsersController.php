@@ -4182,7 +4182,7 @@ class ApiUsersController extends Controller
         }
 
         $transactions = $query->orderBy('created_at', 'desc')
-            ->select('id', 'transaction_id', 'account_number', 'amount', 'name_of_transaction', 'created_at', 'det_rep_name_of_transaction')
+            ->select('id', 'transaction_id', 'account_number', 'amount', 'name_of_transaction', 'created_at', 'det_rep_name_of_transaction', 'description')
             ->paginate(20);
 
         // Format dates
@@ -4307,7 +4307,12 @@ class ApiUsersController extends Controller
             // 6. Update SusuCycle (if applicable)
             SusuCycles::where('account_number', $originalTx->account_number)
                 ->where('comp_id', \Auth::user()->comp_id)
-                ->update(['balance' => $newBalance]); // Should we update total_paid? Context dependent, assume sync balance is key.
+                ->update(['balance' => $newBalance]); 
+
+            // 7. Mark Original Transaction as Reversed (to prevent double reversal)
+            $originalTx->description = $originalTx->description . " [REVERSED]";
+            // We can also use a specific flag if available, but description is safe for now
+            $originalTx->save();
 
             DB::commit();
 
