@@ -2636,14 +2636,13 @@ class ApiUsersController extends Controller
                     $transaction->row_version = 2;
                     $transaction->comp_id = \Auth::user()->comp_id;
 
-                    // --- OPTIMIZATION: Replace 4 SUM queries with 1 query to get last balance ---
-                    $lastTransaction = AccountsTransactions::where('account_number', $request->accountnumber)
-                        ->where('comp_id', \Auth::user()->comp_id)
-                        ->orderBy('id', 'desc')
-                        ->first();
+                    // --- OPTIMIZATION: Recalculate balance from history to ensure accuracy (Fixes drift) ---
+                    $totaldeposits = AccountsTransactions::where('account_number', $request->accountnumber)->where('name_of_transaction', 'Deposit')->where('row_version', 2)->where('comp_id', \Auth::user()->comp_id)->sum('amount');
+                    $totalcommission = AccountsTransactions::where('account_number', $request->accountnumber)->where('name_of_transaction', 'Commission')->where('row_version', 2)->where('comp_id', \Auth::user()->comp_id)->sum('amount');
+                    $totalwithdrawals = AccountsTransactions::where('account_number', $request->accountnumber)->where('name_of_transaction', 'Withdraw')->where('row_version', 2)->where('comp_id', \Auth::user()->comp_id)->sum('amount');
+                    $totalrefunds = AccountsTransactions::where('account_number', $request->accountnumber)->where('name_of_transaction', 'Refund')->where('row_version', 2)->where('comp_id', \Auth::user()->comp_id)->sum('amount');
 
-                    $previousBalance = $lastTransaction ? $lastTransaction->balance : 0;
-                    $totalbalance = ROUND($previousBalance + $request->customerdeposit, 2);
+                    $totalbalance = ROUND($totaldeposits - $totalrefunds - $totalwithdrawals - $totalcommission, 3) + $request->customerdeposit;
                     $transaction->balance = $totalbalance;
                     // --- END OPTIMIZATION ---
 
