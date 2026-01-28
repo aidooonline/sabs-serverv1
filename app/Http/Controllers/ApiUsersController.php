@@ -4152,6 +4152,8 @@ class ApiUsersController extends Controller
         }
 
         return response()->json($response);
+    }
+
     /**
      * Fetch transactions for the Reversal screen.
      * Can list recent transactions for an account OR search by specific Transaction ID.
