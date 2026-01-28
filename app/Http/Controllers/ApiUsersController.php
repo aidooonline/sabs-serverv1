@@ -4055,6 +4055,8 @@ class ApiUsersController extends Controller
         }
     }
 
+    }
+
     /**
      * Get aggregated data for the Deposit/Withdrawal page.
      * This reduces API chattiness by combining Balance, Account List, and Susu Status into one request.
