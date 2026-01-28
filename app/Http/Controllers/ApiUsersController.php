@@ -2637,12 +2637,19 @@ class ApiUsersController extends Controller
                     $transaction->comp_id = \Auth::user()->comp_id;
 
                     // --- OPTIMIZATION: Recalculate balance from history to ensure accuracy (Fixes drift) ---
-                    $totaldeposits = AccountsTransactions::where('account_number', $request->accountnumber)->where('name_of_transaction', 'Deposit')->where('row_version', 2)->where('comp_id', \Auth::user()->comp_id)->sum('amount');
-                    $totalcommission = AccountsTransactions::where('account_number', $request->accountnumber)->where('name_of_transaction', 'Commission')->where('row_version', 2)->where('comp_id', \Auth::user()->comp_id)->sum('amount');
-                    $totalwithdrawals = AccountsTransactions::where('account_number', $request->accountnumber)->where('name_of_transaction', 'Withdraw')->where('row_version', 2)->where('comp_id', \Auth::user()->comp_id)->sum('amount');
-                    $totalrefunds = AccountsTransactions::where('account_number', $request->accountnumber)->where('name_of_transaction', 'Refund')->where('row_version', 2)->where('comp_id', \Auth::user()->comp_id)->sum('amount');
+                    // Using a single query for performance instead of 4 separate SUMs
+                    $totals = AccountsTransactions::selectRaw("
+                        SUM(CASE WHEN name_of_transaction = 'Deposit' THEN amount ELSE 0 END) as deposits,
+                        SUM(CASE WHEN name_of_transaction = 'Commission' THEN amount ELSE 0 END) as commissions,
+                        SUM(CASE WHEN name_of_transaction = 'Withdraw' THEN amount ELSE 0 END) as withdrawals,
+                        SUM(CASE WHEN name_of_transaction = 'Refund' THEN amount ELSE 0 END) as refunds
+                    ")
+                    ->where('account_number', $request->accountnumber)
+                    ->where('row_version', 2)
+                    ->where('comp_id', \Auth::user()->comp_id)
+                    ->first();
 
-                    $totalbalance = ROUND($totaldeposits - $totalrefunds - $totalwithdrawals - $totalcommission, 3) + $request->customerdeposit;
+                    $totalbalance = ROUND($totals->deposits - $totals->refunds - $totals->withdrawals - $totals->commissions, 3) + $request->customerdeposit;
                     $transaction->balance = $totalbalance;
                     // --- END OPTIMIZATION ---
 
@@ -4083,32 +4090,19 @@ class ApiUsersController extends Controller
 
         if ($targetAccount) {
             // A. Calculate Balance (Using Transaction History for accuracy, mirroring ApiUsersController logic)
-            // Note: ApiUsersController::getaccountbalance2 logic
-            $totalDeposits = AccountsTransactions::where('account_number', $targetAccount)
-                ->where('name_of_transaction', 'Deposit')
-                ->where('row_version', 2)
-                ->where('comp_id', $user->comp_id)
-                ->sum('amount');
+            // Optimization: Single query instead of 4 separate SUMs
+            $totals = AccountsTransactions::selectRaw("
+                SUM(CASE WHEN name_of_transaction = 'Deposit' THEN amount ELSE 0 END) as deposits,
+                SUM(CASE WHEN name_of_transaction = 'Commission' THEN amount ELSE 0 END) as commissions,
+                SUM(CASE WHEN name_of_transaction = 'Withdraw' THEN amount ELSE 0 END) as withdrawals,
+                SUM(CASE WHEN name_of_transaction = 'Refund' THEN amount ELSE 0 END) as refunds
+            ")
+            ->where('account_number', $targetAccount)
+            ->where('row_version', 2)
+            ->where('comp_id', $user->comp_id)
+            ->first();
 
-            $totalCommissions = AccountsTransactions::where('account_number', $targetAccount)
-                ->where('name_of_transaction', 'Commission')
-                ->where('row_version', 2)
-                ->where('comp_id', $user->comp_id)
-                ->sum('amount');
-
-            $totalWithdrawals = AccountsTransactions::where('account_number', $targetAccount)
-                ->where('name_of_transaction', 'Withdraw')
-                ->where('row_version', 2)
-                ->where('comp_id', $user->comp_id)
-                ->sum('amount');
-
-            $totalRefunds = AccountsTransactions::where('account_number', $targetAccount)
-                ->where('name_of_transaction', 'Refund')
-                ->where('row_version', 2)
-                ->where('comp_id', $user->comp_id)
-                ->sum('amount');
-
-            $balance = round($totalDeposits - $totalRefunds - $totalWithdrawals - $totalCommissions, 2);
+            $balance = round($totals->deposits - $totals->refunds - $totals->withdrawals - $totals->commissions, 2);
 
             // B. Check Susu Status
             $susuCycle = SusuCycles::where('account_number', $targetAccount)
