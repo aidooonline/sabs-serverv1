@@ -229,6 +229,10 @@ Route::get('/getdailycollectionsloanrepayment', 'ApiUsersController@getdailycoll
     // Aggregated Endpoint for Deposit/Withdrawal Page (Performance Optimization)
     Route::get('customer-deposit-data', [ApiUsersController::class, 'getDepositPageData']);
 
+    // Reversal Routes
+    Route::get('get-transactions-for-reversal', [ApiUsersController::class, 'getTransactionsForReversal']);
+    Route::post('perform-reversal', [ApiUsersController::class, 'performReversal']);
+
     //For sms credit transactions
 
     Route::get('company_sms_transaction2', [ApiUsersController::class, 'company_sms_transaction2']);

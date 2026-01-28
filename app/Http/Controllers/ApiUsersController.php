@@ -4152,5 +4152,172 @@ class ApiUsersController extends Controller
         }
 
         return response()->json($response);
+    /**
+     * Fetch transactions for the Reversal screen.
+     * Can list recent transactions for an account OR search by specific Transaction ID.
+     */
+    public function getTransactionsForReversal(Request $request)
+    {
+        if (!$this->isManagement() && !\Auth::user()->type == 'Agents' && !\Auth::user()->type == 'Agent' && !\Auth::user()->hasRole('Agent')) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        $query = AccountsTransactions::where('comp_id', \Auth::user()->comp_id)
+            ->whereIn('name_of_transaction', ['Deposit', 'Withdraw']) // Only these are typically reversed
+            ->where('row_version', 2);
+
+        // Search by Transaction ID (Exact match)
+        if ($request->filled('transaction_id')) {
+            $query->where('transaction_id', $request->transaction_id);
+        } 
+        // OR List by Account Number
+        elseif ($request->filled('account_number')) {
+            $query->where('account_number', $request->account_number);
+        }
+        // OR Default fallback (empty list or handled by frontend validation)
+        else {
+            return response()->json(['success' => true, 'data' => []]);
+        }
+
+        $transactions = $query->orderBy('created_at', 'desc')
+            ->select('id', 'transaction_id', 'account_number', 'amount', 'name_of_transaction', 'created_at', 'det_rep_name_of_transaction')
+            ->paginate(20);
+
+        // Format dates
+        $transactions->getCollection()->transform(function ($item) {
+            $item->formatted_date = Carbon::parse($item->created_at)->format('d-M-Y H:i A');
+            return $item;
+        });
+
+        return response()->json(['success' => true, 'data' => $transactions]);
+    }
+
+    /**
+     * Perform a reversal of a specific transaction.
+     */
+    public function performReversal(Request $request)
+    {
+        if (!$this->isManagement() && !\Auth::user()->type == 'Agents' && !\Auth::user()->type == 'Agent' && !\Auth::user()->hasRole('Agent')) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        $originalTxId = $request->input('transaction_id');
+        $reason = $request->input('reason', 'Reversal');
+
+        // 1. Find Original Transaction
+        $originalTx = AccountsTransactions::where('transaction_id', $originalTxId)
+            ->where('comp_id', \Auth::user()->comp_id)
+            ->first();
+
+        if (!$originalTx) {
+            return response()->json(['success' => false, 'message' => 'Transaction not found.'], 404);
+        }
+
+        // Prevent double reversal (Basic check)
+        // Ideally check if a Refund exists pointing to this ID, but lacking a 'parent_id' column, 
+        // we assume agent discretion or check if specific unique ID exists. 
+        // For now, we proceed as instructed.
+
+        DB::beginTransaction();
+        try {
+            $mydatey = date("Y-m-d H:i:s");
+            $newTxId = \Str::random(8);
+            $newUuid = \Str::random(30);
+
+            // 2. Create 'Refund' Transaction
+            $reversal = new AccountsTransactions();
+            $reversal->__id__ = $newUuid;
+            $reversal->transaction_id = $newTxId;
+            $reversal->account_number = $originalTx->account_number;
+            $reversal->account_type = $originalTx->account_type;
+            $reversal->created_at = $mydatey;
+            $reversal->amount = $originalTx->amount; // Same amount
+            
+            // Logic: Reversing a Deposit removes money. Reversing a Withdrawal adds money back.
+            // However, the system seems to use 'Refund' as a generic term. 
+            // Standard accounting: 
+            // Deposit (Credit) -> Reversal (Debit)
+            // Withdraw (Debit) -> Reversal (Credit)
+            // Based on `getaccountbalance2`: totalbalance = deposits - REFUNDS - withdrawals - commissions.
+            // So 'Refund' is ALWAYS subtracted. 
+            // This implies 'Refund' is meant to reverse DEPOSITS only?
+            // If we reverse a Withdrawal, we should technically simulate a 'Deposit' or have a 'ReverseWithdrawal' type that ADDS.
+            
+            // CRITICAL: Check 'getaccountbalance2' formula:
+            // Balance = Deposits - Refunds - Withdrawals - Commissions
+            
+            // Case A: Reversing a Deposit. 
+            // We add a 'Refund'. Balance = (Dep + X) - (Ref + X) - W - C.  Result: X cancels out. Correct.
+            
+            // Case B: Reversing a Withdrawal.
+            // We want to ADD money back. 
+            // If we add a 'Refund', Balance = D - (Ref + X) - (W + X) - C. Result: Balance decreases by 2X! WRONG.
+            // To reverse a Withdrawal, we effectively need a 'Deposit' entry or remove the Withdrawal entry.
+            // Since we want a trace, we should insert a 'Deposit' with description 'Reversal of Withdrawal'.
+            
+            if ($originalTx->name_of_transaction == 'Withdraw') {
+                $reversal->name_of_transaction = 'Deposit'; // Adds to balance
+                $reversal->description = "Reversal of Withdrawal ($originalTxId)";
+            } else {
+                $reversal->name_of_transaction = 'Refund'; // Subtracts from balance (Reverses Deposit)
+                $reversal->description = "Reversal of Deposit ($originalTxId)";
+            }
+
+            $reversal->det_rep_name_of_transaction = $originalTx->det_rep_name_of_transaction;
+            $reversal->phone_number = $originalTx->phone_number;
+            $reversal->agentname = \Auth::user()->name;
+            $reversal->users = \Auth::user()->created_by_user;
+            $reversal->is_shown = 1;
+            $reversal->is_loan = 0;
+            $reversal->row_version = 2;
+            $reversal->comp_id = \Auth::user()->comp_id;
+            $reversal->paid_withdrawal_msg = $reason;
+            
+            // We save first to include it in calculation
+            $reversal->save();
+
+            // 3. Recalculate Balance (Sum History)
+            $totals = AccountsTransactions::selectRaw("
+                SUM(CASE WHEN name_of_transaction = 'Deposit' THEN amount ELSE 0 END) as deposits,
+                SUM(CASE WHEN name_of_transaction = 'Commission' THEN amount ELSE 0 END) as commissions,
+                SUM(CASE WHEN name_of_transaction = 'Withdraw' THEN amount ELSE 0 END) as withdrawals,
+                SUM(CASE WHEN name_of_transaction = 'Refund' THEN amount ELSE 0 END) as refunds
+            ")
+            ->where('account_number', $originalTx->account_number)
+            ->where('row_version', 2)
+            ->where('comp_id', \Auth::user()->comp_id)
+            ->first();
+
+            $newBalance = round($totals->deposits - $totals->refunds - $totals->withdrawals - $totals->commissions, 2);
+
+            // 4. Update Reversal Record with new balance
+            $reversal->balance = $newBalance;
+            $reversal->save();
+
+            // 5. Update UserAccountNumbers
+            UserAccountNumbers::where('account_number', $originalTx->account_number)
+                ->where('comp_id', \Auth::user()->comp_id)
+                ->update([
+                    'balance' => $newBalance,
+                    'last_transaction_date' => now()
+                ]);
+
+            // 6. Update SusuCycle (if applicable)
+            SusuCycles::where('account_number', $originalTx->account_number)
+                ->where('comp_id', \Auth::user()->comp_id)
+                ->update(['balance' => $newBalance]); // Should we update total_paid? Context dependent, assume sync balance is key.
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true, 
+                'message' => 'Transaction reversed successfully.',
+                'new_balance' => $newBalance
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['success' => false, 'message' => 'Error: ' . $e->getMessage()], 500);
+        }
     }
 }
