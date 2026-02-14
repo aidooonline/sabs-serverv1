@@ -37,6 +37,8 @@ class CompanyInfo extends Model
         'sms_sender_id',
         'sms_daily_report',
         'sms_report_phone_no',
+        'sms_username',
+        'sms_password',
         'amount_in_cash',
         'message_after_deposit',
         'message_after_withdrawal',

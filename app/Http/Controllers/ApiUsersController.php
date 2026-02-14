@@ -1824,144 +1824,144 @@ class ApiUsersController extends Controller
 
     public function monthlydeductions(Request $request)
     {
+        // 1. Dynamic Company ID
+        $compId = \Auth::user()->comp_id;
+        $companyInfo = CompanyInfo::find($compId);
 
-        // Assuming you have the $rowid variable
+        if (!$companyInfo) {
+            return response()->json(['error' => 'Company info not found'], 404);
+        }
 
-        //1. get all accounts that are on monthly deductions
-        //2. for each account, take the monthly deduction value from the main account type.
-        //3. take the deductions from the amount. if the balance - the deductions < 0 flag that account as liability accounts so later user can check the out.
-        //4. insert all accounts being deducted into another table so data can be used as report.
+        // 2. Dynamic SMS Credentials
+        $smsUsername = $companyInfo->sms_username; // e.g., 'NYB'
+        $smsPassword = $companyInfo->sms_password; // e.g., 'Populaire123^'
+        $smsSenderId = $companyInfo->sms_sender_id;
+        $isSmsEnabled = $companyInfo->sms_active && $companyInfo->sms_credit > 0;
 
-        $accounttypeid = '';
-        $commissiontype = '';
-        $commissionvalue = 10.00;
-
-
-
-        $accountnumbers = UserAccountNumbers::whereIn('account_type', ['Susu Plus', 'Susu Business 1', 'Susu plus 2', 'Susu Business 3', 'Susu Plus 3', 'Susu Business 2', 'Susu Account'])->where('comp_id', 2)->paginate(5);
-
-        $modifiedAccountNumbers = [];
+        $commissionValue = 10.00; // Still hardcoded as per original logic, or fetch from settings? Keeping as 10 for now.
         $mydatey = date("Y-m-d H:i:s");
+        $currentMonth = date('m');
+        $currentYear = date('Y');
+
+        // Paginate accounts for processing (5 at a time)
+        // Filter: Specific Susu account types for THIS company
+        $accountnumbers = UserAccountNumbers::whereIn('account_type', [
+            'Susu Plus', 'Susu Business 1', 'Susu plus 2', 'Susu Business 3', 
+            'Susu Plus 3', 'Susu Business 2', 'Susu Account'
+        ])
+        ->where('comp_id', $compId)
+        ->paginate(5);
+
+        $processedAccounts = [];
 
         foreach ($accountnumbers as $thisaccountnumber) {
-
             $theaccount_number = $thisaccountnumber->account_number;
+            
+            // 3. Balance Check: Skip if balance < 1.00 (per user request: "0 or less than 1")
+            if ($thisaccountnumber->balance < 1.00) {
+                $thisaccountnumber->status = 'skipped_low_balance';
+                $processedAccounts[] = $thisaccountnumber;
+                continue;
+            }
 
-            $mainaccountnumber =  $thisaccountnumber->primary_account_number;
+            // 4. Duplicate Check: Has commission been charged this month?
+            $alreadyCharged = AccountsTransactions::where('account_number', $theaccount_number)
+                ->where('comp_id', $compId)
+                ->where('name_of_transaction', 'Commission') // Or 'Monthly Commission' if you want to be specific
+                ->whereYear('created_at', $currentYear)
+                ->whereMonth('created_at', $currentMonth)
+                ->exists();
 
-            $useraccount = Accounts::where('account_number', $mainaccountnumber)->where('comp_id', \Auth::user()->comp_id)->first();
+            if ($alreadyCharged) {
+                $thisaccountnumber->status = 'skipped_already_charged';
+                $processedAccounts[] = $thisaccountnumber;
+                continue;
+            }
 
-            $accountnumber = "";
-            $firstname = "";
-            $middlename = "";
-            $surname = "";
+            // Fetch User Details for Transaction Log
+            $mainaccountnumber = $thisaccountnumber->primary_account_number;
+            $useraccount = Accounts::where('account_number', $mainaccountnumber)
+                ->where('comp_id', $compId)
+                ->first();
+
+            $customername = "Unknown Customer";
             $phonenumber = "";
 
             if ($useraccount) {
-                $fieldNames = $useraccount->getFillable();
-                $fieldValues = [];
-
-                foreach ($fieldNames as $fieldName) {
-                    $fieldValues[$fieldName] = $useraccount->{$fieldName};
-                }
-
-
-                $firstname = $fieldValues['first_name'];
-                $middlename = $fieldValues['middle_name'];
-                $surname = $fieldValues['surname'];
-                $phonenumber = $fieldValues['phone_number'];
+                $customername = $useraccount->first_name . ' ' . $useraccount->middle_name . ' ' . $useraccount->surname;
+                $phonenumber = $useraccount->phone_number;
             }
-            $customername = $firstname . ' ' . $middlename . ' ' . $surname;
 
-
+            // Create Transaction
             $randomCode = \Str::random(8);
             $myid = \Str::random(30);
-            //customername,xustomerphone,withdrawamount
+
             $transaction = new AccountsTransactions();
             $transaction->__id__ = $myid;
-            $transaction->account_number =  $theaccount_number;
+            $transaction->account_number = $theaccount_number;
             $transaction->account_type = $thisaccountnumber->account_type;
             $transaction->created_at = $mydatey;
             $transaction->transaction_id = $randomCode;
             $transaction->phone_number = $phonenumber;
             $transaction->det_rep_name_of_transaction = $customername;
-            $transaction->amount = $commissionvalue;
-            // $transaction->agentname = \Auth::user()->name;
+            $transaction->amount = $commissionValue;
             $transaction->name_of_transaction = 'Commission';
-            $transaction->users = \Auth::user()->created_by_user;
+            $transaction->users = \Auth::user()->created_by_user ?? 'System'; // Fallback if created_by_user is null
             $transaction->is_shown = 1;
             $transaction->is_loan = 0;
             $transaction->row_version = 2;
             $transaction->description = "Monthly Commission";
-            $transaction->comp_id = \Auth::user()->comp_id;
-
-
+            $transaction->comp_id = $compId;
 
             $transactionsaved = $transaction->save();
             $insertedId = $transaction->id;
 
             if ($transactionsaved) {
+                // Update Balance
                 $currentbalance = $this->getaccountbalance2($theaccount_number);
-                $thisaccountnumber->balance = $currentbalance;
+                
+                // Update UserAccountNumbers
+                UserAccountNumbers::where('account_number', $theaccount_number)
+                    ->where('comp_id', $compId)
+                    ->update(['balance' => $currentbalance]);
 
-                UserAccountNumbers::where('account_number',  $thisaccountnumber->account_number)->where('comp_id', \Auth::user()->comp_id)
-                    ->update([
-                        'balance' => $currentbalance
-                    ]);
-
+                // Update Transaction Balance Record
                 AccountsTransactions::where('id', $insertedId)
-                    ->update([
-                        'balance' => $currentbalance
-                    ]);
+                    ->update(['balance' => $currentbalance]);
 
+                $thisaccountnumber->balance = $currentbalance;
+                $thisaccountnumber->status = 'processed_success';
 
-                $is_sms_enabled = Companyinfo::where('id', \Auth::user()->comp_id)
-                    ->where('sms_active', 1)
-                    ->where('sms_credit', '>', 0)
-                    ->exists();
-                //  $withdrawalmsg = AccountsTransactions::where('id',  $request->transactionid)->value('paid_withdrawal_msg');
+                // Send SMS Notification
+                if ($isSmsEnabled && $smsUsername && $smsPassword) {
+                    $themessage = 'Monthly Commission of GHS ' . $commissionValue . 
+                                  ' charged on account: ' . $theaccount_number . 
+                                  ', ' . $customername . 
+                                  ', Balance: GHS ' . $currentbalance;
 
-                $company_name = Companyinfo::where('id', \Auth::user()->comp_id)->value('name');
-                $company_phone = Companyinfo::where('id', \Auth::user()->comp_id)->value('phone');
-
-
-                $themessage = 'Monthly Commission of GHS ' . $commissionvalue . ' charged on account: ' . $theaccount_number . ', ' . $customername . ', ' . $thisaccountnumber->account_type . ', ' . ' on '  . $mydatey . ' , Balance: GHS ' .   $currentbalance;
-
-
-
-                if ($is_sms_enabled) {
+                    // Deduct SMS Credit
                     $credittrans = $this->company_sms_transaction('sub', 1);
+                    
                     if ($credittrans) {
                         try {
-                            //$theusername,$thepass,$thesenderid,$themessage,$thenumbersent
-
-
-                            $thesmsid = Companyinfo::where('id', \Auth::user()->comp_id)->value('sms_sender_id');
-
-                            $mymessageresponse = $this->sendFrogMessage('NYB', 'Populaire123^', $thesmsid, $themessage, $phonenumber);
-                            if ($mymessageresponse) {
-
-                                // return  response()->json(['balance' =>  $after_withdrawbalance, 'message' => $themessage2, 'message2' => $themessage]);
-                            } else {
-                                // return  response()->json(['balance' => $after_withdrawbalance, 'message' => $themessage2, 'message2' => $themessage]);
-                            }
+                            // Use Dynamic Credentials
+                            $this->sendFrogMessage($smsUsername, $smsPassword, $smsSenderId, $themessage, $phonenumber);
                         } catch (\Throwable $th) {
-                            //throw $th;
-                            //  return $th->getMessage();
+                            // Log error or silently fail SMS (transaction already processed)
+                            \Log::error("SMS Failed for account $theaccount_number: " . $th->getMessage());
                         }
                     }
-                } else {
-                    // return  response()->json(['balance' => $after_withdrawbalance, 'message' => $themessage2, 'message2' => $themessage]);
                 }
+            } else {
+                $thisaccountnumber->status = 'failed_transaction_save';
             }
 
-            // Add the modified row to the new array
-            $modifiedAccountNumbers[] = $thisaccountnumber;
-            usleep(400000); // 500,000 microseconds = 0.5 seconds
+            $processedAccounts[] = $thisaccountnumber;
+            // Removed sleep to speed up processing, or keep minimal if server load is high
+            // usleep(200000); 
         }
 
-
-        return response()->json(['accountnumbers' => $modifiedAccountNumbers]);
+        return response()->json(['accountnumbers' => $processedAccounts]);
     }
 
     public function paywithdrawalcustomer(Request $request)
@@ -3172,7 +3172,9 @@ class ApiUsersController extends Controller
                 'app_home_url' => $request->app_home_url,
                 'app_resource_url' => $request->app_resource_url,
                 'email' => $request->company_email,
-               'accountno_pretext' => $request->accountnoprefix
+                'accountno_pretext' => $request->accountnoprefix,
+                'sms_username' => $request->sms_username,
+                'sms_password' => $request->sms_password
             ]);
 
             if ($request->password == '') {
