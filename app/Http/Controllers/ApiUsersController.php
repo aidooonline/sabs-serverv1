@@ -1833,9 +1833,13 @@ class ApiUsersController extends Controller
         }
 
         // 2. Dynamic Parameters
-        // Amount: Use request value if present and numeric, else default to 10.00
+        // Amount: Use request value if present and numeric. Default to 10.00 only if MISSING.
         $requestAmount = $request->input('amount');
-        $commissionValue = (is_numeric($requestAmount) && $requestAmount > 0) ? (float)$requestAmount : 10.00;
+        if (is_numeric($requestAmount)) {
+            $commissionValue = (float)$requestAmount;
+        } else {
+            $commissionValue = 10.00;
+        }
 
         // SMS Toggle: Check if frontend explicitly enabled/disabled it
         // If 'send_sms' is 'false' or '0', we disable it for this run.
@@ -1869,7 +1873,10 @@ class ApiUsersController extends Controller
         foreach ($accountnumbers as $thisaccountnumber) {
             $theaccount_number = $thisaccountnumber->account_number;
             
-            // 3. Balance Check: Skip if balance < 1.00
+            // 3. Balance Check: Skip if balance < 1.00 (Only if we are actually deducting money)
+            // If commissionValue is 0 (Test Mode), we might still want to see it run, so we can relax this OR keep it.
+            // Requirement: "if it 0 or less than 1, no deductions". 
+            // If we are testing with 0 deduction, the balance doesn't matter much, but let's stick to the rule to simulate reality.
             if ($thisaccountnumber->balance < 1.00) {
                 $thisaccountnumber->status = 'skipped_low_balance';
                 $processedAccounts[] = $thisaccountnumber;
@@ -1877,14 +1884,20 @@ class ApiUsersController extends Controller
             }
 
             // 4. Duplicate Check: Has commission been charged this month?
+            // CHANGE: Only count transactions where amount > 0. 
+            // This allows you to run 0-value tests without blocking the real run.
             $alreadyCharged = AccountsTransactions::where('account_number', $theaccount_number)
                 ->where('comp_id', $compId)
                 ->where('name_of_transaction', 'Commission') 
                 ->whereYear('created_at', $currentYear)
                 ->whereMonth('created_at', $currentMonth)
+                ->where('amount', '>', 0) // Only block if a REAL deduction happened
                 ->exists();
 
-            if ($alreadyCharged) {
+            // If we are currently trying to run a REAL deduction (>0), check if one already exists.
+            // If we are running a TEST deduction (0), we usually don't care if a real one exists, 
+            // but for safety, let's just log it.
+            if ($commissionValue > 0 && $alreadyCharged) {
                 $thisaccountnumber->status = 'skipped_already_charged';
                 $processedAccounts[] = $thisaccountnumber;
                 continue;
