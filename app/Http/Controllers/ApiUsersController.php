@@ -1872,38 +1872,8 @@ class ApiUsersController extends Controller
 
         foreach ($accountnumbers as $thisaccountnumber) {
             $theaccount_number = $thisaccountnumber->account_number;
-            
-            // 3. Balance Check: Skip if balance < 1.00 (Only if we are actually deducting money)
-            // If commissionValue is 0 (Test Mode), we might still want to see it run, so we can relax this OR keep it.
-            // Requirement: "if it 0 or less than 1, no deductions". 
-            // If we are testing with 0 deduction, the balance doesn't matter much, but let's stick to the rule to simulate reality.
-            if ($thisaccountnumber->balance < 1.00) {
-                $thisaccountnumber->status = 'skipped_low_balance';
-                $processedAccounts[] = $thisaccountnumber;
-                continue;
-            }
 
-            // 4. Duplicate Check: Has commission been charged this month?
-            // CHANGE: Only count transactions where amount > 0. 
-            // This allows you to run 0-value tests without blocking the real run.
-            $alreadyCharged = AccountsTransactions::where('account_number', $theaccount_number)
-                ->where('comp_id', $compId)
-                ->where('name_of_transaction', 'Commission') 
-                ->whereYear('created_at', $currentYear)
-                ->whereMonth('created_at', $currentMonth)
-                ->where('amount', '>', 0) // Only block if a REAL deduction happened
-                ->exists();
-
-            // If we are currently trying to run a REAL deduction (>0), check if one already exists.
-            // If we are running a TEST deduction (0), we usually don't care if a real one exists, 
-            // but for safety, let's just log it.
-            if ($commissionValue > 0 && $alreadyCharged) {
-                $thisaccountnumber->status = 'skipped_already_charged';
-                $processedAccounts[] = $thisaccountnumber;
-                continue;
-            }
-
-            // Fetch User Details for Transaction Log
+            // Fetch User Details FIRST so we have them for logs even if skipped
             $mainaccountnumber = $thisaccountnumber->primary_account_number;
             $useraccount = Accounts::where('account_number', $mainaccountnumber)
                 ->where('comp_id', $compId)
@@ -1917,8 +1887,31 @@ class ApiUsersController extends Controller
                 $phonenumber = $useraccount->phone_number;
             }
             
-            // Attach name to response object for frontend
+            // Attach name to response object immediately
             $thisaccountnumber->customer_name = $customername;
+            
+            // 3. Balance Check: Skip if balance < 1.00 (Only if we are actually deducting money)
+            if ($thisaccountnumber->balance < 1.00) {
+                $thisaccountnumber->status = 'skipped_low_balance';
+                $processedAccounts[] = $thisaccountnumber;
+                continue;
+            }
+
+            // 4. Duplicate Check: Has commission been charged this month?
+            // CHANGE: Only count transactions where amount > 0. 
+            $alreadyCharged = AccountsTransactions::where('account_number', $theaccount_number)
+                ->where('comp_id', $compId)
+                ->where('name_of_transaction', 'Commission') 
+                ->whereYear('created_at', $currentYear)
+                ->whereMonth('created_at', $currentMonth)
+                ->where('amount', '>', 0) // Only block if a REAL deduction happened
+                ->exists();
+
+            if ($commissionValue > 0 && $alreadyCharged) {
+                $thisaccountnumber->status = 'skipped_already_charged';
+                $processedAccounts[] = $thisaccountnumber;
+                continue;
+            }
 
             // Create Transaction
             $randomCode = \Str::random(8);
