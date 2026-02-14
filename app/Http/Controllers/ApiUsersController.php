@@ -1832,13 +1832,25 @@ class ApiUsersController extends Controller
             return response()->json(['error' => 'Company info not found'], 404);
         }
 
-        // 2. Dynamic SMS Credentials
-        $smsUsername = $companyInfo->sms_username; // e.g., 'NYB'
-        $smsPassword = $companyInfo->sms_password; // e.g., 'Populaire123^'
-        $smsSenderId = $companyInfo->sms_sender_id;
-        $isSmsEnabled = $companyInfo->sms_active && $companyInfo->sms_credit > 0;
+        // 2. Dynamic Parameters
+        // Amount: Use request value if present and numeric, else default to 10.00
+        $requestAmount = $request->input('amount');
+        $commissionValue = (is_numeric($requestAmount) && $requestAmount > 0) ? (float)$requestAmount : 10.00;
 
-        $commissionValue = 10.00; // Still hardcoded as per original logic, or fetch from settings? Keeping as 10 for now.
+        // SMS Toggle: Check if frontend explicitly enabled/disabled it
+        // If 'send_sms' is 'false' or '0', we disable it for this run.
+        // Default to TRUE if not specified, but still subject to company credits/active status.
+        $requestSms = $request->input('send_sms');
+        $runSms = ($requestSms === 'false' || $requestSms === '0') ? false : true;
+
+        // SMS Credentials
+        $smsUsername = $companyInfo->sms_username;
+        $smsPassword = $companyInfo->sms_password;
+        $smsSenderId = $companyInfo->sms_sender_id;
+        
+        // Final SMS Check: Run allowed AND Company Active AND Company has Credit
+        $isSmsEnabled = $runSms && $companyInfo->sms_active && $companyInfo->sms_credit > 0;
+
         $mydatey = date("Y-m-d H:i:s");
         $currentMonth = date('m');
         $currentYear = date('Y');
@@ -1857,7 +1869,7 @@ class ApiUsersController extends Controller
         foreach ($accountnumbers as $thisaccountnumber) {
             $theaccount_number = $thisaccountnumber->account_number;
             
-            // 3. Balance Check: Skip if balance < 1.00 (per user request: "0 or less than 1")
+            // 3. Balance Check: Skip if balance < 1.00
             if ($thisaccountnumber->balance < 1.00) {
                 $thisaccountnumber->status = 'skipped_low_balance';
                 $processedAccounts[] = $thisaccountnumber;
@@ -1867,7 +1879,7 @@ class ApiUsersController extends Controller
             // 4. Duplicate Check: Has commission been charged this month?
             $alreadyCharged = AccountsTransactions::where('account_number', $theaccount_number)
                 ->where('comp_id', $compId)
-                ->where('name_of_transaction', 'Commission') // Or 'Monthly Commission' if you want to be specific
+                ->where('name_of_transaction', 'Commission') 
                 ->whereYear('created_at', $currentYear)
                 ->whereMonth('created_at', $currentMonth)
                 ->exists();
@@ -1906,7 +1918,7 @@ class ApiUsersController extends Controller
             $transaction->det_rep_name_of_transaction = $customername;
             $transaction->amount = $commissionValue;
             $transaction->name_of_transaction = 'Commission';
-            $transaction->users = \Auth::user()->created_by_user ?? 'System'; // Fallback if created_by_user is null
+            $transaction->users = \Auth::user()->created_by_user ?? 'System';
             $transaction->is_shown = 1;
             $transaction->is_loan = 0;
             $transaction->row_version = 2;
@@ -1944,10 +1956,8 @@ class ApiUsersController extends Controller
                     
                     if ($credittrans) {
                         try {
-                            // Use Dynamic Credentials
                             $this->sendFrogMessage($smsUsername, $smsPassword, $smsSenderId, $themessage, $phonenumber);
                         } catch (\Throwable $th) {
-                            // Log error or silently fail SMS (transaction already processed)
                             \Log::error("SMS Failed for account $theaccount_number: " . $th->getMessage());
                         }
                     }
@@ -1957,7 +1967,6 @@ class ApiUsersController extends Controller
             }
 
             $processedAccounts[] = $thisaccountnumber;
-            // Removed sleep to speed up processing, or keep minimal if server load is high
             // usleep(200000); 
         }
 
