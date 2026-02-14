@@ -1916,6 +1916,9 @@ class ApiUsersController extends Controller
                 $customername = $useraccount->first_name . ' ' . $useraccount->middle_name . ' ' . $useraccount->surname;
                 $phonenumber = $useraccount->phone_number;
             }
+            
+            // Attach name to response object for frontend
+            $thisaccountnumber->customer_name = $customername;
 
             // Create Transaction
             $randomCode = \Str::random(8);
