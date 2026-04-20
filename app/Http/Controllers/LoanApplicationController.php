@@ -49,6 +49,27 @@ class LoanApplicationController extends Controller
         ], 200);
     }
 
+    public function getCustomerLoanHistory(Request $request)
+    {
+        $customerId = $request->query('customer_id');
+        if (!$customerId) {
+            return response()->json(['success' => false, 'message' => 'Customer ID is required.'], 400);
+        }
+
+        $user = Auth::user();
+        
+        $loans = LoanApplication::with(['loan_product'])
+            ->where('customer_id', $customerId)
+            ->where('comp_id', $user->comp_id)
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $loans
+        ], 200);
+    }
+
     /**
      * Get loans with installments due today (or overdue).
      */
@@ -272,6 +293,18 @@ class LoanApplicationController extends Controller
 
         if ($validator->fails()) {
             return response()->json(['success' => false, 'message' => $validator->errors()], 400);
+        }
+
+        // Check for existing active/pending loans for this customer
+        $existingLoan = LoanApplication::where('customer_id', $request->customer_id)
+            ->whereIn('status', ['pending', 'pending_approval', 'approved', 'active', 'disbursed', 'defaulted'])
+            ->first();
+
+        if ($existingLoan) {
+            return response()->json([
+                'success' => false, 
+                'message' => 'This customer already has an active or pending loan application. Outstanding loans must be fully repaid before applying for a new one.'
+            ], 422);
         }
 
         // Re-run calculation logic (simplified for storage)

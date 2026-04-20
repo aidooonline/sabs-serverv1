@@ -256,6 +256,14 @@ class ApiUsersController extends Controller
                 ->paginate(8); // Reduced to 8 for better performance
             $customers->getCollection()->transform(function ($customer) {
                 $customer->created_at = Carbon::parse($customer->created_at)->diffForHumans();
+                
+                // Add on_loan flag
+                $activeLoan = DB::table('loan_applications')
+                    ->where('customer_id', $customer->id)
+                    ->whereIn('status', ['pending', 'pending_approval', 'approved', 'active', 'disbursed', 'defaulted'])
+                    ->exists();
+                $customer->on_loan = $activeLoan;
+                
                 return $customer;
             });
             return $customers;
@@ -455,6 +463,14 @@ class ApiUsersController extends Controller
 
             $customers->getCollection()->transform(function ($customer) {
                 $customer->created_at = Carbon::parse($customer->created_at)->diffForHumans();
+                
+                // Add on_loan flag
+                $activeLoan = DB::table('loan_applications')
+                    ->where('customer_id', $customer->id)
+                    ->whereIn('status', ['pending', 'pending_approval', 'approved', 'active', 'disbursed', 'defaulted'])
+                    ->exists();
+                $customer->on_loan = $activeLoan;
+                
                 return $customer;
             });
 

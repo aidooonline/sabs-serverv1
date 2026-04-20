@@ -56,6 +56,7 @@ Route::get('customerssapi', [ApiUsersController::class, 'getcustomers']);
 
         // Applications
         Route::get('applications/active', [App\Http\Controllers\LoanApplicationController::class, 'getActiveLoans']); // New route for active loans
+        Route::get('applications/customer-history', [App\Http\Controllers\LoanApplicationController::class, 'getCustomerLoanHistory']);
         Route::get('applications/due-today', [App\Http\Controllers\LoanApplicationController::class, 'getLoansDueToday']); // New route for due today
         Route::post('applications/{id}/transfer', [App\Http\Controllers\LoanApplicationController::class, 'transferLoan']); // New route for loan transfer
         Route::get('applications', [App\Http\Controllers\LoanApplicationController::class, 'index']);
