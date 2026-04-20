@@ -30,7 +30,7 @@ Route::middleware(['auth:api'])->group(function () {
     Route::get('usersapi', [ApiUsersController::class, 'getagents']);
     Route::get('active-agents-list', [ApiUsersController::class, 'getActiveAgentsList']);
 Route::get('get-loan-customers', [ApiUsersController::class, 'getLoanCustomers']);
-Route::get('getcustomers', [ApiUsersController::class, 'getcustomers']);
+Route::get('customerssapi', [ApiUsersController::class, 'getcustomers']);
     Route::get('getcustomerbyid', [ApiUsersController::class, 'getcustomerbyid']);
 
     // --- NEW LOAN SYSTEM ROUTES (Moved from loans.php) ---
