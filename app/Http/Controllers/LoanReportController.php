@@ -414,14 +414,14 @@ class LoanReportController extends Controller
         $userType = strtolower($user->type);
         $isManager = !empty(array_intersect($userRoleNames, $managerRoles)) || in_array($userType, $managerRoles);
 
-        // Fetch loans that have pending schedules on or before the selected date
+        // Fetch loans that have non-paid schedules on or before the selected date
         $query = LoanApplication::with(['customer', 'loan_product', 'repaymentSchedules' => function($q) use ($date) {
-                    $q->where('status', 'pending')->whereDate('due_date', '<=', $date);
+                    $q->where('status', '!=', 'paid')->whereDate('due_date', '<=', $date);
                 }])
                 ->where('comp_id', $compId)
                 ->whereIn('status', ['active', 'defaulted'])
                 ->whereHas('repaymentSchedules', function($q) use ($date) {
-                    $q->where('status', 'pending')->whereDate('due_date', '<=', $date);
+                    $q->where('status', '!=', 'paid')->whereDate('due_date', '<=', $date);
                 });
 
         // Apply Role Filter
