@@ -60,18 +60,22 @@ class LoanApplicationController extends Controller
         $user = Auth::user();
         $compId = $user->comp_id;
 
-        // Fetch customer details to get account number for a fallback search
+        // Fetch customer details to get all possible identifiers for a fallback search
         $customer = DB::table('nobs_registration')->where('id', $customerId)->first();
         $accountNumber = $customer ? $customer->account_number : null;
+        $uuid = $customer ? $customer->__id__ : null;
         
-        // Search by ID or Account Number within the same company
+        // Search by Numeric ID, UUID, or Account Number within the same company
         $loans = LoanApplication::withoutGlobalScope('company')
             ->with(['loan_product'])
             ->where('comp_id', $compId)
-            ->where(function($q) use ($customerId, $accountNumber) {
+            ->where(function($q) use ($customerId, $accountNumber, $uuid) {
                 $q->where('customer_id', $customerId);
                 if ($accountNumber) {
                     $q->orWhere('customer_id', $accountNumber);
+                }
+                if ($uuid) {
+                    $q->orWhere('customer_id', $uuid);
                 }
             })
             ->orderBy('created_at', 'desc')
@@ -81,8 +85,9 @@ class LoanApplicationController extends Controller
             'success' => true,
             'data' => $loans,
             'debug' => [
-                'queried_customer_id' => $customerId,
-                'queried_account_number' => $accountNumber,
+                'queried_id' => $customerId,
+                'queried_uuid' => $uuid,
+                'queried_account' => $accountNumber,
                 'count' => $loans->count()
             ]
         ], 200);
