@@ -58,7 +58,10 @@ class LoanApplicationController extends Controller
 
         $user = Auth::user();
         
-        $loans = LoanApplication::with(['loan_product'])
+        // We use withoutGlobalScope to avoid any potential double-filtering issues
+        // and manually apply the company filter for absolute certainty.
+        $loans = LoanApplication::withoutGlobalScope('company')
+            ->with(['loan_product'])
             ->where('customer_id', $customerId)
             ->where('comp_id', $user->comp_id)
             ->orderBy('created_at', 'desc')

@@ -286,9 +286,10 @@ class ApiUsersController extends Controller
                 ->where('nobs_registration.comp_id', \Auth::user()->comp_id)
                 ->orderBy('nobs_registration.id', 'DESC')
                 ->paginate(8); // Reduced to 8 for better performance
-            // Optimized on_loan check: Fetch all active loan customer IDs in one go
+            // Optimized on_loan check: Fetch all active loan customer IDs in one go for the current company
             $customerIds = $customers->getCollection()->pluck('id')->toArray();
             $onLoanCustomerIds = DB::table('loan_applications')
+                ->where('comp_id', \Auth::user()->comp_id)
                 ->whereIn('customer_id', $customerIds)
                 ->whereIn('status', ['pending', 'pending_approval', 'approved', 'active', 'disbursed', 'defaulted'])
                 ->pluck('customer_id')
@@ -494,9 +495,10 @@ class ApiUsersController extends Controller
             $customers = $query->orderBy('first_name', 'ASC')
                 ->paginate(100);
 
-            // Optimized on_loan check: Fetch all active loan customer IDs in one go
+            // Optimized on_loan check: Fetch all active loan customer IDs in one go for the current company
             $customerIds = $customers->getCollection()->pluck('id')->toArray();
             $onLoanCustomerIds = DB::table('loan_applications')
+                ->where('comp_id', \Auth::user()->comp_id)
                 ->whereIn('customer_id', $customerIds)
                 ->whereIn('status', ['pending', 'pending_approval', 'approved', 'active', 'disbursed', 'defaulted'])
                 ->pluck('customer_id')
