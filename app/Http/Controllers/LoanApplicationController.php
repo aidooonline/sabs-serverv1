@@ -52,45 +52,57 @@ class LoanApplicationController extends Controller
 
     public function getCustomerLoanHistory(Request $request)
     {
-        $customerId = $request->query('customer_id');
-        if (!$customerId) {
-            return response()->json(['success' => false, 'message' => 'Customer ID is required.'], 400);
+        try {
+            $customerId = $request->query('customer_id');
+            if (!$customerId) {
+                return response()->json(['success' => false, 'message' => 'Customer ID is required.'], 400);
+            }
+
+            $user = Auth::user();
+            if (!$user) return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+            
+            $compId = $user->comp_id;
+
+            // Fetch customer details to get all possible identifiers for a fallback search
+            // Use model instead of raw DB for better compatibility
+            $customer = \App\Accounts::withoutGlobalScope('company')->where('id', $customerId)->first();
+            $accountNumber = $customer ? $customer->account_number : null;
+            $uuid = $customer ? $customer->__id__ : null;
+            
+            // Search by Numeric ID, UUID, or Account Number within the same company
+            $loans = LoanApplication::withoutGlobalScope('company')
+                ->with(['loan_product'])
+                ->where('comp_id', $compId)
+                ->where(function($q) use ($customerId, $accountNumber, $uuid) {
+                    $q->where('customer_id', $customerId);
+                    if ($accountNumber) {
+                        $q->orWhere('customer_id', $accountNumber);
+                    }
+                    if ($uuid) {
+                        $q->orWhere('customer_id', $uuid);
+                    }
+                })
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => $loans,
+                'debug' => [
+                    'queried_id' => $customerId,
+                    'queried_uuid' => $uuid,
+                    'queried_account' => $accountNumber,
+                    'count' => $loans->count()
+                ]
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Server Error: ' . $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ], 500);
         }
-
-        $user = Auth::user();
-        $compId = $user->comp_id;
-
-        // Fetch customer details to get all possible identifiers for a fallback search
-        $customer = DB::table('nobs_registration')->where('id', $customerId)->first();
-        $accountNumber = $customer ? $customer->account_number : null;
-        $uuid = $customer ? $customer->__id__ : null;
-        
-        // Search by Numeric ID, UUID, or Account Number within the same company
-        $loans = LoanApplication::withoutGlobalScope('company')
-            ->with(['loan_product'])
-            ->where('comp_id', $compId)
-            ->where(function($q) use ($customerId, $accountNumber, $uuid) {
-                $q->where('customer_id', $customerId);
-                if ($accountNumber) {
-                    $q->orWhere('customer_id', $accountNumber);
-                }
-                if ($uuid) {
-                    $q->orWhere('customer_id', $uuid);
-                }
-            })
-            ->orderBy('created_at', 'desc')
-            ->get();
-
-        return response()->json([
-            'success' => true,
-            'data' => $loans,
-            'debug' => [
-                'queried_id' => $customerId,
-                'queried_uuid' => $uuid,
-                'queried_account' => $accountNumber,
-                'count' => $loans->count()
-            ]
-        ], 200);
     }
 
     /**
