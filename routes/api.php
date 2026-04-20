@@ -127,6 +127,14 @@ Route::get('customerssapi', [ApiUsersController::class, 'getcustomers']);
     });
     // -------------------------------
 
+    // --- ADVANCED REPORT SYSTEM ---
+    Route::group(['prefix' => 'report-system'], function () {
+        Route::get('live', [App\Http\Controllers\ReportSystemController::class, 'getLiveReport']);
+        Route::post('snapshot', [App\Http\Controllers\ReportSystemController::class, 'saveSnapshot']);
+        Route::get('export', [App\Http\Controllers\ReportSystemController::class, 'exportCsv']);
+    });
+    // -------------------------------
+
     // --- SYSTEM MAINTENANCE ---
     Route::group(['prefix' => 'maintenance'], function () {
         Route::post('reset-loans', [App\Http\Controllers\MaintenanceController::class, 'resetLoans']);
