@@ -57,19 +57,33 @@ class LoanApplicationController extends Controller
         }
 
         $user = Auth::user();
+        $compId = $user->comp_id;
+
+        // Fetch customer details to get account number for a fallback search
+        $customer = DB::table('nobs_registration')->where('id', $customerId)->first();
+        $accountNumber = $customer ? $customer->account_number : null;
         
-        // We use withoutGlobalScope to avoid any potential double-filtering issues
-        // and manually apply the company filter for absolute certainty.
+        // Search by ID or Account Number within the same company
         $loans = LoanApplication::withoutGlobalScope('company')
             ->with(['loan_product'])
-            ->where('customer_id', $customerId)
-            ->where('comp_id', $user->comp_id)
+            ->where('comp_id', $compId)
+            ->where(function($q) use ($customerId, $accountNumber) {
+                $q->where('customer_id', $customerId);
+                if ($accountNumber) {
+                    $q->orWhere('customer_id', $accountNumber);
+                }
+            })
             ->orderBy('created_at', 'desc')
             ->get();
 
         return response()->json([
             'success' => true,
-            'data' => $loans
+            'data' => $loans,
+            'debug' => [
+                'queried_customer_id' => $customerId,
+                'queried_account_number' => $accountNumber,
+                'count' => $loans->count()
+            ]
         ], 200);
     }
 
