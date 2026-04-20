@@ -82,10 +82,14 @@ class LoanApplicationController extends Controller
             }
             $searchKeys = array_unique(array_filter($searchKeys));
 
-            // 3. Fetch loans using raw DB query to avoid Collection compatibility issues
+            // 3. Fetch loans using raw DB query with a subquery for total paid amount
             $loans = DB::table('loan_applications')
                 ->join('loan_products', 'loan_applications.loan_product_id', '=', 'loan_products.id')
-                ->select('loan_applications.*', 'loan_products.name as product_name')
+                ->select(
+                    'loan_applications.*', 
+                    'loan_products.name as product_name',
+                    DB::raw('(SELECT SUM(total_paid) FROM loan_repayment_schedules WHERE loan_application_id = loan_applications.id) as amount_paid')
+                )
                 ->where('loan_applications.comp_id', $compId)
                 ->whereIn('loan_applications.customer_id', $searchKeys)
                 ->orderBy('loan_applications.created_at', 'desc')
@@ -94,10 +98,15 @@ class LoanApplicationController extends Controller
             // 4. Manually transform the array to match what the frontend expects
             $formattedLoans = [];
             foreach ($loans as $loan) {
+                $totalPaid = (float)($loan->amount_paid ?? 0);
+                $totalRepayment = (float)$loan->total_repayment;
+                
                 $formattedLoans[] = [
                     'id' => $loan->id,
                     'amount' => $loan->amount,
-                    'total_repayment' => $loan->total_repayment,
+                    'total_repayment' => $totalRepayment,
+                    'total_paid' => $totalPaid,
+                    'outstanding_balance' => max(0, $totalRepayment - $totalPaid),
                     'status' => $loan->status,
                     'created_at' => $loan->created_at,
                     'loan_product' => [
