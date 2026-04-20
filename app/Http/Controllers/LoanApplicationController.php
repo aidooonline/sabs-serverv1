@@ -101,19 +101,31 @@ class LoanApplicationController extends Controller
             $applications = $query->orderBy('updated_at', 'desc')->paginate(20);
 
             // Transform to aggregate the data
-            $applications->getCollection()->transform(function($app) {
+            $applications->getCollection()->transform(function($app) use ($today) {
                 $customer = $app->customer;
-                $dueSchedules = $app->repaymentSchedules; // These are pre-filtered by the eager load closure
+                $dueSchedules = $app->repaymentSchedules; 
+                $earliestDueDate = $dueSchedules->min('due_date');
+                
+                // Calculate days overdue
+                $daysOverdue = 0;
+                if ($earliestDueDate) {
+                    $due = \Carbon\Carbon::parse($earliestDueDate);
+                    $now = \Carbon\Carbon::parse($today);
+                    if ($due->lt($now)) {
+                        $daysOverdue = $due->diffInDays($now);
+                    }
+                }
                 
                 return [
                     'id' => $app->id,
                     'customer_id' => $app->customer_id,
                     'status' => $app->status,
                     'amount' => $app->amount,
-                    'installment_amount' => $dueSchedules->sum('total_due'), // Total of all overdue/due periods
-                    'installments_count' => $dueSchedules->count(), // How many periods are overdue/due
-                    'due_date' => $dueSchedules->min('due_date'), // Earliest due date
-                    'created_at' => $app->created_at,
+                    'installment_amount' => $dueSchedules->sum('total_due'),
+                    'installments_count' => $dueSchedules->count(),
+                    'due_date' => $earliestDueDate,
+                    'applied_date' => $app->created_at, // The date the loan was created
+                    'days_overdue' => $daysOverdue,
                     'loan_product' => $app->loan_product,
                     'first_name' => $customer->first_name ?? 'N/A',
                     'surname' => $customer->surname ?? '',
