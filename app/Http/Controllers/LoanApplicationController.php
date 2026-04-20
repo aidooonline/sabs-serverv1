@@ -99,8 +99,12 @@ class LoanApplicationController extends Controller
             // 4. Manually transform the array to match what the frontend expects
             $formattedLoans = [];
             foreach ($loans as $loan) {
+                // IMPORTANT: Use the exact same math as the model accessors
                 $totalPaid = (float)$loan->amount_paid;
                 $totalRepayable = (float)$loan->total_repayment;
+                
+                // For active/disbursed/defaulted loans, the balance is the remaining debt
+                // If it's already paid or in other states, we still want to show the current mathematical balance
                 $balance = $totalRepayable - $totalPaid;
                 
                 $formattedLoans[] = [
@@ -108,7 +112,7 @@ class LoanApplicationController extends Controller
                     'amount' => (float)$loan->amount,
                     'total_repayment' => $totalRepayable,
                     'total_paid' => $totalPaid,
-                    'outstanding_balance' => $balance > 0 ? round($balance, 2) : 0,
+                    'outstanding_balance' => round($balance, 2),
                     'status' => $loan->status,
                     'created_at' => $loan->created_at,
                     'loan_product' => [
