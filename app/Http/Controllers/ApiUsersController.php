@@ -4269,6 +4269,148 @@ class ApiUsersController extends Controller
     /**
      * Perform a reversal of a specific transaction.
      */
+    /**
+     * Perform a reversal of a Loan Repayment specific transaction.
+     */
+    public function performLoanReversal(Request $request)
+    {
+        if (!$this->isManagement() && !\Auth::user()->type == 'Agents' && !\Auth::user()->type == 'Agent' && !\Auth::user()->hasRole('Agent')) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        $originalTxId = $request->input('transaction_id');
+        $reason = $request->input('reason', 'Loan Repayment Reversal');
+
+        // 1. Find Original Transaction
+        $originalTx = AccountsTransactions::where('transaction_id', $originalTxId)
+            ->where('comp_id', \Auth::user()->comp_id)
+            ->where('is_loan', 1)
+            ->first();
+
+        if (!$originalTx) {
+            return response()->json(['success' => false, 'message' => 'Loan Transaction not found.'], 404);
+        }
+
+        DB::beginTransaction();
+        try {
+            $mydatey = date("Y-m-d H:i:s");
+            $newTxId = \Str::random(8);
+            $newUuid = \Str::random(30);
+
+            // 2. Create 'Refund' Transaction (Cash Reversal)
+            // Reversing a repayment (which was a credit to the company) is a Refund (debit from account)
+            $reversal = new AccountsTransactions();
+            $reversal->__id__ = $newUuid;
+            $reversal->transaction_id = $newTxId;
+            $reversal->account_number = $originalTx->account_number;
+            $reversal->account_type = $originalTx->account_type;
+            $reversal->created_at = $mydatey;
+            $reversal->amount = $originalTx->amount;
+            $reversal->name_of_transaction = 'Refund'; // Subtracts from balance
+            $reversal->description = "Reversal of Loan Repayment ($originalTxId)";
+            $reversal->det_rep_name_of_transaction = $originalTx->det_rep_name_of_transaction;
+            $reversal->phone_number = $originalTx->phone_number;
+            $reversal->agentname = \Auth::user()->name;
+            $reversal->users = \Auth::user()->created_by_user;
+            $reversal->is_shown = 1;
+            $reversal->is_loan = 1; // Mark as loan related
+            $reversal->row_version = 2;
+            $reversal->comp_id = \Auth::user()->comp_id;
+            $reversal->paid_withdrawal_msg = $reason;
+            $reversal->save();
+
+            // 3. Recalculate Cash Balance
+            $totals = AccountsTransactions::selectRaw("
+                SUM(CASE WHEN name_of_transaction = 'Deposit' THEN amount ELSE 0 END) as deposits,
+                SUM(CASE WHEN name_of_transaction = 'Commission' THEN amount ELSE 0 END) as commissions,
+                SUM(CASE WHEN name_of_transaction = 'Withdraw' THEN amount ELSE 0 END) as withdrawals,
+                SUM(CASE WHEN name_of_transaction = 'Refund' THEN amount ELSE 0 END) as refunds
+            ")
+            ->where('account_number', $originalTx->account_number)
+            ->where('row_version', 2)
+            ->where('comp_id', \Auth::user()->comp_id)
+            ->first();
+
+            $newBalance = round($totals->deposits - $totals->refunds - $totals->withdrawals - $totals->commissions, 2);
+            $reversal->balance = $newBalance;
+            $reversal->save();
+
+            UserAccountNumbers::where('account_number', $originalTx->account_number)
+                ->where('comp_id', \Auth::user()->comp_id)
+                ->update(['balance' => $newBalance, 'last_transaction_date' => now()]);
+
+            // ---------------------------------------------------------
+            // 4. CRITICAL: REVERSE LOAN APPLICATION DATA
+            // ---------------------------------------------------------
+            
+            // We need to find which loan application this transaction belonged to.
+            // Repayments store the loan_id in 'loan_id' or we can find it via schedules.
+            $loanId = $originalTx->loan_id;
+            
+            // If loan_id is missing, we attempt to find it via schedules that were updated at the same time
+            if (!$loanId) {
+                 $schedule = DB::table('loan_repayment_schedules')
+                    ->where('account_number', $originalTx->account_number)
+                    ->where('updated_at', $originalTx->created_at)
+                    ->first();
+                 $loanId = $schedule ? $schedule->loan_application_id : null;
+            }
+
+            if ($loanId) {
+                $loan = DB::table('loan_applications')->where('id', $loanId)->first();
+                if ($loan) {
+                    // Decrement total_paid
+                    DB::table('loan_applications')
+                        ->where('id', $loanId)
+                        ->update([
+                            'total_paid' => max(0, $loan->total_paid - $originalTx->amount),
+                            'status' => 'active' // Ensure it's not 'repaid' anymore
+                        ]);
+                    
+                    // Update Schedules: Reverse the payments in order (LIFO - Last In First Out for reversal)
+                    $remainingToReverse = $originalTx->amount;
+                    $schedules = DB::table('loan_repayment_schedules')
+                        ->where('loan_application_id', $loanId)
+                        ->where('total_paid', '>', 0)
+                        ->orderBy('installment_number', 'desc')
+                        ->get();
+
+                    foreach ($schedules as $s) {
+                        if ($remainingToReverse <= 0) break;
+
+                        $toSubtract = min($remainingToReverse, $s->total_paid);
+                        
+                        DB::table('loan_repayment_schedules')
+                            ->where('id', $s->id)
+                            ->update([
+                                'total_paid' => $s->total_paid - $toSubtract,
+                                'principal_paid' => max(0, $s->principal_paid - $toSubtract), // Simplified attribution for reversal
+                                'status' => 'pending'
+                            ]);
+                        
+                        $remainingToReverse -= $toSubtract;
+                    }
+                }
+            }
+
+            // 5. Mark Original Transaction
+            $originalTx->description = $originalTx->description . " [REVERSED]";
+            $originalTx->save();
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Loan repayment reversed successfully. Loan balance and schedules have been updated.',
+                'new_balance' => $newBalance
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['success' => false, 'message' => 'Error: ' . $e->getMessage()], 500);
+        }
+    }
+
     public function performReversal(Request $request)
     {
         if (!$this->isManagement() && !\Auth::user()->type == 'Agents' && !\Auth::user()->type == 'Agent' && !\Auth::user()->hasRole('Agent')) {

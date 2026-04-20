@@ -234,6 +234,7 @@ Route::get('/getdailycollectionsloanrepayment', 'ApiUsersController@getdailycoll
     // Reversal Routes
     Route::get('get-transactions-for-reversal', [ApiUsersController::class, 'getTransactionsForReversal']);
     Route::post('perform-reversal', [ApiUsersController::class, 'performReversal']);
+    Route::post('perform-loan-reversal', [ApiUsersController::class, 'performLoanReversal']);
 
     //For sms credit transactions
 
