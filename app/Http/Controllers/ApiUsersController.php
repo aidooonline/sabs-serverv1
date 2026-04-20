@@ -228,6 +228,38 @@ class ApiUsersController extends Controller
 
 
 
+    public function getLoanCustomers(Request $request)
+    {
+        try {
+            $user = auth()->user();
+            $compId = $user->comp_id;
+
+            // Get IDs of customers who have active/pending loans
+            $onLoanCustomerIds = DB::table('loan_applications')
+                ->where('comp_id', $compId)
+                ->whereIn('status', ['pending', 'pending_approval', 'approved', 'active', 'disbursed', 'defaulted'])
+                ->distinct()
+                ->pluck('customer_id')
+                ->toArray();
+
+            $customers = Accounts::where('comp_id', $compId)
+                ->whereIn('id', $onLoanCustomerIds)
+                ->orderBy('first_name', 'asc')
+                ->paginate(20);
+
+            $customers->getCollection()->transform(function ($customer) {
+                $customer->created_at = Carbon::parse($customer->created_at)->diffForHumans();
+                $customer->on_loan = true;
+                return $customer;
+            });
+
+            return response()->json($customers, 200);
+
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
     public function getcustomers()
     {
         if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
