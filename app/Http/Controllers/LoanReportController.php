@@ -215,13 +215,29 @@ class LoanReportController extends Controller
         $startDate = $request->input('start_date') ? Carbon::parse($request->input('start_date')) : null;
         $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date')) : null;
         
+        $user = auth()->user();
+        $compId = $user->comp_id;
+        
+        // Standardized manager-level role check
+        $managerRoles = ['admin', 'manager', 'super admin', 'owner'];
+        $userRoleNames = $user->roles->pluck('name')->map(function($role) { return strtolower($role); })->toArray();
+        $userType = strtolower($user->type);
+        $isManager = !empty(array_intersect($userRoleNames, $managerRoles)) || in_array($userType, $managerRoles);
+
         $data = [];
 
         switch ($metric) {
             case 'disbursed':
-                // Align with metric: uses updated_at (proxy for disbursement)
                 $query = LoanApplication::with('customer')
+                    ->where('comp_id', $compId)
                     ->whereIn('status', ['active', 'repaid', 'defaulted', 'disbursed']);
+
+                if (!$isManager) {
+                    $query->where(function($q) use ($user) {
+                        $q->where('assigned_to_user_id', $user->id)
+                          ->orWhere('created_by_user_id', $user->id);
+                    });
+                }
 
                 if ($startDate) $query->whereDate('updated_at', '>=', $startDate);
                 if ($endDate) $query->whereDate('updated_at', '<=', $endDate);
@@ -231,19 +247,27 @@ class LoanReportController extends Controller
                     ->map(function ($loan) {
                         return [
                             'id' => $loan->id,
-                            'customer' => $loan->customer,
+                            'customer' => [
+                                'name' => $loan->customer ? "{$loan->customer->first_name} {$loan->customer->surname}" : 'Unknown',
+                                'account_number' => $loan->customer->account_number ?? 'N/A'
+                            ],
                             'amount' => $loan->amount,
-                            'date' => $loan->updated_at, // Display disbursement date
+                            'date' => $loan->updated_at,
                         ];
                     });
                 break;
 
             case 'repaid':
-                $query = AccountsTransactions::where('is_loan', 1)
+            case 'interest':
+            case 'charges':
+                // For repaid/interest/charges, we look at actual transactions
+                $query = AccountsTransactions::where('comp_id', $compId)
+                    ->where('is_loan', 1)
                     ->where('name_of_transaction', 'Loan Repayment');
-                    // Note: Cannot eager load 'loanApplication' easily as no direct FK. 
-                    // We'll have to rely on 'account_number' or parsing 'det_rep_name_of_transaction'.
-                    // For now, let's just show the transaction details available.
+
+                if (!$isManager) {
+                    $query->where('users', $user->id);
+                }
 
                 if ($startDate) $query->whereDate('created_at', '>=', $startDate);
                 if ($endDate) $query->whereDate('created_at', '<=', $endDate);
@@ -253,61 +277,24 @@ class LoanReportController extends Controller
                     ->map(function ($repayment) {
                         return [
                             'id' => $repayment->id,
-                            'customer' => ['name' => $repayment->det_rep_name_of_transaction], // Fallback label
+                            'customer' => ['name' => $repayment->det_rep_name_of_transaction],
                             'amount' => $repayment->amount,
                             'date' => $repayment->created_at,
                         ];
                     });
                 break;
 
-            case 'interest':
-                // Cannot isolate interest transactions easily in legacy table. 
-                // Showing all repayments as a fallback, or we could query Schedules (but those aren't 'transactions').
-                // Let's return empty or all repayments with a note? 
-                // Let's return the repayment transactions to be safe.
-                $query = AccountsTransactions::where('is_loan', 1)
-                    ->where('name_of_transaction', 'Loan Repayment');
-
-                if ($startDate) $query->whereDate('created_at', '>=', $startDate);
-                if ($endDate) $query->whereDate('created_at', '<=', $endDate);
-
-                $data = $query->orderBy('created_at', 'desc')
-                    ->get()
-                    ->map(function ($repayment) {
-                        return [
-                            'id' => $repayment->id,
-                            'customer' => ['name' => $repayment->det_rep_name_of_transaction],
-                            'amount' => $repayment->amount, // We don't know the exact interest portion here
-                            'date' => $repayment->created_at,
-                        ];
-                    });
-                break;
-
-            case 'charges':
-                // Similar limitation for charges.
-                $query = AccountsTransactions::where('is_loan', 1)
-                    ->where('name_of_transaction', 'Loan Repayment');
-
-                if ($startDate) $query->whereDate('created_at', '>=', $startDate);
-                if ($endDate) $query->whereDate('created_at', '<=', $endDate);
-
-                $data = $query->orderBy('created_at', 'desc')
-                    ->get()
-                    ->map(function ($repayment) {
-                        return [
-                            'id' => $repayment->id,
-                            'customer' => ['name' => $repayment->det_rep_name_of_transaction],
-                            'amount' => $repayment->amount, // We don't know the exact fees portion here
-                            'date' => $repayment->created_at,
-                        ];
-                    });
-                break;
-
             case 'outstanding':
-                // All active loans (filtered by start date if provided, though usually Outstanding is a snapshot)
-                // If dates are provided, we show loans disbursed in that range that are still active
                 $query = LoanApplication::with('customer')
+                    ->where('comp_id', $compId)
                     ->whereIn('status', ['active', 'defaulted']);
+
+                if (!$isManager) {
+                    $query->where(function($q) use ($user) {
+                        $q->where('assigned_to_user_id', $user->id)
+                          ->orWhere('created_by_user_id', $user->id);
+                    });
+                }
 
                 if ($startDate) $query->whereDate('repayment_start_date', '>=', $startDate);
                 if ($endDate) $query->whereDate('repayment_start_date', '<=', $endDate);
@@ -317,17 +304,19 @@ class LoanReportController extends Controller
                     ->map(function ($loan) {
                         return [
                             'id' => $loan->id,
-                            'customer' => $loan->customer,
-                            'amount' => $loan->outstanding_balance, // Accessor
+                            'customer' => [
+                                'name' => $loan->customer ? "{$loan->customer->first_name} {$loan->customer->surname}" : 'Unknown',
+                                'account_number' => $loan->customer->account_number ?? 'N/A'
+                            ],
+                            'amount' => $loan->outstanding_balance,
                             'date' => $loan->repayment_start_date,
                         ];
                     });
                 break;
 
             case 'defaulted':
-                // Align with metric: Active loans with OVERDUE schedules
-                // Or loans explicitly marked as 'defaulted'
                 $query = LoanApplication::with('customer')
+                    ->where('comp_id', $compId)
                     ->where(function($q) {
                         $q->where('status', 'defaulted')
                           ->orWhere(function($subQ) {
@@ -339,6 +328,13 @@ class LoanReportController extends Controller
                           });
                     });
 
+                if (!$isManager) {
+                    $query->where(function($q) use ($user) {
+                        $q->where('assigned_to_user_id', $user->id)
+                          ->orWhere('created_by_user_id', $user->id);
+                    });
+                }
+
                 if ($startDate) $query->whereDate('repayment_start_date', '>=', $startDate);
                 if ($endDate) $query->whereDate('repayment_start_date', '<=', $endDate);
 
@@ -347,13 +343,22 @@ class LoanReportController extends Controller
                     ->map(function ($loan) {
                         return [
                             'id' => $loan->id,
-                            'customer' => $loan->customer,
+                            'customer' => [
+                                'name' => $loan->customer ? "{$loan->customer->first_name} {$loan->customer->surname}" : 'Unknown',
+                                'account_number' => $loan->customer->account_number ?? 'N/A'
+                            ],
                             'amount' => $loan->outstanding_balance,
                             'date' => $loan->updated_at,
                         ];
                     });
                 break;
         }
+
+        return response()->json([
+            'success' => true,
+            'data' => $data
+        ], 200);
+    }
 
         return response()->json([
             'success' => true,
@@ -407,35 +412,51 @@ class LoanReportController extends Controller
         $date = $request->input('date') ? Carbon::parse($request->input('date'))->toDateString() : Carbon::today()->toDateString();
         
         $user = auth()->user();
-        $managerRoles = ['Admin', 'Manager', 'super admin', 'Owner'];
-        $isManager = $user->hasRole($managerRoles) || in_array($user->type, $managerRoles);
+        $compId = $user->comp_id;
+        
+        // Standardized manager-level role check
+        $managerRoles = ['admin', 'manager', 'super admin', 'owner'];
+        $userRoleNames = $user->roles->pluck('name')->map(function($role) { return strtolower($role); })->toArray();
+        $userType = strtolower($user->type);
+        $isManager = !empty(array_intersect($userRoleNames, $managerRoles)) || in_array($userType, $managerRoles);
 
-        $query = LoanRepaymentSchedule::with(['application.customer', 'application.loan_product'])
-                    ->whereDate('due_date', $date)
-                    ->where('status', '!=', 'paid'); // Only show pending/partial? Prompt said "expected to be collected"
+        // Fetch loans that have pending schedules on or before the selected date
+        $query = LoanApplication::with(['customer', 'loan_product', 'repaymentSchedules' => function($q) use ($date) {
+                    $q->where('status', 'pending')->whereDate('due_date', '<=', $date);
+                }])
+                ->where('comp_id', $compId)
+                ->whereIn('status', ['active', 'defaulted'])
+                ->whereHas('repaymentSchedules', function($q) use ($date) {
+                    $q->where('status', 'pending')->whereDate('due_date', '<=', $date);
+                });
 
         // Apply Role Filter
         if (!$isManager) {
-            $query->whereHas('application', function($q) use ($user) {
+            $query->where(function($q) use ($user) {
                 $q->where('assigned_to_user_id', $user->id)
                   ->orWhere('created_by_user_id', $user->id);
             });
         }
         
-        $list = $query->get()->map(function($schedule) {
-            $customer = $schedule->application->customer;
+        $list = $query->get()->map(function($app) {
+            $customer = $app->customer;
+            $dueSchedules = $app->repaymentSchedules;
+            
             return [
-                'id' => $schedule->id,
-                'loan_id' => $schedule->loan_application_id,
+                'id' => $dueSchedules->first()->id ?? $app->id, // Maintain an ID for the list
+                'loan_id' => $app->id,
                 'customer_name' => $customer ? "{$customer->first_name} {$customer->surname}" : 'Unknown',
                 'customer_phone' => $customer->phone_number ?? 'N/A',
                 'customer_image' => $customer->user_image ?? null,
                 'customer_id' => $customer->id ?? null,
                 'account_number' => $customer->account_number ?? 'N/A',
-                'amount_due' => $schedule->total_due,
-                'installment_number' => $schedule->installment_number,
-                'product_name' => $schedule->application->loan_product->name ?? 'Loan',
-                'status' => $schedule->status
+                'amount_due' => $dueSchedules->sum('total_due') - $dueSchedules->sum('total_paid'),
+                'installment_number' => $dueSchedules->count() > 1 
+                                        ? $dueSchedules->min('installment_number') . '-' . $dueSchedules->max('installment_number') 
+                                        : $dueSchedules->first()->installment_number ?? 'N/A',
+                'installments_count' => $dueSchedules->count(),
+                'product_name' => $app->loan_product->name ?? 'Loan',
+                'status' => $dueSchedules->count() > 1 ? 'Multiple Overdue' : ($dueSchedules->first()->status ?? 'pending')
             ];
         });
 
