@@ -254,16 +254,17 @@ class ApiUsersController extends Controller
                 ->where('nobs_registration.comp_id', \Auth::user()->comp_id)
                 ->orderBy('nobs_registration.id', 'DESC')
                 ->paginate(8); // Reduced to 8 for better performance
-            $customers->getCollection()->transform(function ($customer) {
+            // Optimized on_loan check: Fetch all active loan customer IDs in one go
+            $customerIds = $customers->getCollection()->pluck('id')->toArray();
+            $onLoanCustomerIds = DB::table('loan_applications')
+                ->whereIn('customer_id', $customerIds)
+                ->whereIn('status', ['pending', 'pending_approval', 'approved', 'active', 'disbursed', 'defaulted'])
+                ->pluck('customer_id')
+                ->toArray();
+
+            $customers->getCollection()->transform(function ($customer) use ($onLoanCustomerIds) {
                 $customer->created_at = Carbon::parse($customer->created_at)->diffForHumans();
-                
-                // Add on_loan flag
-                $activeLoan = DB::table('loan_applications')
-                    ->where('customer_id', $customer->id)
-                    ->whereIn('status', ['pending', 'pending_approval', 'approved', 'active', 'disbursed', 'defaulted'])
-                    ->exists();
-                $customer->on_loan = $activeLoan;
-                
+                $customer->on_loan = in_array($customer->id, $onLoanCustomerIds);
                 return $customer;
             });
             return $customers;
@@ -461,16 +462,17 @@ class ApiUsersController extends Controller
             $customers = $query->orderBy('first_name', 'ASC')
                 ->paginate(100);
 
-            $customers->getCollection()->transform(function ($customer) {
+            // Optimized on_loan check: Fetch all active loan customer IDs in one go
+            $customerIds = $customers->getCollection()->pluck('id')->toArray();
+            $onLoanCustomerIds = DB::table('loan_applications')
+                ->whereIn('customer_id', $customerIds)
+                ->whereIn('status', ['pending', 'pending_approval', 'approved', 'active', 'disbursed', 'defaulted'])
+                ->pluck('customer_id')
+                ->toArray();
+
+            $customers->getCollection()->transform(function ($customer) use ($onLoanCustomerIds) {
                 $customer->created_at = Carbon::parse($customer->created_at)->diffForHumans();
-                
-                // Add on_loan flag
-                $activeLoan = DB::table('loan_applications')
-                    ->where('customer_id', $customer->id)
-                    ->whereIn('status', ['pending', 'pending_approval', 'approved', 'active', 'disbursed', 'defaulted'])
-                    ->exists();
-                $customer->on_loan = $activeLoan;
-                
+                $customer->on_loan = in_array($customer->id, $onLoanCustomerIds);
                 return $customer;
             });
 
