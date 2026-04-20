@@ -102,7 +102,10 @@ class LoanApplicationController extends Controller
                 $customer = $app ? $app->customer : null;
                 
                 return [
-                    'id' => $app->id ?? $schedule->loan_application_id,
+                    // Use schedule_id as the primary 'id' for the list key to ensure uniqueness
+                    // but keep the actual loan_id as 'loan_id' for navigation/logic if needed.
+                    'id' => $schedule->id, 
+                    'loan_id' => $app->id ?? $schedule->loan_application_id,
                     'customer_id' => $app->customer_id ?? null,
                     'status' => $app->status ?? 'active',
                     'amount' => $app->amount ?? 0,
