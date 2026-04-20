@@ -66,16 +66,20 @@ class LoanApplicationController extends Controller
             $userType = strtolower($user->type);
             $isManager = !empty(array_intersect($userRoleNames, $managerRoles)) || in_array($userType, $managerRoles);
 
-            // Fetch schedules due today or overdue
-            // Explicitly qualify comp_id to ensure multi-tenancy even if global scopes are modified
-            $query = \App\LoanRepaymentSchedule::with(['application.customer', 'application.loan_product'])
-                ->where('loan_repayment_schedules.comp_id', $user->comp_id)
-                ->where('status', 'pending')
-                ->whereDate('due_date', '<=', $today);
+            // Fetch loans that have pending schedules due today or overdue
+            // We eager load ONLY the pending/overdue schedules so we can aggregate them
+            $query = LoanApplication::with(['customer', 'loan_product', 'repaymentSchedules' => function($q) use ($today) {
+                    $q->where('status', 'pending')->whereDate('due_date', '<=', $today);
+                }])
+                ->where('comp_id', $user->comp_id)
+                ->where('status', 'active')
+                ->whereHas('repaymentSchedules', function($q) use ($today) {
+                    $q->where('status', 'pending')->whereDate('due_date', '<=', $today);
+                });
 
             // Apply Role Filter
             if (!$isManager) {
-                $query->whereHas('application', function($q) use ($user) {
+                $query->where(function($q) use ($user) {
                     $q->where('assigned_to_user_id', $user->id)
                       ->orWhere('created_by_user_id', $user->id);
                 });
@@ -84,7 +88,7 @@ class LoanApplicationController extends Controller
             // Search Filter
             if ($request->has('search') && !empty($request->search)) {
                 $searchTerm = $request->search;
-                $query->whereHas('application.customer', function($q) use ($searchTerm) {
+                $query->whereHas('customer', function($q) use ($searchTerm) {
                     $q->where(function($inner) use ($searchTerm) {
                         $inner->where('first_name', 'like', "%{$searchTerm}%")
                               ->orWhere('surname', 'like', "%{$searchTerm}%")
@@ -94,39 +98,35 @@ class LoanApplicationController extends Controller
                 });
             }
 
-            $schedules = $query->orderBy('due_date', 'asc')->paginate(20);
+            $applications = $query->orderBy('updated_at', 'desc')->paginate(20);
 
-            // Transform to match the frontend expected structure
-            $schedules->getCollection()->transform(function($schedule) {
-                $app = $schedule->application;
-                $customer = $app ? $app->customer : null;
+            // Transform to aggregate the data
+            $applications->getCollection()->transform(function($app) {
+                $customer = $app->customer;
+                $dueSchedules = $app->repaymentSchedules; // These are pre-filtered by the eager load closure
                 
                 return [
-                    // Use schedule_id as the primary 'id' for the list key to ensure uniqueness
-                    // but keep the actual loan_id as 'loan_id' for navigation/logic if needed.
-                    'id' => $schedule->id, 
-                    'loan_id' => $app->id ?? $schedule->loan_application_id,
-                    'customer_id' => $app->customer_id ?? null,
-                    'status' => $app->status ?? 'active',
-                    'amount' => $app->amount ?? 0,
-                    'installment_amount' => $schedule->total_due ?? $schedule->amount,
-                    'due_date' => $schedule->due_date,
-                    'created_at' => $app->created_at ?? $schedule->created_at,
-                    'loan_product' => $app->loan_product ?? null,
-                    // Flattened customer info as the frontend mapper expects it
+                    'id' => $app->id,
+                    'customer_id' => $app->customer_id,
+                    'status' => $app->status,
+                    'amount' => $app->amount,
+                    'installment_amount' => $dueSchedules->sum('total_due'), // Total of all overdue/due periods
+                    'installments_count' => $dueSchedules->count(), // How many periods are overdue/due
+                    'due_date' => $dueSchedules->min('due_date'), // Earliest due date
+                    'created_at' => $app->created_at,
+                    'loan_product' => $app->loan_product,
                     'first_name' => $customer->first_name ?? 'N/A',
                     'surname' => $customer->surname ?? '',
                     'phone_number' => $customer->phone_number ?? '',
                     'account_number' => $customer->account_number ?? 'N/A',
                     'user_image' => $customer->user_image ?? 'false',
-                    // Original customer object if nested is needed
                     'customer' => $customer
                 ];
             });
 
             return response()->json([
                 'success' => true,
-                'data' => $schedules
+                'data' => $applications
             ], 200);
 
         } catch (\Exception $e) {
