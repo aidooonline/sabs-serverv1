@@ -82,13 +82,14 @@ class LoanApplicationController extends Controller
             }
             $searchKeys = array_unique(array_filter($searchKeys));
 
-            // 3. Fetch loans using raw DB query with a subquery for total paid amount
+            // 3. Fetch loans using raw DB query with a robust subquery for total paid amount
+            // We use COALESCE to ensure NULL results from the subquery are treated as 0
             $loans = DB::table('loan_applications')
                 ->join('loan_products', 'loan_applications.loan_product_id', '=', 'loan_products.id')
                 ->select(
                     'loan_applications.*', 
                     'loan_products.name as product_name',
-                    DB::raw('(SELECT SUM(total_paid) FROM loan_repayment_schedules WHERE loan_application_id = loan_applications.id) as amount_paid')
+                    DB::raw('(SELECT COALESCE(SUM(total_paid), 0) FROM loan_repayment_schedules WHERE loan_application_id = loan_applications.id) as amount_paid')
                 )
                 ->where('loan_applications.comp_id', $compId)
                 ->whereIn('loan_applications.customer_id', $searchKeys)
@@ -98,15 +99,16 @@ class LoanApplicationController extends Controller
             // 4. Manually transform the array to match what the frontend expects
             $formattedLoans = [];
             foreach ($loans as $loan) {
-                $totalPaid = (float)($loan->amount_paid ?? 0);
-                $totalRepayment = (float)$loan->total_repayment;
+                $totalPaid = (float)$loan->amount_paid;
+                $totalRepayable = (float)$loan->total_repayment;
+                $balance = $totalRepayable - $totalPaid;
                 
                 $formattedLoans[] = [
                     'id' => $loan->id,
-                    'amount' => $loan->amount,
-                    'total_repayment' => $totalRepayment,
+                    'amount' => (float)$loan->amount,
+                    'total_repayment' => $totalRepayable,
                     'total_paid' => $totalPaid,
-                    'outstanding_balance' => max(0, $totalRepayment - $totalPaid),
+                    'outstanding_balance' => $balance > 0 ? round($balance, 2) : 0,
                     'status' => $loan->status,
                     'created_at' => $loan->created_at,
                     'loan_product' => [
