@@ -82,9 +82,19 @@ class ReportSystemController extends Controller
             ];
 
             // 4. Loan Portfolio Group (Enhanced with Breakdown)
+            // Qualify 'created_at' to avoid ambiguity after join
             $loans = LoanApplication::with('loan_product')
                 ->join('nobs_registration', 'loan_applications.customer_id', '=', 'nobs_registration.id')
-                ->select('loan_applications.*', 'nobs_registration.first_name', 'nobs_registration.surname')
+                ->select(
+                    'loan_applications.id',
+                    'loan_applications.amount',
+                    'loan_applications.total_repayment',
+                    'loan_applications.status',
+                    'loan_applications.created_at',
+                    'nobs_registration.first_name',
+                    'nobs_registration.surname',
+                    'nobs_registration.account_number'
+                )
                 ->where('loan_applications.comp_id', $compId)
                 ->whereBetween('loan_applications.created_at', [$startDate, $endDate])
                 ->orderBy('loan_applications.created_at', 'desc')
@@ -109,6 +119,9 @@ class ReportSystemController extends Controller
                 'loan_to_deposit_ratio' => $depositSummary['total_amount'] > 0 
                     ? round(($loanSummary['total_disbursed'] / $depositSummary['total_amount']) * 100, 2) 
                     : 0,
+                'collection_efficiency' => $loanSummary['total_disbursed'] > 0
+                    ? round(($loanSummary['repayments_collected'] / $loanSummary['total_disbursed']) * 100, 2)
+                    : 0
             ];
 
             return response()->json([
@@ -122,7 +135,7 @@ class ReportSystemController extends Controller
                 ]
             ], 200);
         } catch (\Exception $e) {
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+            return response()->json(['success' => false, 'message' => 'Report Error: ' . $e->getMessage()], 500);
         }
     }
 
@@ -167,7 +180,7 @@ class ReportSystemController extends Controller
             return response()->json(['success' => true, 'message' => 'Monthly snapshot archived successfully.']);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+            return response()->json(['success' => false, 'message' => 'Snapshot Error: ' . $e->getMessage()], 500);
         }
     }
 
@@ -176,74 +189,99 @@ class ReportSystemController extends Controller
      */
     public function exportCsv(Request $request)
     {
-        $token = $request->query('token');
-        if ($token) {
-            // Manual verification for browser downloads
-            $user = User::where('api_token', $token)->first();
-            if (!$user) return response('Unauthorized', 401);
-            $compId = $user->comp_id;
-        } else {
-            $user = auth()->user();
-            if (!$user) return response('Unauthorized', 401);
-            $compId = $user->comp_id;
-        }
-
-        $month = $request->query('month');
-        $year = $request->query('year');
-        $type = $request->query('type', 'deposits'); 
-
-        $startDate = Carbon::createFromDate($year, $month, 1)->startOfMonth();
-        $endDate = Carbon::createFromDate($year, $month, 1)->endOfMonth();
-
-        $filename = "SABS_Report_{$type}_{$month}_{$year}.csv";
-        $headers = [
-            "Content-type"        => "text/csv",
-            "Content-Disposition" => "attachment; filename=$filename",
-            "Pragma"              => "no-cache",
-            "Cache-Control"       => "must-revalidate, post-check=0, pre-check=0",
-            "Expires"             => "0"
-        ];
-
-        $callback = function() use ($type, $compId, $startDate, $endDate) {
-            $file = fopen('php://output', 'w');
-            
-            if ($type == 'deposits' || $type == 'withdrawals') {
-                fputcsv($file, ['Date', 'Customer', 'Account', 'Amount', 'Resulting Balance', 'Reference']);
-                $data = DB::table('accounts_transactions')
-                    ->where('comp_id', $compId)
-                    ->where('name_of_transaction', $type == 'deposits' ? 'Deposit' : 'Withdraw')
-                    ->whereBetween('created_at', [$startDate, $endDate])
-                    ->get();
-                foreach ($data as $row) {
-                    fputcsv($file, [$row->created_at, $row->det_rep_name_of_transaction, $row->account_number, $row->amount, $row->balance, $row->transaction_id]);
-                }
-            } elseif ($type == 'loans') {
-                fputcsv($file, ['Date', 'Loan ID', 'Customer', 'Principal', 'Total Repayable', 'Total Paid', 'Balance', 'Status']);
-                $data = DB::table('loan_applications')
-                    ->join('nobs_registration', 'loan_applications.customer_id', '=', 'nobs_registration.id')
-                    ->select('loan_applications.*', 'nobs_registration.first_name', 'nobs_registration.surname')
-                    ->where('loan_applications.comp_id', $compId)
-                    ->whereBetween('loan_applications.created_at', [$startDate, $endDate])
-                    ->get();
-                foreach ($data as $row) {
-                    $paid = DB::table('loan_repayment_schedules')->where('loan_application_id', $row->id)->sum('total_paid');
-                    fputcsv($file, [
-                        $row->created_at, $row->id, "{$row->first_name} {$row->surname}", 
-                        $row->amount, $row->total_repayment, $paid, ($row->total_repayment - $paid), $row->status
-                    ]);
-                }
+        try {
+            $token = $request->query('token');
+            if ($token) {
+                // Manual verification for browser downloads
+                $user = User::where('api_token', $token)->first();
+                if (!$user) return response('Unauthorized', 401);
+                $compId = $user->comp_id;
             } else {
-                fputcsv($file, ['Date', 'Customer', 'Account', 'Savings Bal', 'Loan Debt', 'Net Global Balance']);
-                $data = DB::table('nobs_registration')->where('comp_id', $compId)->whereBetween('created_at', [$startDate, $endDate])->get();
-                foreach ($data as $c) {
-                    $savings = DB::table('nobs_user_account_numbers')->where('account_number', $c->account_number)->where('comp_id', $compId)->sum('balance');
-                    $debt = DB::table('loan_applications')->where('customer_id', $c->id)->whereIn('status', ['active', 'disbursed', 'defaulted'])->select(DB::raw('(total_repayment - total_paid) as balance'))->get()->sum('balance');
-                    fputcsv($file, [$c->created_at, "{$c->first_name} {$c->surname}", $c->account_number, $savings, $debt, ($savings - $debt)]);
-                }
+                $user = auth()->user();
+                if (!$user) return response('Unauthorized', 401);
+                $compId = $user->comp_id;
             }
-            fclose($file);
-        };
 
-        return response()->stream($callback, 200, $headers);
+            $month = $request->query('month');
+            $year = $request->query('year');
+            $type = $request->query('type', 'deposits'); 
+
+            $startDate = Carbon::createFromDate($year, $month, 1)->startOfMonth();
+            $endDate = Carbon::createFromDate($year, $month, 1)->endOfMonth();
+
+            $filename = "SABS_Report_{$type}_{$month}_{$year}.csv";
+            $headers = [
+                "Content-type"        => "text/csv",
+                "Content-Disposition" => "attachment; filename=$filename",
+                "Pragma"              => "no-cache",
+                "Cache-Control"       => "must-revalidate, post-check=0, pre-check=0",
+                "Expires"             => "0"
+            ];
+
+            $callback = function() use ($type, $compId, $startDate, $endDate) {
+                $file = fopen('php://output', 'w');
+                
+                if ($type == 'deposits' || $type == 'withdrawals') {
+                    fputcsv($file, ['Date', 'Customer', 'Account', 'Amount', 'Resulting Balance', 'Reference']);
+                    $data = DB::table('accounts_transactions')
+                        ->where('comp_id', $compId)
+                        ->where('name_of_transaction', $type == 'deposits' ? 'Deposit' : 'Withdraw')
+                        ->whereBetween('created_at', [$startDate, $endDate])
+                        ->get();
+                    foreach ($data as $row) {
+                        fputcsv($file, [$row->created_at, $row->det_rep_name_of_transaction, $row->account_number, $row->amount, $row->balance, $row->transaction_id]);
+                    }
+                } elseif ($type == 'loans') {
+                    fputcsv($file, ['Date', 'Loan ID', 'Customer', 'Principal', 'Total Repayable', 'Total Paid', 'Balance', 'Status']);
+                    $data = DB::table('loan_applications')
+                        ->join('nobs_registration', 'loan_applications.customer_id', '=', 'nobs_registration.id')
+                        ->select(
+                            'loan_applications.id',
+                            'loan_applications.amount',
+                            'loan_applications.total_repayment',
+                            'loan_applications.status',
+                            'loan_applications.created_at',
+                            'nobs_registration.first_name',
+                            'nobs_registration.surname'
+                        )
+                        ->where('loan_applications.comp_id', $compId)
+                        ->whereBetween('loan_applications.created_at', [$startDate, $endDate])
+                        ->get();
+                    foreach ($data as $row) {
+                        $paid = DB::table('loan_repayment_schedules')->where('loan_application_id', $row->id)->sum('total_paid');
+                        fputcsv($file, [
+                            $row->created_at, $row->id, "{$row->first_name} {$row->surname}", 
+                            $row->amount, $row->total_repayment, $paid, ($row->total_repayment - $paid), $row->status
+                        ]);
+                    }
+                } else {
+                    fputcsv($file, ['Date', 'Customer', 'Account', 'Savings Total', 'Debt Total', 'Net Global Balance']);
+                    $data = DB::table('nobs_registration')
+                        ->where('comp_id', $compId)
+                        ->whereBetween('created_at', [$startDate, $endDate])
+                        ->get();
+                    foreach ($data as $c) {
+                        $savings = DB::table('nobs_user_account_numbers')
+                            ->where('account_number', $c->account_number)
+                            ->where('comp_id', $compId)
+                            ->sum('balance');
+                        
+                        $debt = DB::table('loan_applications')
+                            ->where('customer_id', $c->id)
+                            ->whereIn('status', ['active', 'disbursed', 'defaulted'])
+                            ->select(DB::raw('(total_repayment - total_paid) as balance'))
+                            ->get()
+                            ->sum('balance');
+                        
+                        fputcsv($file, [$c->created_at, "{$c->first_name} {$c->surname}", $c->account_number, $savings, $debt, ($savings - $debt)]);
+                    }
+                }
+                fclose($file);
+            };
+
+            return response()->stream($callback, 200, $headers);
+        } catch (\Exception $e) {
+            return response('Export Error: ' . $e->getMessage(), 500);
+        }
     }
 }
