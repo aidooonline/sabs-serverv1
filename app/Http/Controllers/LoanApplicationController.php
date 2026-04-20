@@ -63,8 +63,8 @@ class LoanApplicationController extends Controller
             
             $compId = $user->comp_id;
 
-            // 1. Find the customer record using ANY identifier available (ID, UUID, or Account Number)
-            $customer = \App\Accounts::withoutGlobalScope('company')
+            // 1. Find the customer record using raw DB query
+            $customer = DB::table('nobs_registration')
                 ->where('comp_id', $compId)
                 ->where(function($q) use ($inputIdentifier) {
                     $q->where('id', $inputIdentifier)
@@ -73,8 +73,8 @@ class LoanApplicationController extends Controller
                 })
                 ->first();
 
-            // 2. Gather all possible keys to search the loan_applications table
-            $searchKeys = [$inputIdentifier]; // Always include the original input
+            // 2. Gather all possible keys
+            $searchKeys = [$inputIdentifier]; 
             if ($customer) {
                 $searchKeys[] = $customer->id;
                 $searchKeys[] = $customer->account_number;
@@ -82,30 +82,39 @@ class LoanApplicationController extends Controller
             }
             $searchKeys = array_unique(array_filter($searchKeys));
 
-            // 3. Search for loans matching ANY of these keys
-            $loans = LoanApplication::withoutGlobalScope('company')
-                ->with(['loan_product'])
-                ->where('comp_id', $compId)
-                ->whereIn('customer_id', $searchKeys)
-                ->orderBy('created_at', 'desc')
+            // 3. Fetch loans using raw DB query to avoid Collection compatibility issues
+            $loans = DB::table('loan_applications')
+                ->join('loan_products', 'loan_applications.loan_product_id', '=', 'loan_products.id')
+                ->select('loan_applications.*', 'loan_products.name as product_name')
+                ->where('loan_applications.comp_id', $compId)
+                ->whereIn('loan_applications.customer_id', $searchKeys)
+                ->orderBy('loan_applications.created_at', 'desc')
                 ->get();
+
+            // 4. Manually transform the array to match what the frontend expects
+            $formattedLoans = [];
+            foreach ($loans as $loan) {
+                $formattedLoans[] = [
+                    'id' => $loan->id,
+                    'amount' => $loan->amount,
+                    'total_repayment' => $loan->total_repayment,
+                    'status' => $loan->status,
+                    'created_at' => $loan->created_at,
+                    'loan_product' => [
+                        'name' => $loan->product_name
+                    ]
+                ];
+            }
 
             return response()->json([
                 'success' => true,
-                'data' => $loans,
-                'debug' => [
-                    'input' => $inputIdentifier,
-                    'found_customer' => $customer ? $customer->id : 'no',
-                    'search_keys' => $searchKeys,
-                    'count' => $loans->count()
-                ]
+                'data' => $formattedLoans
             ], 200);
 
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Server Error: ' . $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'message' => 'Server Configuration Error: ' . $e->getMessage()
             ], 500);
         }
     }
