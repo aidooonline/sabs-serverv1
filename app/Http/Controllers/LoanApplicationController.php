@@ -53,9 +53,9 @@ class LoanApplicationController extends Controller
     public function getCustomerLoanHistory(Request $request)
     {
         try {
-            $customerId = $request->query('customer_id');
-            if (!$customerId) {
-                return response()->json(['success' => false, 'message' => 'Customer ID is required.'], 400);
+            $inputIdentifier = $request->query('customer_id');
+            if (!$inputIdentifier) {
+                return response()->json(['success' => false, 'message' => 'Customer identifier is required.'], 400);
             }
 
             $user = Auth::user();
@@ -63,25 +63,30 @@ class LoanApplicationController extends Controller
             
             $compId = $user->comp_id;
 
-            // Fetch customer details to get all possible identifiers for a fallback search
-            // Use model instead of raw DB for better compatibility
-            $customer = \App\Accounts::withoutGlobalScope('company')->where('id', $customerId)->first();
-            $accountNumber = $customer ? $customer->account_number : null;
-            $uuid = $customer ? $customer->__id__ : null;
-            
-            // Search by Numeric ID, UUID, or Account Number within the same company
+            // 1. Find the customer record using ANY identifier available (ID, UUID, or Account Number)
+            $customer = \App\Accounts::withoutGlobalScope('company')
+                ->where('comp_id', $compId)
+                ->where(function($q) use ($inputIdentifier) {
+                    $q->where('id', $inputIdentifier)
+                      ->orWhere('account_number', $inputIdentifier)
+                      ->orWhere('__id__', $inputIdentifier);
+                })
+                ->first();
+
+            // 2. Gather all possible keys to search the loan_applications table
+            $searchKeys = [$inputIdentifier]; // Always include the original input
+            if ($customer) {
+                $searchKeys[] = $customer->id;
+                $searchKeys[] = $customer->account_number;
+                $searchKeys[] = $customer->__id__;
+            }
+            $searchKeys = array_unique(array_filter($searchKeys));
+
+            // 3. Search for loans matching ANY of these keys
             $loans = LoanApplication::withoutGlobalScope('company')
                 ->with(['loan_product'])
                 ->where('comp_id', $compId)
-                ->where(function($q) use ($customerId, $accountNumber, $uuid) {
-                    $q->where('customer_id', $customerId);
-                    if ($accountNumber) {
-                        $q->orWhere('customer_id', $accountNumber);
-                    }
-                    if ($uuid) {
-                        $q->orWhere('customer_id', $uuid);
-                    }
-                })
+                ->whereIn('customer_id', $searchKeys)
                 ->orderBy('created_at', 'desc')
                 ->get();
 
@@ -89,9 +94,9 @@ class LoanApplicationController extends Controller
                 'success' => true,
                 'data' => $loans,
                 'debug' => [
-                    'queried_id' => $customerId,
-                    'queried_uuid' => $uuid,
-                    'queried_account' => $accountNumber,
+                    'input' => $inputIdentifier,
+                    'found_customer' => $customer ? $customer->id : 'no',
+                    'search_keys' => $searchKeys,
                     'count' => $loans->count()
                 ]
             ], 200);
