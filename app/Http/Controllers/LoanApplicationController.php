@@ -59,8 +59,11 @@ class LoanApplicationController extends Controller
 
         // Join applications with schedules
         // We want the application details AND the specific schedule details
-        $query = LoanApplication::join('loan_repayment_schedules', 'loan_applications.id', '=', 'loan_repayment_schedules.loan_application_id')
+        // We use withoutGlobalScope('company') to avoid ambiguity in the JOIN and manually apply a qualified where
+        $query = LoanApplication::withoutGlobalScope('company')
+            ->join('loan_repayment_schedules', 'loan_applications.id', '=', 'loan_repayment_schedules.loan_application_id')
             ->join('nobs_registration', 'loan_applications.customer_id', '=', 'nobs_registration.id')
+            ->with(['loan_product']) // Eager load for the frontend to show product name
             ->select(
                 'loan_applications.*',
                 'nobs_registration.first_name',
@@ -72,6 +75,7 @@ class LoanApplicationController extends Controller
                 'loan_repayment_schedules.amount as installment_amount',
                 'loan_repayment_schedules.id as schedule_id'
             )
+            ->where('loan_applications.comp_id', $user->comp_id) // Manually apply qualified scope
             ->where('loan_applications.status', 'active') // Only active loans
             ->where('loan_repayment_schedules.status', 'pending')
             ->whereDate('loan_repayment_schedules.due_date', '<=', now()->toDateString()); // Today or Overdue
@@ -87,11 +91,12 @@ class LoanApplicationController extends Controller
 
         // Search
         if ($request->has('search') && !empty($request->search)) {
-            $term = $request->search;
-            $query->where(function($q) use ($term) {
-                $q->where('nobs_registration.first_name', 'like', "%$term%")
-                  ->orWhere('nobs_registration.surname', 'like', "%$term%")
-                  ->orWhere('nobs_registration.account_number', 'like', "%$term%");
+            $searchTerm = $request->search;
+            $query->where(function($q) use ($searchTerm) {
+                $q->where('nobs_registration.first_name', 'like', "%{$searchTerm}%")
+                  ->orWhere('nobs_registration.surname', 'like', "%{$searchTerm}%")
+                  ->orWhere('nobs_registration.account_number', 'like', "%{$searchTerm}%")
+                  ->orWhere(\DB::raw("CONCAT(nobs_registration.first_name, ' ', nobs_registration.surname)"), 'like', "%{$searchTerm}%");
             });
         }
 
@@ -508,8 +513,14 @@ class LoanApplicationController extends Controller
             if ($request->has('search') && !empty($request->search)) {
                 $searchTerm = $request->search;
                 $query->whereHas('customer', function ($q) use ($searchTerm) {
-                    $q->where('name', 'like', "%{$searchTerm}%")
-                      ->orWhere('account_number', 'like', "%{$searchTerm}%");
+                    $q->where(function($inner) use ($searchTerm) {
+                        $inner->where('first_name', 'like', "%{$searchTerm}%")
+                              ->orWhere('middle_name', 'like', "%{$searchTerm}%")
+                              ->orWhere('surname', 'like', "%{$searchTerm}%")
+                              ->orWhere('account_number', 'like', "%{$searchTerm}%")
+                              ->orWhere(\DB::raw("CONCAT(first_name, ' ', surname)"), 'like', "%{$searchTerm}%")
+                              ->orWhere(\DB::raw("CONCAT(first_name, ' ', middle_name, ' ', surname)"), 'like', "%{$searchTerm}%");
+                    });
                 });
             }
             
