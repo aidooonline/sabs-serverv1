@@ -497,11 +497,15 @@ class LoanApplicationController extends Controller
             $query = LoanApplication::with(['customer', 'assignedTo'])
                 ->whereIn('status', ['disbursed', 'defaulted', 'active']);
 
-            // Define manager-level roles
-            $managerRoles = ['Admin', 'Manager', 'super admin', 'Owner'];
+            // Define manager-level roles (case-insensitive for safety)
+            $managerRoles = ['admin', 'manager', 'super admin', 'owner'];
+            $userRoleNames = $user->roles->pluck('name')->map(function($role) { return strtolower($role); })->toArray();
+            $userType = strtolower($user->type);
+            
+            $isManager = !empty(array_intersect($userRoleNames, $managerRoles)) || in_array($userType, $managerRoles);
 
             // Role-based filtering
-            if (!$user->hasRole($managerRoles) && !in_array($user->type, $managerRoles)) {
+            if (!$isManager) {
                  // If user is not a manager, assume they are an agent and show only their loans (assigned OR created)
                 $query->where(function($q) use ($user) {
                     $q->where('assigned_to_user_id', $user->id)
@@ -525,7 +529,7 @@ class LoanApplicationController extends Controller
             }
             
             // Allow managers to filter by a specific agent
-            if ($user->hasRole($managerRoles) && $request->has('agent_id') && !empty($request->agent_id)) {
+            if ($isManager && $request->has('agent_id') && !empty($request->agent_id)) {
                 $query->where('assigned_to_user_id', $request->agent_id);
             }
 
