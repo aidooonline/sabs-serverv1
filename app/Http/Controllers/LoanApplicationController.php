@@ -67,7 +67,9 @@ class LoanApplicationController extends Controller
             $isManager = !empty(array_intersect($userRoleNames, $managerRoles)) || in_array($userType, $managerRoles);
 
             // Fetch schedules due today or overdue
+            // Explicitly qualify comp_id to ensure multi-tenancy even if global scopes are modified
             $query = \App\LoanRepaymentSchedule::with(['application.customer', 'application.loan_product'])
+                ->where('loan_repayment_schedules.comp_id', $user->comp_id)
                 ->where('status', 'pending')
                 ->whereDate('due_date', '<=', $today);
 
