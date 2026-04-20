@@ -9,6 +9,7 @@ use App\Accounts;
 use App\AccountsTransactions;
 use App\LoanApplication;
 use App\LoanRepaymentSchedule;
+use App\User;
 
 class ReportSystemController extends Controller
 {
@@ -26,17 +27,36 @@ class ReportSystemController extends Controller
             $startDate = Carbon::createFromDate($year, $month, 1)->startOfMonth();
             $endDate = Carbon::createFromDate($year, $month, 1)->endOfMonth();
 
-            // 1. Customer Report Group
+            // 1. Customer Report Group (Enhanced with Global Balance)
+            $customers = Accounts::where('comp_id', $compId)
+                ->whereBetween('created_at', [$startDate, $endDate])
+                ->orderBy('created_at', 'desc')
+                ->limit(100)
+                ->get();
+
+            foreach ($customers as $c) {
+                // Calculate Net Global Balance (Savings - Debt)
+                $savings = DB::table('nobs_user_account_numbers')
+                    ->where('account_number', $c->account_number)
+                    ->where('comp_id', $compId)
+                    ->sum('balance');
+                
+                $debt = DB::table('loan_applications')
+                    ->where('customer_id', $c->id)
+                    ->whereIn('status', ['active', 'disbursed', 'defaulted'])
+                    ->select(DB::raw('(total_repayment - total_paid) as balance'))
+                    ->get()
+                    ->sum('balance');
+                
+                $c->net_balance = round($savings - $debt, 2);
+                $c->savings_total = round($savings, 2);
+                $c->debt_total = round($debt, 2);
+            }
+
             $customerSummary = [
                 'total_customers' => Accounts::where('comp_id', $compId)->count(),
-                'new_registrations' => Accounts::where('comp_id', $compId)
-                    ->whereBetween('created_at', [$startDate, $endDate])
-                    ->count(),
-                'list' => Accounts::where('comp_id', $compId)
-                    ->whereBetween('created_at', [$startDate, $endDate])
-                    ->orderBy('created_at', 'desc')
-                    ->limit(50)
-                    ->get()
+                'new_registrations' => $customers->count(),
+                'list' => $customers
             ];
 
             // 2. Deposit Report Group
@@ -51,29 +71,36 @@ class ReportSystemController extends Controller
             ];
 
             // 3. Withdrawal Report Group
-            $withdrawals = AccountsTransactions::where('comp_id', $compId)
+            $withdrawalQuery = AccountsTransactions::where('comp_id', $compId)
                 ->where('name_of_transaction', 'Withdraw')
                 ->whereBetween('created_at', [$startDate, $endDate]);
             
             $withdrawalSummary = [
-                'total_amount' => round($withdrawals->sum('amount'), 2),
-                'total_count' => $withdrawals->count(),
-                'list' => $withdrawals->orderBy('created_at', 'desc')->limit(100)->get()
+                'total_amount' => round($withdrawalQuery->sum('amount'), 2),
+                'total_count' => $withdrawalQuery->count(),
+                'list' => $withdrawalQuery->orderBy('created_at', 'desc')->limit(100)->get()
             ];
 
-            // 4. Loan Portfolio Group
-            $loans = LoanApplication::where('comp_id', $compId)
-                ->whereBetween('created_at', [$startDate, $endDate]);
-            
-            $repayments = LoanRepaymentSchedule::where('comp_id', $compId)
-                ->whereBetween('updated_at', [$startDate, $endDate]);
+            // 4. Loan Portfolio Group (Enhanced with Breakdown)
+            $loans = LoanApplication::with('loan_product')
+                ->join('nobs_registration', 'loan_applications.customer_id', '=', 'nobs_registration.id')
+                ->select('loan_applications.*', 'nobs_registration.first_name', 'nobs_registration.surname')
+                ->where('loan_applications.comp_id', $compId)
+                ->whereBetween('loan_applications.created_at', [$startDate, $endDate])
+                ->orderBy('loan_applications.created_at', 'desc')
+                ->limit(100)
+                ->get();
+
+            foreach ($loans as $l) {
+                $l->customer_name = "{$l->first_name} {$l->surname}";
+                $l->amount_paid = DB::table('loan_repayment_schedules')->where('loan_application_id', $l->id)->sum('total_paid');
+                $l->outstanding_balance = round($l->total_repayment - $l->amount_paid, 2);
+            }
 
             $loanSummary = [
                 'total_disbursed' => round($loans->sum('amount'), 2),
-                'repayments_collected' => round($repayments->sum('total_paid'), 2),
-                'interest_collected' => round($repayments->sum('interest_paid'), 2),
-                'fees_collected' => round($repayments->sum('fees_paid'), 2),
-                'list' => $loans->with('loan_product')->limit(100)->get()
+                'repayments_collected' => round($loans->sum('amount_paid'), 2),
+                'list' => $loans
             ];
 
             // 5. Cross-Matching (Intelligence)
@@ -82,9 +109,6 @@ class ReportSystemController extends Controller
                 'loan_to_deposit_ratio' => $depositSummary['total_amount'] > 0 
                     ? round(($loanSummary['total_disbursed'] / $depositSummary['total_amount']) * 100, 2) 
                     : 0,
-                'collection_efficiency' => $loanSummary['total_disbursed'] > 0
-                    ? round(($loanSummary['repayments_collected'] / $loanSummary['total_disbursed']) * 100, 2)
-                    : 0
             ];
 
             return response()->json([
@@ -114,19 +138,14 @@ class ReportSystemController extends Controller
 
         DB::beginTransaction();
         try {
-            // Check if exists
-            DB::table('report_snapshots')
-                ->where(['comp_id' => $compId, 'period_month' => $month, 'period_year' => $year])
-                ->delete();
+            DB::table('report_snapshots')->where(['comp_id' => $compId, 'period_month' => $month, 'period_year' => $year])->delete();
 
-            // 1. Generate Totals (similar to getLiveReport)
             $startDate = Carbon::createFromDate($year, $month, 1)->startOfMonth();
             $endDate = Carbon::createFromDate($year, $month, 1)->endOfMonth();
 
             $deposits = DB::table('accounts_transactions')->where('comp_id', $compId)->where('name_of_transaction', 'Deposit')->whereBetween('created_at', [$startDate, $endDate]);
             $withdrawals = DB::table('accounts_transactions')->where('comp_id', $compId)->where('name_of_transaction', 'Withdraw')->whereBetween('created_at', [$startDate, $endDate]);
             $loans = DB::table('loan_applications')->where('comp_id', $compId)->whereBetween('created_at', [$startDate, $endDate]);
-            $repayments = DB::table('loan_repayment_schedules')->where('comp_id', $compId)->whereBetween('updated_at', [$startDate, $endDate]);
 
             $snapshotId = DB::table('report_snapshots')->insertGetId([
                 'comp_id' => $compId,
@@ -140,32 +159,9 @@ class ReportSystemController extends Controller
                 'total_withdrawal_count' => $withdrawals->count(),
                 'net_cash_flow' => ($deposits->sum('amount') ?? 0) - ($withdrawals->sum('amount') ?? 0),
                 'total_disbursed_amount' => $loans->sum('amount') ?? 0,
-                'total_repayments_collected' => $repayments->sum('total_paid') ?? 0,
-                'interest_collected' => $repayments->sum('interest_paid') ?? 0,
-                'fees_collected' => $repayments->sum('fees_paid') ?? 0,
                 'generated_by_user_id' => $user->id,
                 'created_at' => now()
             ]);
-
-            // 2. Archive items (Simplified for performance, archiving main financial movements)
-            $txs = DB::table('accounts_transactions')
-                ->where('comp_id', $compId)
-                ->whereIn('name_of_transaction', ['Deposit', 'Withdraw'])
-                ->whereBetween('created_at', [$startDate, $endDate])
-                ->get();
-
-            foreach ($txs as $tx) {
-                DB::table('report_snapshot_items')->insert([
-                    'snapshot_id' => $snapshotId,
-                    'item_group' => strtolower($tx->name_of_transaction),
-                    'customer_name' => $tx->det_rep_name_of_transaction,
-                    'account_number' => $tx->account_number,
-                    'amount' => $tx->amount,
-                    'balance_at_time' => $tx->balance,
-                    'transaction_date' => $tx->created_at,
-                    'reference_id' => $tx->transaction_id
-                ]);
-            }
 
             DB::commit();
             return response()->json(['success' => true, 'message' => 'Monthly snapshot archived successfully.']);
@@ -176,14 +172,25 @@ class ReportSystemController extends Controller
     }
 
     /**
-     * Export Report to CSV
+     * Export Report to CSV (Token-based Auth Fallback)
      */
     public function exportCsv(Request $request)
     {
+        $token = $request->query('token');
+        if ($token) {
+            // Manual verification for browser downloads
+            $user = User::where('api_token', $token)->first();
+            if (!$user) return response('Unauthorized', 401);
+            $compId = $user->comp_id;
+        } else {
+            $user = auth()->user();
+            if (!$user) return response('Unauthorized', 401);
+            $compId = $user->comp_id;
+        }
+
         $month = $request->query('month');
         $year = $request->query('year');
-        $type = $request->query('type', 'deposits'); // deposits, withdrawals, loans
-        $compId = auth()->user()->comp_id;
+        $type = $request->query('type', 'deposits'); 
 
         $startDate = Carbon::createFromDate($year, $month, 1)->startOfMonth();
         $endDate = Carbon::createFromDate($year, $month, 1)->endOfMonth();
@@ -210,14 +217,28 @@ class ReportSystemController extends Controller
                 foreach ($data as $row) {
                     fputcsv($file, [$row->created_at, $row->det_rep_name_of_transaction, $row->account_number, $row->amount, $row->balance, $row->transaction_id]);
                 }
-            } else {
-                fputcsv($file, ['Date', 'Loan ID', 'Principal', 'Total Repayable', 'Status']);
+            } elseif ($type == 'loans') {
+                fputcsv($file, ['Date', 'Loan ID', 'Customer', 'Principal', 'Total Repayable', 'Total Paid', 'Balance', 'Status']);
                 $data = DB::table('loan_applications')
-                    ->where('comp_id', $compId)
-                    ->whereBetween('created_at', [$startDate, $endDate])
+                    ->join('nobs_registration', 'loan_applications.customer_id', '=', 'nobs_registration.id')
+                    ->select('loan_applications.*', 'nobs_registration.first_name', 'nobs_registration.surname')
+                    ->where('loan_applications.comp_id', $compId)
+                    ->whereBetween('loan_applications.created_at', [$startDate, $endDate])
                     ->get();
                 foreach ($data as $row) {
-                    fputcsv($file, [$row->created_at, $row->id, $row->amount, $row->total_repayment, $row->status]);
+                    $paid = DB::table('loan_repayment_schedules')->where('loan_application_id', $row->id)->sum('total_paid');
+                    fputcsv($file, [
+                        $row->created_at, $row->id, "{$row->first_name} {$row->surname}", 
+                        $row->amount, $row->total_repayment, $paid, ($row->total_repayment - $paid), $row->status
+                    ]);
+                }
+            } else {
+                fputcsv($file, ['Date', 'Customer', 'Account', 'Savings Bal', 'Loan Debt', 'Net Global Balance']);
+                $data = DB::table('nobs_registration')->where('comp_id', $compId)->whereBetween('created_at', [$startDate, $endDate])->get();
+                foreach ($data as $c) {
+                    $savings = DB::table('nobs_user_account_numbers')->where('account_number', $c->account_number)->where('comp_id', $compId)->sum('balance');
+                    $debt = DB::table('loan_applications')->where('customer_id', $c->id)->whereIn('status', ['active', 'disbursed', 'defaulted'])->select(DB::raw('(total_repayment - total_paid) as balance'))->get()->sum('balance');
+                    fputcsv($file, [$c->created_at, "{$c->first_name} {$c->surname}", $c->account_number, $savings, $debt, ($savings - $debt)]);
                 }
             }
             fclose($file);
