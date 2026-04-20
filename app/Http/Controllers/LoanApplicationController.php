@@ -54,58 +54,83 @@ class LoanApplicationController extends Controller
      */
     public function getLoansDueToday(Request $request)
     {
-        $user = Auth::user();
-        if (!$user) return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+        try {
+            $user = Auth::user();
+            if (!$user) return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
 
-        // Join applications with schedules
-        // We want the application details AND the specific schedule details
-        // We use withoutGlobalScope('company') to avoid ambiguity in the JOIN and manually apply a qualified where
-        $query = LoanApplication::withoutGlobalScope('company')
-            ->join('loan_repayment_schedules', 'loan_applications.id', '=', 'loan_repayment_schedules.loan_application_id')
-            ->join('nobs_registration', 'loan_applications.customer_id', '=', 'nobs_registration.id')
-            ->with(['loan_product']) // Eager load for the frontend to show product name
-            ->select(
-                'loan_applications.*',
-                'nobs_registration.first_name',
-                'nobs_registration.surname',
-                'nobs_registration.phone_number',
-                'nobs_registration.account_number',
-                'nobs_registration.user_image',
-                'loan_repayment_schedules.due_date',
-                'loan_repayment_schedules.amount as installment_amount',
-                'loan_repayment_schedules.id as schedule_id'
-            )
-            ->where('loan_applications.comp_id', $user->comp_id) // Manually apply qualified scope
-            ->where('loan_applications.status', 'active') // Only active loans
-            ->where('loan_repayment_schedules.status', 'pending')
-            ->whereDate('loan_repayment_schedules.due_date', '<=', now()->toDateString()); // Today or Overdue
+            $today = now()->toDateString();
+            
+            // Define manager roles for consistent filtering
+            $managerRoles = ['admin', 'manager', 'super admin', 'owner'];
+            $userRoleNames = $user->roles->pluck('name')->map(function($role) { return strtolower($role); })->toArray();
+            $userType = strtolower($user->type);
+            $isManager = !empty(array_intersect($userRoleNames, $managerRoles)) || in_array($userType, $managerRoles);
 
-        // Role-based filtering
-        $managerRoles = ['Admin', 'Manager', 'super admin', 'Owner'];
-        if (!$user->hasRole($managerRoles) && !in_array($user->type, $managerRoles)) {
-            $query->where(function($q) use ($user) {
-                $q->where('loan_applications.assigned_to_user_id', $user->id)
-                  ->orWhere('loan_applications.created_by_user_id', $user->id);
+            // Fetch schedules due today or overdue
+            $query = \App\LoanRepaymentSchedule::with(['application.customer', 'application.loan_product'])
+                ->where('status', 'pending')
+                ->whereDate('due_date', '<=', $today);
+
+            // Apply Role Filter
+            if (!$isManager) {
+                $query->whereHas('application', function($q) use ($user) {
+                    $q->where('assigned_to_user_id', $user->id)
+                      ->orWhere('created_by_user_id', $user->id);
+                });
+            }
+
+            // Search Filter
+            if ($request->has('search') && !empty($request->search)) {
+                $searchTerm = $request->search;
+                $query->whereHas('application.customer', function($q) use ($searchTerm) {
+                    $q->where(function($inner) use ($searchTerm) {
+                        $inner->where('first_name', 'like', "%{$searchTerm}%")
+                              ->orWhere('surname', 'like', "%{$searchTerm}%")
+                              ->orWhere('account_number', 'like', "%{$searchTerm}%")
+                              ->orWhere(\DB::raw("CONCAT(first_name, ' ', surname)"), 'like', "%{$searchTerm}%");
+                    });
+                });
+            }
+
+            $schedules = $query->orderBy('due_date', 'asc')->paginate(20);
+
+            // Transform to match the frontend expected structure
+            $schedules->getCollection()->transform(function($schedule) {
+                $app = $schedule->application;
+                $customer = $app ? $app->customer : null;
+                
+                return [
+                    'id' => $app->id ?? $schedule->loan_application_id,
+                    'customer_id' => $app->customer_id ?? null,
+                    'status' => $app->status ?? 'active',
+                    'amount' => $app->amount ?? 0,
+                    'installment_amount' => $schedule->total_due ?? $schedule->amount,
+                    'due_date' => $schedule->due_date,
+                    'created_at' => $app->created_at ?? $schedule->created_at,
+                    'loan_product' => $app->loan_product ?? null,
+                    // Flattened customer info as the frontend mapper expects it
+                    'first_name' => $customer->first_name ?? 'N/A',
+                    'surname' => $customer->surname ?? '',
+                    'phone_number' => $customer->phone_number ?? '',
+                    'account_number' => $customer->account_number ?? 'N/A',
+                    'user_image' => $customer->user_image ?? 'false',
+                    // Original customer object if nested is needed
+                    'customer' => $customer
+                ];
             });
+
+            return response()->json([
+                'success' => true,
+                'data' => $schedules
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'A server error occurred while fetching due loans.',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        // Search
-        if ($request->has('search') && !empty($request->search)) {
-            $searchTerm = $request->search;
-            $query->where(function($q) use ($searchTerm) {
-                $q->where('nobs_registration.first_name', 'like', "%{$searchTerm}%")
-                  ->orWhere('nobs_registration.surname', 'like', "%{$searchTerm}%")
-                  ->orWhere('nobs_registration.account_number', 'like', "%{$searchTerm}%")
-                  ->orWhere(\DB::raw("CONCAT(nobs_registration.first_name, ' ', nobs_registration.surname)"), 'like', "%{$searchTerm}%");
-            });
-        }
-
-        $loans = $query->orderBy('loan_repayment_schedules.due_date', 'asc')->paginate(20);
-
-        return response()->json([
-            'success' => true,
-            'data' => $loans
-        ], 200);
     }
 
     /**
