@@ -25,11 +25,17 @@ class LoanReportController extends Controller
         $endDate = $request->input('end_date') ? Carbon::parse($request->input('end_date'))->endOfDay() : null;
         
         $user = auth()->user();
-        $managerRoles = ['Admin', 'Manager', 'super admin', 'Owner'];
-        $isManager = $user->hasRole($managerRoles) || in_array($user->type, $managerRoles);
+        $compId = $user->comp_id;
+        
+        // Standardized manager-level role check
+        $managerRoles = ['admin', 'manager', 'super admin', 'owner'];
+        $userRoleNames = $user->roles->pluck('name')->map(function($role) { return strtolower($role); })->toArray();
+        $userType = strtolower($user->type);
+        $isManager = !empty(array_intersect($userRoleNames, $managerRoles)) || in_array($userType, $managerRoles);
 
-        // Closure for Role Filtering on LoanApplication
-        $applyLoanFilter = function($query) use ($user, $isManager) {
+        // Closure for Role and Company Filtering
+        $applyLoanFilter = function($query) use ($user, $isManager, $compId) {
+            $query->where('comp_id', $compId);
             if (!$isManager) {
                 $query->where(function($q) use ($user) {
                     $q->where('assigned_to_user_id', $user->id)
@@ -52,13 +58,9 @@ class LoanReportController extends Controller
         $totalLoansDisbursedValue = $disbursedQuery->sum('amount');
         $totalLoansDisbursedCount = $disbursedQuery->count();
 
-        // 2. Total Repayments (Cash In)
-        // Note: Filtering legacy transactions by Agent ID is difficult as it relies on 'users' string or 'agentname'.
-        // For now, we will NOT filter this legacy table strictly by ID to avoid data loss, 
-        // unless we can map 'users' column to ID. 
-        // IF we must filter, we'd need to join with users table or use 'agentname'.
-        // Let's try to filter by 'users' if it stores ID, otherwise skip for safety.
-        $repaymentsQuery = AccountsTransactions::where('is_loan', 1)
+        // 2. Total Repayments (Actual Cash Collected)
+        $repaymentsQuery = AccountsTransactions::where('comp_id', $compId)
+                                        ->where('is_loan', 1)
                                         ->where('name_of_transaction', 'Loan Repayment')
                                         ->when($startDate, function ($query) use ($startDate) {
                                             return $query->where('created_at', '>=', $startDate);
@@ -67,18 +69,15 @@ class LoanReportController extends Controller
                                             return $query->where('created_at', '<=', $endDate);
                                         });
         
-        // Attempt basic Agent filter on transactions if column exists/matches
         if (!$isManager) {
-             // Assuming 'users' column holds the ID or 'agentname' holds the name. 
-             // We will try matching 'users' to ID first.
              $repaymentsQuery->where('users', $user->id); 
         }
 
         $totalRepaid = $repaymentsQuery->sum('amount');
 
-        // Note: The legacy transaction table does not split Interest/Fees. 
-        // We approximate "Collected Interest/Fees" by looking at Schedules updated in this period.
-        $scheduleUpdatesQuery = LoanRepaymentSchedule::where('total_paid', '>', 0)
+        // 3. Interest and Fees (Collected vs Projected)
+        $scheduleUpdatesQuery = LoanRepaymentSchedule::where('comp_id', $compId)
+                                        ->where('total_paid', '>', 0)
                                         ->whereHas('application', function($q) use ($applyLoanFilter) {
                                             $applyLoanFilter($q);
                                         })
@@ -90,13 +89,26 @@ class LoanReportController extends Controller
                                         });
 
         $totalInterestCollected = $scheduleUpdatesQuery->sum('interest_paid');
+        $totalFeesCollected = $scheduleUpdatesQuery->sum('fees_paid');
+        $totalProjectedFees = $disbursedQuery->sum('total_fees');
+
+
+        // 4. Expected Today (Arrears + Today's Due)
+        $today = Carbon::today()->toDateString();
+        $expectedQuery = LoanRepaymentSchedule::where('comp_id', $compId)
+                                        ->where('status', '!=', 'paid')
+                                        ->whereDate('due_date', '<=', $today)
+                                        ->whereHas('application', function($q) use ($applyLoanFilter) {
+                                            $applyLoanFilter($q);
+                                            $q->whereIn('status', ['active', 'defaulted']);
+                                        });
         
-        // 3. Fees Profit
-        $totalFeesCollected = $disbursedQuery->sum('total_fees');
+        $totalExpectedValue = $expectedQuery->sum(DB::raw('total_due - total_paid'));
 
 
-        // 4. Outstanding (Snapshot - All Time)
-        $activeSchedules = LoanRepaymentSchedule::whereHas('application', function($query) use ($applyLoanFilter) {
+        // 5. Outstanding (Snapshot - All Time)
+        $activeSchedules = LoanRepaymentSchedule::where('comp_id', $compId)
+                                            ->whereHas('application', function($query) use ($applyLoanFilter) {
                                                 $query->whereIn('status', ['active', 'defaulted']);
                                                 $applyLoanFilter($query);
                                             })
@@ -113,25 +125,24 @@ class LoanReportController extends Controller
                                  ($activeSchedules->pending_fees ?? 0);
 
 
-        // 5. Defaulted Loans (Snapshot - All Time)
-        $defaultedLoansCount = LoanApplication::where('status', 'active')
+        // 6. Defaulted Loans (Snapshot - All Time)
+        $defaultedLoansQuery = LoanApplication::where('comp_id', $compId)
+                                                ->where('status', 'active')
                                                 ->whereHas('repaymentSchedules', function($query) {
                                                     $query->where('due_date', '<', Carbon::now())
                                                           ->where('status', 'pending');
                                                 });
-        $applyLoanFilter($defaultedLoansCount);
-        $defaultedLoansCount = $defaultedLoansCount->count();
+        $applyLoanFilter($defaultedLoansQuery);
+        $defaultedLoansCount = $defaultedLoansQuery->count();
                                                 
-        // Value of defaulted loans
-        $defaultedSchedules = LoanRepaymentSchedule::whereHas('application', function($query) use ($applyLoanFilter) {
-                                                $query->where('status', 'active')
-                                                      ->whereHas('repaymentSchedules', function($subQ) {
-                                                          $subQ->where('due_date', '<', Carbon::now())
-                                                               ->where('status', 'pending');
-                                                      });
+        // Value of defaulted loans (Arrears only)
+        $defaultedSchedules = LoanRepaymentSchedule::where('comp_id', $compId)
+                                            ->where('status', 'pending')
+                                            ->where('due_date', '<', Carbon::now())
+                                            ->whereHas('application', function($query) use ($applyLoanFilter) {
+                                                $query->where('status', 'active');
                                                 $applyLoanFilter($query);
                                             })
-                                            ->where('status', '!=', 'paid')
                                             ->select(DB::raw('
                                                 SUM(principal_due - principal_paid) as pending_principal,
                                                 SUM(interest_due - interest_paid) as pending_interest,
@@ -145,11 +156,10 @@ class LoanReportController extends Controller
 
 
         // Total Cash Available (from CompanyInfo)
-        $companyId = auth()->user()->comp_id;
-        $companyCash = CompanyInfo::where('id', $companyId)->value('amount_in_cash') ?? 0;
+        $companyCash = CompanyInfo::where('id', $compId)->value('amount_in_cash') ?? 0;
 
         // Pool Balance (Central Loan Account)
-        $poolBalance = CentralLoanAccount::sum('balance') ?? 0;
+        $poolBalance = CentralLoanAccount::where('comp_id', $compId)->sum('balance') ?? 0;
 
         return response()->json([
             'success' => true,
@@ -159,6 +169,8 @@ class LoanReportController extends Controller
                 'total_repaid_amount' => round($totalRepaid, 2),
                 'total_interest_collected' => round($totalInterestCollected, 2),
                 'total_fees_collected' => round($totalFeesCollected, 2),
+                'total_fees_projected' => round($totalProjectedFees, 2),
+                'total_expected_today' => round($totalExpectedValue, 2),
                 'total_outstanding_value' => round($calculatedOutstanding, 2),
                 'defaulted_loans_count' => $defaultedLoansCount,
                 'defaulted_loans_value' => round($calculatedDefaultedValue, 2),
