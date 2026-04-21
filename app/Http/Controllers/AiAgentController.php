@@ -22,7 +22,7 @@ class AiAgentController extends Controller
 
             $prompt = $request->input('message');
             $sessionId = $request->input('session_id');
-            $model = $request->input('model', 'gemini-1.5-flash');
+            $model = $request->input('model', 'gemini-3.1-flash');
             $requestApiKey = $request->input('api_key');
 
             if (empty($prompt)) {
