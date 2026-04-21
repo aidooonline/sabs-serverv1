@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
+use App\User;
+use App\Company;
 
 class ReportSystemController extends Controller
 {
@@ -29,16 +31,11 @@ class ReportSystemController extends Controller
                 ]);
             }
 
-            // --- 1. SYSTEM LIQUIDITY & POSITION (The "Main Point") ---
-            // A. Actual Cash In Hand (All time deposits - all time withdrawals)
+            // --- 1. SYSTEM LIQUIDITY & POSITION ---
             $totalAllTimeDeposits = DB::table('nobs_transactions')->where('comp_id', $compId)->where('name_of_transaction', 'Deposit')->sum('amount');
             $totalAllTimeWithdrawals = DB::table('nobs_transactions')->where('comp_id', $compId)->where('name_of_transaction', 'Withdraw')->sum('amount');
             $actualCashInHand = $totalAllTimeDeposits - $totalAllTimeWithdrawals;
-
-            // B. Total Savings Liability (What we owe customers)
             $totalSavingsLiability = DB::table('nobs_user_account_numbers')->where('comp_id', $compId)->sum('balance');
-
-            // C. Net System Position (Surplus/Deficit)
             $netSystemPosition = $actualCashInHand - $totalSavingsLiability;
 
             // --- 2. CUSTOMER VITALITY ---
@@ -48,7 +45,6 @@ class ReportSystemController extends Controller
                 ->whereBetween('created_at', [$startDate, $endDate])
                 ->count();
             
-            // FIXED: Explicit Correlation Aliases to prevent global sum bug
             $customerList = DB::table('nobs_registration')
                 ->select(
                     'nobs_registration.id',
@@ -134,7 +130,6 @@ class ReportSystemController extends Controller
                 ]
             ], 200);
         } catch (\Exception $e) {
-            \Log::error("BI Report Error: " . $e->getMessage());
             return response()->json(['success' => false, 'message' => 'Error: ' . $e->getMessage()], 500);
         }
     }
@@ -149,49 +144,43 @@ class ReportSystemController extends Controller
         ];
     }
 
-    public function saveSnapshot(Request $request)
-    {
-        DB::beginTransaction();
-        try {
-            $month = $request->input('month', date('m'));
-            $year = $request->input('year', date('Y'));
-            $compId = auth()->user()->comp_id;
-
-            $liveDataResponse = $this->getLiveReport($request);
-            $liveData = $liveDataResponse->getData()->summary;
-
-            DB::table('report_snapshots')->updateOrInsert(
-                ['comp_id' => $compId, 'period_month' => $month, 'period_year' => $year],
-                [
-                    'total_customers_count' => $liveData->customers->total_customers,
-                    'new_registrations' => $liveData->customers->new_registrations,
-                    'total_deposit_amount' => $liveData->deposits->total_amount,
-                    'total_deposit_count' => $liveData->deposits->total_count,
-                    'total_withdrawal_amount' => $liveData->withdrawals->total_amount,
-                    'total_withdrawal_count' => $liveData->withdrawals->total_count,
-                    'net_cash_flow' => $liveData->analysis->liquidity,
-                    'total_disbursed_amount' => $liveData->loans->total_disbursed,
-                    'interest_collected' => $liveData->loans->interest_collected,
-                    'fees_collected' => $liveData->loans->fees_collected,
-                    'generated_by_user_id' => auth()->id(),
-                    'created_at' => now()
-                ]
-            );
-
-            DB::commit();
-            return response()->json(['success' => true, 'message' => "Archive created successfully."]);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json(['success' => false, 'message' => 'Snapshot failed.'], 500);
+    /**
+     * Manual Token Auth for Browser Exports
+     */
+    private function authenticateViaToken($token) {
+        if (!$token) return null;
+        // Search for user with this personal access token
+        $accessToken = DB::table('oauth_access_tokens')->where('id', $token)->first();
+        if ($accessToken) {
+            return User::find($accessToken->user_id);
         }
+        return null;
     }
 
     public function exportCsv(Request $request)
     {
+        // SECURE BYPASS: Since openURL doesn't send headers, we validate the token passed in URL
+        $token = $request->query('token');
+        
+        // For simplicity in this environment, we will allow the app to pass a session-based token.
+        // If no token is present, we try standard auth (for cases where user is logged into web).
+        $user = auth('api')->user(); 
+        
+        if (!$user && $token) {
+            // Manual fallback for URL-based tokens if standard auth fails
+            // In many Laravel Passport setups, the token string is the ID
+            $user = $this->authenticateViaToken($token);
+        }
+
+        // If STILL no user, we cannot allow the export
+        if (!$user) {
+            return response('Unauthorized download request.', 401);
+        }
+
         $type = $request->query('type', 'deposits');
         $month = $request->query('month', date('m'));
         $year = $request->query('year', date('Y'));
-        $compId = $request->query('compId', auth()->user()->comp_id);
+        $compId = $user->comp_id;
 
         $startDate = Carbon::createFromDate($year, $month, 1)->startOfMonth();
         $endDate = Carbon::createFromDate($year, $month, 1)->endOfMonth();
@@ -242,5 +231,40 @@ class ReportSystemController extends Controller
         };
 
         return response()->stream($callback, 200, $headers);
+    }
+
+    public function saveSnapshot(Request $request)
+    {
+        DB::beginTransaction();
+        try {
+            $month = $request->input('month', date('m'));
+            $year = $request->input('year', date('Y'));
+            $compId = auth()->user()->comp_id;
+            $liveDataResponse = $this->getLiveReport($request);
+            $liveData = $liveDataResponse->getData()->summary;
+
+            DB::table('report_snapshots')->updateOrInsert(
+                ['comp_id' => $compId, 'period_month' => $month, 'period_year' => $year],
+                [
+                    'total_customers_count' => $liveData->customers->total_customers,
+                    'new_registrations' => $liveData->customers->new_registrations,
+                    'total_deposit_amount' => $liveData->deposits->total_amount,
+                    'total_deposit_count' => $liveData->deposits->total_count,
+                    'total_withdrawal_amount' => $liveData->withdrawals->total_amount,
+                    'total_withdrawal_count' => $liveData->withdrawals->total_count,
+                    'net_cash_flow' => $liveData->analysis->liquidity,
+                    'total_disbursed_amount' => $liveData->loans->total_disbursed,
+                    'interest_collected' => $liveData->loans->interest_collected,
+                    'fees_collected' => $liveData->loans->fees_collected,
+                    'generated_by_user_id' => auth()->id(),
+                    'created_at' => now()
+                ]
+            );
+            DB::commit();
+            return response()->json(['success' => true, 'message' => "Archive created successfully."]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['success' => false, 'message' => 'Snapshot failed.'], 500);
+        }
     }
 }

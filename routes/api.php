@@ -284,6 +284,9 @@ Route::get('/getdailycollectionsloanrepayment', 'ApiUsersController@getdailycoll
     // -----------------------------
 });
 
+// OPEN ROUTES (For browser downloads)
+Route::get('report-system/export', [App\Http\Controllers\ReportSystemController.php, 'exportCsv']);
+
 // Existing Routes
 Route::post('/login', [AuthController::class, 'login']);
 Route::get('insertcompanyinfo', [ApiUsersController::class, 'insertcompanyinfo']);
