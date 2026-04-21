@@ -130,7 +130,7 @@ class AiAgentController extends Controller
             // Execute Tools
             $toolResults = $this->handleToolCalls($session, $toolCalls);
             
-            // Update history for recursion
+            // Update history for next turn
             $history[] = $candidate; 
             $history[] = [
                 'role' => 'function',
@@ -180,7 +180,7 @@ class AiAgentController extends Controller
     }
 
     /**
-     * SECURE SQL TOOL: Programmatically enforces comp_id
+     * SECURE SQL TOOL
      */
     private function tool_execute_analytical_query($session, $args)
     {
@@ -195,7 +195,6 @@ class AiAgentController extends Controller
             }
         }
 
-        // Programmatic Guard: Force comp_id isolation
         $compId = $session->comp_id;
         if (strpos($lowerQuery, 'comp_id') === false) {
              if (preg_match('/where/i', $query)) {
@@ -233,6 +232,29 @@ class AiAgentController extends Controller
             ->get();
     }
 
+    /**
+     * PROCESS DEPOSIT TOOL
+     */
+    private function tool_process_deposit($session, $args)
+    {
+        $account = $args['account_number'] ?? null;
+        $amount = $args['amount'] ?? null;
+
+        if (!$account || !$amount) return "Error: Missing account or amount.";
+
+        // Instantiate existing controller to reuse complex logic
+        $apiController = new ApiUsersController();
+        $request = new Request([
+            'account_number' => $account,
+            'amount' => $amount,
+            'users' => auth('api')->id(),
+            'comp_id' => $session->comp_id,
+            'name_of_transaction' => 'Deposit'
+        ]);
+
+        return $apiController->deposittransaction($request);
+    }
+
     private function getHistory($sessionId)
     {
         $messages = DB::table('ai_messages')
@@ -249,8 +271,6 @@ class AiAgentController extends Controller
                     'parts' => [['text' => $msg->content]]
                 ];
             }
-            // Note: Tool responses require complex handling in Gemini history, 
-            // for now we focus on standard chat turns.
         }
         return $history;
     }
@@ -262,14 +282,11 @@ class AiAgentController extends Controller
                 'function_declarations' => [
                     [
                         'name' => 'execute_analytical_query',
-                        'description' => 'Executes a READ-ONLY SQL SELECT query for BI and data analysis. Results are limited to 50 rows.',
+                        'description' => 'Executes a READ-ONLY SQL SELECT query for BI and data analysis.',
                         'parameters' => [
                             'type' => 'object',
                             'properties' => [
-                                'query' => [
-                                    'type' => 'string',
-                                    'description' => 'The SQL SELECT query'
-                                ]
+                                'query' => ['type' => 'string']
                             ],
                             'required' => ['query']
                         ]
@@ -283,6 +300,18 @@ class AiAgentController extends Controller
                                 'search_term' => ['type' => 'string']
                             ],
                             'required' => ['search_term']
+                        ]
+                    ],
+                    [
+                        'name' => 'process_deposit',
+                        'description' => 'Executes a financial deposit into a customer account.',
+                        'parameters' => [
+                            'type' => 'object',
+                            'properties' => [
+                                'account_number' => ['type' => 'string'],
+                                'amount' => ['type' => 'number']
+                            ],
+                            'required' => ['account_number', 'amount']
                         ]
                     ]
                 ]
@@ -298,13 +327,14 @@ class AiAgentController extends Controller
             'system_instruction' => [
                 'parts' => [
                     'text' => "You are SABS AI Assistant. Context: Company ID is " . auth('api')->user()->comp_id . ". 
-                    Security: Only SELECT queries. Always filter by comp_id. Be helpful and professional."
+                    Security: Only SELECT queries. Always filter by comp_id. 
+                    If performing a deposit, ask for confirmation if the amount is large (> 1000)."
                 ]
             ],
             'contents' => $history,
             'tools' => $tools,
             'generationConfig' => [
-                'temperature' => 0.2,
+                'temperature' => 0.1,
                 'topP' => 0.8,
                 'topK' => 40
             ]
