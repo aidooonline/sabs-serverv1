@@ -37,29 +37,40 @@ class ReportSystemController extends Controller
                 ]);
             }
 
-            // --- 1. SYSTEM LIQUIDITY & POSITION (HISTORICAL) ---
-            // Calculate liability as of the END of the selected period
-            $totalPeriodDeposits = (float)DB::table('nobs_transactions')
+            // --- 1. SYSTEM LIQUIDITY & POSITION (WHOLE CALCULATION) ---
+            // We must account for ALL money movement:
+            // Credits: Deposit, Loan Repayment
+            // Debits: Withdraw, SMS Fee, Maintenance Fee, etc.
+            
+            $allTransactions = DB::table('nobs_transactions')
                 ->where('comp_id', $compId)
-                ->where('name_of_transaction', 'Deposit')
                 ->where('created_at', '<=', $endDate)
                 ->where('amount', '<', 1000000)
-                ->sum('amount');
+                ->get();
+            
+            $totalIn = 0;
+            $totalOut = 0;
+            
+            foreach ($allTransactions as $trx) {
+                $type = strtolower($trx->name_of_transaction);
+                $amt = (float)$trx->amount;
                 
-            $totalPeriodWithdrawals = (float)DB::table('nobs_transactions')
-                ->where('comp_id', $compId)
-                ->where('name_of_transaction', 'Withdraw')
-                ->where('created_at', '<=', $endDate)
-                ->where('amount', '<', 1000000)
-                ->sum('amount');
+                // Add to system cash if it's money coming IN to the pool
+                if ($type === 'deposit' || $type === 'loan repayment') {
+                    $totalIn += $amt;
+                } 
+                // Subtract from system cash if it's money leaving the pool
+                else if ($type === 'withdraw' || strpos($type, 'fee') !== false || strpos($type, 'charge') !== false) {
+                    $totalOut += $amt;
+                }
+            }
             
-            // Historical liability = Total Deposits - Total Withdrawals up to that date
-            $totalSavingsLiability = $totalPeriodDeposits - $totalPeriodWithdrawals;
+            $actualCashInHand = $totalIn - $totalOut;
+
+            // Historical Liability: What do we owe customers at this date?
+            // This is (All Deposits) - (All Withdrawals + All Fees/Deductions) for that period
+            $totalSavingsLiability = $actualCashInHand; // In this susu model, liability usually matches net cash pool
             
-            // Cash in hand is more of a "now" metric, but for reports we match the period
-            $actualCashInHand = $totalPeriodDeposits - $totalPeriodWithdrawals; 
-            
-            // Net System Position at that time
             $netSystemPosition = $actualCashInHand - $totalSavingsLiability;
 
             // --- 2. CUSTOMER VITALITY (HISTORICAL) ---
