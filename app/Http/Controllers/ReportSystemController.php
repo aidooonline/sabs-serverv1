@@ -37,40 +37,53 @@ class ReportSystemController extends Controller
                 ]);
             }
 
-            // --- 1. SYSTEM LIQUIDITY & POSITION (WHOLE CALCULATION) ---
-            // We must account for ALL money movement:
-            // Credits: Deposit, Loan Repayment
-            // Debits: Withdraw, SMS Fee, Maintenance Fee, etc.
-            
+            // --- 1. SYSTEM LIQUIDITY & POSITION (ACCURATE BI) ---
             $allTransactions = DB::table('nobs_transactions')
                 ->where('comp_id', $compId)
                 ->where('created_at', '<=', $endDate)
                 ->where('amount', '<', 1000000)
                 ->get();
             
-            $totalIn = 0;
-            $totalOut = 0;
+            $totalCashIn = 0;   // Physical money entering the company
+            $totalCashOut = 0;  // Physical money leaving the company
+            $totalFeesCharged = 0; // Liability reductions that stay in the pool (Revenue)
             
             foreach ($allTransactions as $trx) {
                 $type = strtolower($trx->name_of_transaction);
+                $desc = strtolower($trx->description ?? '');
                 $amt = (float)$trx->amount;
                 
-                // Add to system cash if it's money coming IN to the pool
+                // Skip reversals - they shouldn't count toward totals
+                if (strpos($type, 'reversal') !== false || strpos($desc, 'reversal') !== false) {
+                    continue; 
+                }
+
+                // CATEGORY A: Physical Cash Movement
                 if ($type === 'deposit' || $type === 'loan repayment') {
-                    $totalIn += $amt;
-                } 
-                // Subtract from system cash if it's money leaving the pool
-                else if ($type === 'withdraw' || strpos($type, 'fee') !== false || strpos($type, 'charge') !== false) {
-                    $totalOut += $amt;
+                    $totalCashIn += $amt;
+                } else if ($type === 'withdraw') {
+                    $totalCashOut += $amt;
+                }
+                
+                // CATEGORY B: Internal Deductions (Reduces what we owe, but stays in cash pool)
+                if (strpos($type, 'fee') !== false || strpos($type, 'charge') !== false || $type === 'sms' || $type === 'maintenance') {
+                    $totalFeesCharged += $amt;
                 }
             }
             
-            $actualCashInHand = $totalIn - $totalOut;
-
-            // Historical Liability: What do we owe customers at this date?
-            // This is (All Deposits) - (All Withdrawals + All Fees/Deductions) for that period
-            $totalSavingsLiability = $actualCashInHand; // In this susu model, liability usually matches net cash pool
+            // 1. Total Cash we physically have
+            $actualCashInHand = $totalCashIn - $totalCashOut;
             
+            // 2. Total we owe customers (Deposits - Withdrawals - Fees)
+            // Note: Deposits are in totalCashIn, Withdraws are in totalCashOut
+            // But we must isolate only 'Deposit' vs 'Withdraw' for the liability core
+            $onlyDeposits = 0;
+            foreach($allTransactions as $t) { if(strtolower($t->name_of_transaction) === 'deposit') $onlyDeposits += (float)$t->amount; }
+            
+            $totalSavingsLiability = $onlyDeposits - ($totalCashOut + $totalFeesCharged);
+            
+            // 3. Net System Position = Money we have - Money we owe
+            // This represents earned fees + loan interest collected
             $netSystemPosition = $actualCashInHand - $totalSavingsLiability;
 
             // --- 2. CUSTOMER VITALITY (HISTORICAL) ---
