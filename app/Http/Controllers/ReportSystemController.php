@@ -40,7 +40,14 @@ class ReportSystemController extends Controller
                              ->on('nobs_registration.comp_id', '=', 'nobs_user_account_numbers.comp_id');
                     })
                     ->select(
-                        'nobs_registration.*',
+                        'nobs_registration.id',
+                        'nobs_registration.account_number',
+                        'nobs_registration.first_name',
+                        'nobs_registration.surname',
+                        'nobs_registration.phone_number',
+                        'nobs_registration.gender',
+                        'nobs_registration.user',
+                        'nobs_registration.created_at',
                         DB::raw('IFNULL(nobs_user_account_numbers.balance, 0) as savings_total'),
                         DB::raw('(SELECT IFNULL(SUM(amount - amount_paid), 0) FROM loan_applications WHERE customer_id = nobs_registration.id AND status = "active") as debt_total')
                     )
