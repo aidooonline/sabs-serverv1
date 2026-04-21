@@ -109,8 +109,8 @@ class ReportSystemController extends Controller
                 ->where('name_of_transaction', 'Withdraw')
                 ->whereBetween('created_at', [$startDate, $endDate]);
 
-            $totalDepositAmt = $depositsQuery->sum('amount');
-            $totalWithdrawAmt = $withdrawalsQuery->sum('amount');
+            $totalDepositAmt = (float)(clone $depositsQuery)->sum('amount');
+            $totalWithdrawAmt = (float)(clone $withdrawalsQuery)->sum('amount');
 
             // --- 4. LOAN PORTFOLIO ---
             $loansQuery = DB::table('loan_applications')
@@ -125,7 +125,7 @@ class ReportSystemController extends Controller
                 ->where('loan_applications.comp_id', $compId)
                 ->whereBetween('loan_applications.created_at', [$startDate, $endDate]);
 
-            $totalDisbursed = DB::table('loan_applications')
+            $totalDisbursed = (float)DB::table('loan_applications')
                 ->where('comp_id', $compId)
                 ->whereBetween('created_at', [$startDate, $endDate])
                 ->sum('amount');
@@ -151,12 +151,12 @@ class ReportSystemController extends Controller
                     ],
                     'deposits' => [
                         'total_amount' => round($totalDepositAmt, 2),
-                        'total_count' => $depositsQuery->count(),
+                        'total_count' => (clone $depositsQuery)->count(),
                         'list' => $depositsQuery->orderBy('created_at', 'DESC')->limit(50)->get()
                     ],
                     'withdrawals' => [
                         'total_amount' => round($totalWithdrawAmt, 2),
-                        'total_count' => $withdrawalsQuery->count(),
+                        'total_count' => (clone $withdrawalsQuery)->count(),
                         'list' => $withdrawalsQuery->orderBy('created_at', 'DESC')->limit(50)->get()
                     ],
                     'loans' => [
