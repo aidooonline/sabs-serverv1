@@ -37,53 +37,35 @@ class ReportSystemController extends Controller
                 ]);
             }
 
-            // --- 1. SYSTEM LIQUIDITY & POSITION (ACCURATE BI) ---
-            $allTransactions = DB::table('nobs_transactions')
+            // --- 1. SYSTEM LIQUIDITY & POSITION (OPTIMIZED DB AGGREGATION) ---
+            $baseQuery = DB::table('nobs_transactions')
                 ->where('comp_id', $compId)
                 ->where('created_at', '<=', $endDate)
                 ->where('amount', '<', 1000000)
-                ->get();
-            
-            $totalCashIn = 0;   // Physical money entering the company
-            $totalCashOut = 0;  // Physical money leaving the company
-            $totalFeesCharged = 0; // Liability reductions that stay in the pool (Revenue)
-            
-            foreach ($allTransactions as $trx) {
-                $type = strtolower($trx->name_of_transaction);
-                $desc = strtolower($trx->description ?? '');
-                $amt = (float)$trx->amount;
-                
-                // Skip reversals - they shouldn't count toward totals
-                if (strpos($type, 'reversal') !== false || strpos($desc, 'reversal') !== false) {
-                    continue; 
-                }
+                // Always ignore reversals in all-time totals
+                ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
+                ->where('description', 'NOT LIKE', '%reversal%');
 
-                // CATEGORY A: Physical Cash Movement
-                if ($type === 'deposit' || $type === 'loan repayment') {
-                    $totalCashIn += $amt;
-                } else if ($type === 'withdraw') {
-                    $totalCashOut += $amt;
-                }
-                
-                // CATEGORY B: Internal Deductions (Reduces what we owe, but stays in cash pool)
-                if (strpos($type, 'fee') !== false || strpos($type, 'charge') !== false || $type === 'sms' || $type === 'maintenance') {
-                    $totalFeesCharged += $amt;
-                }
-            }
+            $totalPoolDeposits = (float)(clone $baseQuery)->where('name_of_transaction', 'Deposit')->sum('amount');
+            $totalPoolWithdrawals = (float)(clone $baseQuery)->where('name_of_transaction', 'Withdraw')->sum('amount');
+            $totalLoanRepayments = (float)(clone $baseQuery)->where('name_of_transaction', 'Loan Repayment')->sum('amount');
             
-            // 1. Total Cash we physically have
-            $actualCashInHand = $totalCashIn - $totalCashOut;
+            // Sum all internal fees/charges
+            $totalFeesCharged = (float)(clone $baseQuery)->where(function($q) {
+                $q->where('name_of_transaction', 'LIKE', '%fee%')
+                  ->orWhere('name_of_transaction', 'LIKE', '%charge%')
+                  ->orWhere('name_of_transaction', 'sms')
+                  ->orWhere('name_of_transaction', 'maintenance');
+            })->sum('amount');
             
-            // 2. Total we owe customers (Deposits - Withdrawals - Fees)
-            // Note: Deposits are in totalCashIn, Withdraws are in totalCashOut
-            // But we must isolate only 'Deposit' vs 'Withdraw' for the liability core
-            $onlyDeposits = 0;
-            foreach($allTransactions as $t) { if(strtolower($t->name_of_transaction) === 'deposit') $onlyDeposits += (float)$t->amount; }
+            // 1. Physical Cash Pool = (Deposits + Repayments) - Withdrawals
+            $actualCashInHand = ($totalPoolDeposits + $totalLoanRepayments) - $totalPoolWithdrawals;
             
-            $totalSavingsLiability = $onlyDeposits - ($totalCashOut + $totalFeesCharged);
+            // 2. Savings Liability = Deposits - (Withdrawals + Fees/Charges)
+            $totalSavingsLiability = $totalPoolDeposits - ($totalPoolWithdrawals + $totalFeesCharged);
             
-            // 3. Net System Position = Money we have - Money we owe
-            // This represents earned fees + loan interest collected
+            // 3. Net System Position = Money on Hand - Money Owed
+            // (Essentially: Repayments + Fees)
             $netSystemPosition = $actualCashInHand - $totalSavingsLiability;
 
             // --- 2. CUSTOMER VITALITY (HISTORICAL) ---
