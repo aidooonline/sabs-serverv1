@@ -1874,164 +1874,148 @@ class ApiUsersController extends Controller
     }
 
 
+    /**
+     * Unified Balance Calculation Engine
+     * Handles ALL transaction types to prevent balance drift
+     */
+    private function calculateAccountBalance($accountNumber, $compId)
+    {
+        $totals = AccountsTransactions::selectRaw("
+            SUM(CASE WHEN name_of_transaction IN ('Deposit', 'Loan Repayment', 'Refund') THEN amount ELSE 0 END) as credits,
+            SUM(CASE WHEN name_of_transaction IN ('Withdraw', 'Commission', 'Maintenance Fee', 'SMS Fee', 'Charge', 'Susu Commission') THEN amount ELSE 0 END) as debits
+        ")
+        ->where('account_number', $accountNumber)
+        ->where('comp_id', $compId)
+        ->where('row_version', 2)
+        ->first();
+
+        return round(($totals->credits ?? 0) - ($totals->debits ?? 0), 3);
+    }
+
     public function monthlydeductions(Request $request)
     {
-        // 1. Dynamic Company ID
-        $compId = \Auth::user()->comp_id;
-        $companyInfo = CompanyInfo::find($compId);
-
-        if (!$companyInfo) {
-            return response()->json(['error' => 'Company info not found'], 404);
-        }
-
-        // 2. Dynamic Parameters
-        // Amount: Use request value if present and numeric. Default to 10.00 only if MISSING.
-        $requestAmount = $request->input('amount');
-        if (is_numeric($requestAmount)) {
-            $commissionValue = (float)$requestAmount;
-        } else {
-            $commissionValue = 10.00;
-        }
-
-        // SMS Toggle: Check if frontend explicitly enabled/disabled it
-        // If 'send_sms' is 'false' or '0', we disable it for this run.
-        // Default to TRUE if not specified, but still subject to company credits/active status.
-        $requestSms = $request->input('send_sms');
-        $runSms = ($requestSms === 'false' || $requestSms === '0') ? false : true;
-
-        // SMS Credentials
-        $smsUsername = $companyInfo->sms_username;
-        $smsPassword = $companyInfo->sms_password;
-        $smsSenderId = $companyInfo->sms_sender_id;
-        
-        // Final SMS Check: Run allowed AND Company Active AND Company has Credit
-        $isSmsEnabled = $runSms && $companyInfo->sms_active && $companyInfo->sms_credit > 0;
-
-        $mydatey = date("Y-m-d H:i:s");
-        $currentMonth = date('m');
-        $currentYear = date('Y');
-
-        // Paginate accounts for processing (5 at a time)
-        // Filter: Specific Susu account types for THIS company
-        $accountnumbers = UserAccountNumbers::whereIn('account_type', [
-            'Susu Plus', 'Susu Business 1', 'Susu plus 2', 'Susu Business 3', 
-            'Susu Plus 3', 'Susu Business 2', 'Susu Account'
-        ])
-        ->where('comp_id', $compId)
-        ->paginate(5);
-
-        $processedAccounts = [];
-
-        foreach ($accountnumbers as $thisaccountnumber) {
-            $theaccount_number = $thisaccountnumber->account_number;
-
-            // Fetch User Details FIRST so we have them for logs even if skipped
-            $mainaccountnumber = $thisaccountnumber->primary_account_number;
-            $useraccount = Accounts::where('account_number', $mainaccountnumber)
-                ->where('comp_id', $compId)
-                ->first();
-
-            $customername = "Unknown Customer";
-            $phonenumber = "";
-
-            if ($useraccount) {
-                $customername = $useraccount->first_name . ' ' . $useraccount->middle_name . ' ' . $useraccount->surname;
-                $phonenumber = $useraccount->phone_number;
-            }
+        try {
+            // 1. Dynamic Company ID
+            $user = \Auth::user();
+            if (!$user) return response()->json(['error' => 'Unauthorized'], 401);
             
-            // Attach name to response object immediately
-            $thisaccountnumber->customer_name = $customername;
-            
-            // 3. Balance Check: Skip if balance < 1.00 (Only if we are actually deducting money)
-            if ($thisaccountnumber->balance < 1.00) {
-                $thisaccountnumber->status = 'skipped_low_balance';
-                $processedAccounts[] = $thisaccountnumber;
-                continue;
+            $compId = $user->comp_id;
+            $companyInfo = CompanyInfo::find($compId);
+
+            if (!$companyInfo) {
+                return response()->json(['error' => 'Company info not found'], 404);
             }
 
-            // 4. Duplicate Check: Has commission been charged this month?
-            // CHANGE: Only count transactions where amount > 0. 
-            $alreadyCharged = AccountsTransactions::where('account_number', $theaccount_number)
-                ->where('comp_id', $compId)
-                ->where('name_of_transaction', 'Commission') 
-                ->whereYear('created_at', $currentYear)
-                ->whereMonth('created_at', $currentMonth)
-                ->where('amount', '>', 0) // Only block if a REAL deduction happened
-                ->exists();
+            // 2. Parameters
+            $requestAmount = $request->input('amount');
+            $commissionValue = is_numeric($requestAmount) ? (float)$requestAmount : 10.00;
 
-            if ($commissionValue > 0 && $alreadyCharged) {
-                $thisaccountnumber->status = 'skipped_already_charged';
-                $processedAccounts[] = $thisaccountnumber;
-                continue;
-            }
+            $requestSms = $request->input('send_sms');
+            // Explicit check for 'false' string or boolean false
+            $runSms = ($requestSms === 'false' || $requestSms === false || $requestSms === '0') ? false : true;
 
-            // Create Transaction
-            $randomCode = \Str::random(8);
-            $myid = \Str::random(30);
+            $isSmsEnabled = $runSms && $companyInfo->sms_active && $companyInfo->sms_credit > 0;
 
-            $transaction = new AccountsTransactions();
-            $transaction->__id__ = $myid;
-            $transaction->account_number = $theaccount_number;
-            $transaction->account_type = $thisaccountnumber->account_type;
-            $transaction->created_at = $mydatey;
-            $transaction->transaction_id = $randomCode;
-            $transaction->phone_number = $phonenumber;
-            $transaction->det_rep_name_of_transaction = $customername;
-            $transaction->amount = $commissionValue;
-            $transaction->name_of_transaction = 'Commission';
-            $transaction->users = \Auth::user()->created_by_user ?? 'System';
-            $transaction->is_shown = 1;
-            $transaction->is_loan = 0;
-            $transaction->row_version = 2;
-            $transaction->description = "Monthly Commission";
-            $transaction->comp_id = $compId;
+            $mydatey = date("Y-m-d H:i:s");
+            $currentMonth = date('m');
+            $currentYear = date('Y');
 
-            $transactionsaved = $transaction->save();
-            $insertedId = $transaction->id;
+            // Process 10 at a time for better performance while staying safe
+            $accountnumbers = UserAccountNumbers::whereIn('account_type', [
+                'Susu Plus', 'Susu Business 1', 'Susu plus 2', 'Susu Business 3', 
+                'Susu Plus 3', 'Susu Business 2', 'Susu Account'
+            ])
+            ->where('comp_id', $compId)
+            ->where('account_status', 'active')
+            ->paginate(10);
 
-            if ($transactionsaved) {
-                // Update Balance
-                $currentbalance = $this->getaccountbalance2($theaccount_number);
-                
-                // Update UserAccountNumbers
-                UserAccountNumbers::where('account_number', $theaccount_number)
+            $processedAccounts = [];
+
+            foreach ($accountnumbers as $thisaccountnumber) {
+                $theaccount_number = $thisaccountnumber->account_number;
+
+                // Basic Check: Already charged this month?
+                $alreadyCharged = AccountsTransactions::where('account_number', $theaccount_number)
                     ->where('comp_id', $compId)
-                    ->update(['balance' => $currentbalance]);
+                    ->where('name_of_transaction', 'Commission') 
+                    ->whereYear('created_at', $currentYear)
+                    ->whereMonth('created_at', $currentMonth)
+                    ->where('amount', '>', 0)
+                    ->exists();
 
-                // Update Transaction Balance Record
-                AccountsTransactions::where('id', $insertedId)
-                    ->update(['balance' => $currentbalance]);
+                if ($alreadyCharged) {
+                    $thisaccountnumber->status = 'skipped_already_charged';
+                    $processedAccounts[] = $thisaccountnumber;
+                    continue;
+                }
 
-                $thisaccountnumber->balance = $currentbalance;
-                $thisaccountnumber->status = 'processed_success';
+                // Balance Check: Skip if empty
+                if ($thisaccountnumber->balance < 1.00) {
+                    $thisaccountnumber->status = 'skipped_low_balance';
+                    $processedAccounts[] = $thisaccountnumber;
+                    continue;
+                }
 
-                // Send SMS Notification
-                if ($isSmsEnabled && $smsUsername && $smsPassword) {
-                    $themessage = 'Monthly Commission of GHS ' . $commissionValue . 
-                                  ' charged on account: ' . $theaccount_number . 
-                                  ', ' . $customername . 
-                                  ', Balance: GHS ' . $currentbalance;
+                // PERFORM DEDUCTION
+                DB::beginTransaction();
+                try {
+                    $transaction = new AccountsTransactions();
+                    $transaction->__id__ = \Str::random(30);
+                    $transaction->account_number = $theaccount_number;
+                    $transaction->account_type = $thisaccountnumber->account_type;
+                    $transaction->created_at = $mydatey;
+                    $transaction->transaction_id = \Str::random(8);
+                    $transaction->name_of_transaction = 'Commission';
+                    $transaction->amount = $commissionValue;
+                    $transaction->description = "Monthly Commission Deduction";
+                    $transaction->comp_id = $compId;
+                    $transaction->row_version = 2;
+                    $transaction->is_shown = 1;
+                    $transaction->users = $user->name ?? 'System';
+                    $transaction->save();
 
-                    // Deduct SMS Credit
-                    $credittrans = $this->company_sms_transaction('sub', 1);
+                    // Update actual balance based on full history
+                    $newBalance = $this->calculateAccountBalance($theaccount_number, $compId);
                     
-                    if ($credittrans) {
+                    UserAccountNumbers::where('account_number', $theaccount_number)
+                        ->where('comp_id', $compId)
+                        ->update(['balance' => $newBalance]);
+
+                    DB::commit();
+
+                    $thisaccountnumber->balance = $newBalance;
+                    $thisaccountnumber->status = 'processed_success';
+
+                    // SMS Notification (Only if enabled and transaction committed)
+                    if ($isSmsEnabled) {
                         try {
-                            $this->sendFrogMessage($smsUsername, $smsPassword, $smsSenderId, $themessage, $phonenumber);
-                        } catch (\Throwable $th) {
-                            \Log::error("SMS Failed for account $theaccount_number: " . $th->getMessage());
+                            $themessage = "Monthly Commission of GHS $commissionValue charged. New Balance: GHS $newBalance. Thank you.";
+                            $this->company_sms_transaction('sub', 1);
+                            $this->sendFrogMessage($companyInfo->sms_username, $companyInfo->sms_password, $companyInfo->sms_sender_id, $themessage, $thisaccountnumber->phone_number);
+                        } catch (\Exception $smsErr) {
+                            // SMS failure doesn't roll back the deduction
                         }
                     }
+
+                } catch (\Throwable $innerE) {
+                    DB::rollBack();
+                    $thisaccountnumber->status = 'error';
+                    $thisaccountnumber->error_details = $innerE->getMessage();
                 }
-            } else {
-                $thisaccountnumber->status = 'failed_transaction_save';
+
+                $processedAccounts[] = $thisaccountnumber;
             }
 
-            $processedAccounts[] = $thisaccountnumber;
-            // usleep(200000); 
-        }
+            return response()->json(['accountnumbers' => $processedAccounts]);
 
-        return response()->json(['accountnumbers' => $processedAccounts]);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false, 
+                'message' => 'Critical Error: ' . $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
+            ], 200); // Return 200 to allow Axios to read the error
+        }
     }
 
     public function paywithdrawalcustomer(Request $request)
