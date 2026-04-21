@@ -132,7 +132,6 @@ Route::middleware(['auth:api'])->group(function () {
     Route::get('getloanrequests', [ApiUsersController::class, 'getloanrequests']);
     Route::get('getdashboardlistalltime', [ApiUsersController::class, 'getdashboardlistalltime']);
 
-
     Route::get('withdrawalrequests', [ApiUsersController::class, 'withdrawalrequests']);
     Route::get('approve_withdrawal_request', [ApiUsersController::class, 'approve_withdrawal_request']);
     Route::get('withdrawtransaction', [ApiUsersController::class, 'withdrawtransaction']);
@@ -199,33 +198,13 @@ Route::middleware(['auth:api'])->group(function () {
     Route::get('gen_systemreports', [ApiUsersController::class, 'gen_systemreports']);
 
     // --- ADVANCED REPORT SYSTEM (INTERNAL) ---
-    Route::get('report-system/live', 'App\Http\Controllers\ReportSystemController@getLiveReport');
-    Route::post('report-system/snapshot', 'App\Http\Controllers\ReportSystemController@saveSnapshot');
+    Route::get('report-system/live', 'ReportSystemController@getLiveReport');
+    Route::post('report-system/snapshot', 'ReportSystemController@saveSnapshot');
 
-    // --- ADMIN USER & ROLE MANAGEMENT ---
-    Route::group(['prefix' => 'admin', 'namespace' => 'Admin'], function () {
-        Route::get('users', [App\Http\Controllers\Admin\UserManagementController::class, 'index']);
-        Route::post('users', [App\Http\Controllers\Admin\UserManagementController::class, 'store']);
-        Route::get('users/{id}', [App\Http\Controllers\Admin\UserManagementController::class, 'show']);
-        Route::put('users/{id}', [App\Http\Controllers\Admin\UserManagementController::class, 'update']);
-        Route::post('users/{id}/toggle-status', [App\Http\Controllers\Admin\UserManagementController::class, 'toggleStatus']);
-
-        Route::get('roles', [App\Http\Controllers\Admin\RoleManagementController::class, 'index']);
-        Route::get('permissions', [App\Http\Controllers\Admin\RoleManagementController::class, 'getAllPermissions']);
-        Route::put('roles/{id}', [App\Http\Controllers\Admin\RoleManagementController::class, 'updatePermissions']);
-    });
-
-    // --- SCHEDULER (SOFT CRON) ---
-    Route::group(['prefix' => 'scheduler'], function () {
-        Route::post('setup', [App\Http\Controllers\SchedulerController::class, 'setup']);
-        Route::get('status', [App\Http\Controllers\SchedulerController::class, 'status']);
-        Route::post('trigger', [App\Http\Controllers\SchedulerController::class, 'trigger']);
-        Route::post('settings', [App\Http\Controllers\SchedulerController::class, 'updateSettings']);
-    });
 });
 
 // OPEN ROUTES (For browser downloads)
-Route::get('report-system/export', 'App\Http\Controllers\ReportSystemController@exportCsv');
+Route::get('report-system/export', 'ReportSystemController@exportCsv');
 
 // Public
 Route::post('/login', [AuthController::class, 'login']);
