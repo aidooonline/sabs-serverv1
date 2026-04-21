@@ -34,26 +34,25 @@ class AiAgentController extends Controller
                 return response()->json(['success' => false, 'message' => 'AI API Key is missing. Please check your AI Settings.'], 400);
             }
 
-            // 1. Get or Create Session
             $session = $this->getOrCreateSession($user, $sessionId, $model);
-
-            // 2. Persist User Message
             $this->storeMessage($session->id, 'user', $prompt);
 
-            // 3. Process with Gemini (Multi-turn loop)
-            $response = $this->processWithGemini($session, $prompt, $model, $apiKey);
+            // Process with Gemini and get enriched result
+            $result = $this->processWithGemini($session, $prompt, $model, $apiKey);
 
             return response()->json([
                 'success' => true,
                 'session_id' => $session->id,
-                'response' => $response
+                'response' => $result['response'],
+                'ui_type' => $result['ui_type'],
+                'ui_metadata' => $result['ui_metadata']
             ]);
 
         } catch (\Throwable $e) {
             Log::error("AI Chat Error: " . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'message' => 'AI Error: ' . $e->getMessage(), // Temporarily expose actual error
+                'message' => 'AI Error: ' . $e->getMessage(),
                 'trace' => env('APP_DEBUG') ? $e->getTraceAsString() : null
             ], 500);
         }
@@ -104,6 +103,8 @@ class AiAgentController extends Controller
         $maxTurns = 3;
         $currentTurn = 0;
         $lastResponse = null;
+        $lastToolOutput = null;
+        $activeUiType = 'text';
 
         while ($currentTurn < $maxTurns) {
             $response = $this->callGeminiApi($model, $apiKey, $history, $tools);
@@ -112,7 +113,6 @@ class AiAgentController extends Controller
 
             if (!$candidate) break;
 
-            // Check for Function Calls
             $toolCalls = [];
             foreach ($candidate['parts'] as $part) {
                 if (isset($part['functionCall'])) {
@@ -122,15 +122,17 @@ class AiAgentController extends Controller
 
             if (empty($toolCalls)) {
                 if (isset($candidate['parts'][0]['text'])) {
-                    $this->storeMessage($session->id, 'model', $candidate['parts'][0]['text']);
+                    $this->storeMessage($session->id, 'model', $candidate['parts'][0]['text'], null, $activeUiType, $lastToolOutput);
                 }
                 break;
             }
 
-            // Execute Tools
-            $toolResults = $this->handleToolCalls($session, $toolCalls);
+            // Execute Tools and detect UI type
+            $execution = $this->handleToolCalls($session, $toolCalls);
+            $toolResults = $execution['results'];
+            $lastToolOutput = $execution['raw_data'];
+            $activeUiType = $execution['ui_type'];
             
-            // Update history for next turn
             $history[] = $candidate; 
             $history[] = [
                 'role' => 'function',
@@ -140,19 +142,33 @@ class AiAgentController extends Controller
             $currentTurn++;
         }
 
-        return $lastResponse;
+        return [
+            'response' => $lastResponse,
+            'ui_type' => $activeUiType,
+            'ui_metadata' => $lastToolOutput
+        ];
     }
 
     private function handleToolCalls($session, $toolCalls)
     {
         $results = [];
+        $rawData = null;
+        $uiType = 'text';
+
         foreach ($toolCalls as $call) {
             $func = $call['functionCall'];
             $methodName = 'tool_' . $func['name'];
             
+            // Map tool names to UI types
+            if ($func['name'] === 'execute_analytical_query') $uiType = 'data_table';
+            if ($func['name'] === 'search_customer') $uiType = 'customer_card';
+            if ($func['name'] === 'process_deposit') $uiType = 'action_result';
+
             try {
                 if (method_exists($this, $methodName)) {
                     $output = $this->$methodName($session, $func['args'] ?? []);
+                    $rawData = $output; // Capture raw data for metadata
+                    
                     $results[] = [
                         'functionResponse' => [
                             'name' => $func['name'],
@@ -176,7 +192,7 @@ class AiAgentController extends Controller
                 ];
             }
         }
-        return $results;
+        return ['results' => $results, 'raw_data' => $rawData, 'ui_type' => $uiType];
     }
 
     /**
@@ -205,16 +221,12 @@ class AiAgentController extends Controller
         }
 
         try {
-            $results = DB::connection('mysql_readonly')->select($query);
-            return array_slice($results, 0, 50);
+            return DB::connection('mysql_readonly')->select($query);
         } catch (\Throwable $e) {
             return "SQL Error: " . $e->getMessage();
         }
     }
 
-    /**
-     * SEARCH CUSTOMER TOOL
-     */
     private function tool_search_customer($session, $args)
     {
         $term = $args['search_term'] ?? null;
@@ -228,21 +240,16 @@ class AiAgentController extends Controller
                   ->orWhere('phone_number', 'LIKE', "%$term%")
                   ->orWhere('account_number', 'LIKE', "%$term%");
             })
-            ->limit(10)
+            ->limit(5)
             ->get();
     }
 
-    /**
-     * PROCESS DEPOSIT TOOL
-     */
     private function tool_process_deposit($session, $args)
     {
         $account = $args['account_number'] ?? null;
         $amount = $args['amount'] ?? null;
-
         if (!$account || !$amount) return "Error: Missing account or amount.";
 
-        // Instantiate existing controller to reuse complex logic
         $apiController = new ApiUsersController();
         $request = new Request([
             'account_number' => $account,
@@ -252,7 +259,12 @@ class AiAgentController extends Controller
             'name_of_transaction' => 'Deposit'
         ]);
 
-        return $apiController->deposittransaction($request);
+        $res = $apiController->deposittransaction($request);
+        return [
+            'status' => $res == 200 ? 'success' : 'failed',
+            'message' => $res == 200 ? 'Deposit successful' : 'Transaction failed with code ' . $res,
+            'details' => ['account' => $account, 'amount' => $amount]
+        ];
     }
 
     private function getHistory($sessionId)
@@ -327,8 +339,9 @@ class AiAgentController extends Controller
             'system_instruction' => [
                 'parts' => [
                     'text' => "You are SABS AI Assistant. Context: Company ID is " . auth('api')->user()->comp_id . ". 
-                    Security: Only SELECT queries. Always filter by comp_id. 
-                    If performing a deposit, ask for confirmation if the amount is large (> 1000)."
+                    Security: Only SELECT queries. Always filter by comp_id.
+                    Tone: Professional but friendly. 
+                    Rule: When a tool returns data, acknowledge it briefly and tell the user you are showing the results below."
                 ]
             ],
             'contents' => $history,
@@ -341,11 +354,9 @@ class AiAgentController extends Controller
         ];
 
         $response = Http::withHeaders(['Content-Type' => 'application/json'])->post($url, $payload);
-
         if ($response->failed()) {
             throw new \Exception("Gemini API Error: " . ($response->json()['error']['message'] ?? $response->body()));
         }
-
         return $response->json();
     }
 }
