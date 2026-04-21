@@ -8,6 +8,11 @@ use Carbon\Carbon;
 
 class ReportSystemController extends Controller
 {
+    /**
+     * Advanced Live Report: High-Performance BI Engine
+     * Scalability: Uses indexed subqueries to prevent N+1 performance bottlenecks.
+     * Security: Strict comp_id scoping on every data point to prevent leakage.
+     */
     public function getLiveReport(Request $request)
     {
         try {
@@ -18,37 +23,34 @@ class ReportSystemController extends Controller
             $startDate = Carbon::createFromDate($year, $month, 1)->startOfMonth();
             $endDate = Carbon::createFromDate($year, $month, 1)->endOfMonth();
 
-            // --- 1. CUSTOMER VITALITY ---
+            // --- 1. CUSTOMER VITALITY (High-Performance Single Query) ---
             $totalCustomers = DB::table('nobs_registration')->where('comp_id', $compId)->count();
             $newRegs = DB::table('nobs_registration')
                 ->where('comp_id', $compId)
                 ->whereBetween('created_at', [$startDate, $endDate])
                 ->count();
             
+            // Scalable Select: The DB handles the math for 50 records in microseconds
             $customerList = DB::table('nobs_registration')
-                ->where('comp_id', $compId)
-                ->whereBetween('created_at', [$startDate, $endDate])
-                ->orderBy('created_at', 'DESC')
+                ->select(
+                    'nobs_registration.id',
+                    'nobs_registration.account_number',
+                    'nobs_registration.first_name',
+                    'nobs_registration.surname',
+                    'nobs_registration.phone_number',
+                    'nobs_registration.gender',
+                    'nobs_registration.user',
+                    'nobs_registration.created_at',
+                    // Scalar subqueries are optimized by MySQL for small result sets (limit 50)
+                    DB::raw("(SELECT COALESCE(balance, 0) FROM nobs_user_account_numbers WHERE account_number = nobs_registration.account_number AND comp_id = $compId LIMIT 1) as savings_total"),
+                    DB::raw("(SELECT COALESCE(SUM(amount), 0) FROM loan_applications WHERE customer_id = nobs_registration.id AND comp_id = $compId AND status = 'active') as debt_total")
+                )
+                ->where('nobs_registration.comp_id', $compId)
+                ->whereBetween('nobs_registration.created_at', [$startDate, $endDate])
+                ->orderBy('nobs_registration.created_at', 'DESC')
                 ->limit(50)->get();
 
-            // Safe Mapping for Business Value (Avoids SQL Join / Missing Column Errors)
-            foreach ($customerList as $customer) {
-                // Safely fetch savings
-                $savings = DB::table('nobs_user_account_numbers')
-                    ->where('comp_id', $compId)
-                    ->where('account_number', $customer->account_number)
-                    ->first();
-                $customer->savings_total = $savings ? round($savings->balance, 2) : 0;
-
-                // Safely fetch debt (using 'amount' from loan_applications, since 'amount_paid' is not a column)
-                $customer->debt_total = round(DB::table('loan_applications')
-                    ->where('comp_id', $compId)
-                    ->where('customer_id', $customer->id)
-                    ->where('status', 'active')
-                    ->sum('amount'), 2);
-            }
-
-            // --- 2. CASH FLOW (Deposits & Withdrawals) ---
+            // --- 2. CASH FLOW (Aggregated for Speed) ---
             $depositsQuery = DB::table('nobs_transactions')
                 ->where('comp_id', $compId)
                 ->where('name_of_transaction', 'Deposit')
@@ -62,7 +64,7 @@ class ReportSystemController extends Controller
             $totalDepositAmt = $depositsQuery->sum('amount');
             $totalWithdrawAmt = $withdrawalsQuery->sum('amount');
 
-            // --- 3. LOAN PORTFOLIO HEALTH ---
+            // --- 3. LOAN PORTFOLIO (Aggregated for Speed) ---
             $loansQuery = DB::table('loan_applications')
                 ->where('comp_id', $compId)
                 ->whereBetween('created_at', [$startDate, $endDate]);
@@ -78,10 +80,7 @@ class ReportSystemController extends Controller
                 ->sum('fees_paid');
 
             $totalDisbursed = $loansQuery->sum('amount');
-            $ldRatio = 0;
-            if ($totalDepositAmt > 0) {
-                $ldRatio = round(($totalDisbursed / $totalDepositAmt) * 100, 2);
-            }
+            $ldRatio = ($totalDepositAmt > 0) ? round(($totalDisbursed / $totalDepositAmt) * 100, 2) : 0;
 
             return response()->json([
                 'success' => true,
@@ -114,7 +113,9 @@ class ReportSystemController extends Controller
                 ]
             ], 200);
         } catch (\Exception $e) {
-            return response()->json(['success' => false, 'message' => 'Final Logic Error: ' . $e->getMessage()], 500);
+            // Log for admin debugging, return clean error to user
+            \Log::error("BI Report Error: " . $e->getMessage());
+            return response()->json(['success' => false, 'message' => 'System error generating business insights.'], 500);
         }
     }
 
@@ -148,15 +149,16 @@ class ReportSystemController extends Controller
             );
 
             DB::commit();
-            return response()->json(['success' => true, 'message' => "Snapshot for $month/$year saved successfully."]);
+            return response()->json(['success' => true, 'message' => "Archive for $month/$year created successfully."]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['success' => false, 'message' => 'Snapshot Failed: ' . $e->getMessage()], 500);
+            return response()->json(['success' => false, 'message' => 'Snapshot failed.'], 500);
         }
     }
 
     public function exportCsv(Request $request)
     {
+        // Safe streaming export for memory efficiency
         $type = $request->query('type', 'deposits');
         $month = $request->query('month', date('m'));
         $year = $request->query('year', date('Y'));
@@ -167,18 +169,17 @@ class ReportSystemController extends Controller
 
         $fileName = "SABS_{$type}_Report_{$month}_{$year}.csv";
         
-        $headers = array(
-            "Content-type"        => "text/csv",
+        $headers = [
+            "Content-type" => "text/csv",
             "Content-Disposition" => "attachment; filename=$fileName",
-            "Pragma"              => "no-cache",
-            "Cache-Control"       => "must-revalidate, post-check=0, pre-check=0",
-            "Expires"             => "0"
-        );
+            "Pragma" => "no-cache",
+            "Cache-Control" => "must-revalidate, post-check=0, pre-check=0",
+            "Expires" => "0"
+        ];
 
-        $columns = ['Date', 'Account', 'Name', 'Amount', 'Type', 'Agent'];
-        if ($type === 'customers') {
-            $columns = ['Reg Date', 'Account', 'Name', 'Phone', 'Gender', 'Agent'];
-        }
+        $columns = ($type === 'customers') 
+            ? ['Reg Date', 'Account', 'Name', 'Phone', 'Gender', 'Agent']
+            : ['Date', 'Account', 'Name', 'Amount', 'Type', 'Agent'];
 
         $callback = function() use($type, $compId, $startDate, $endDate, $columns) {
             $file = fopen('php://output', 'w');
@@ -186,25 +187,27 @@ class ReportSystemController extends Controller
 
             if ($type === 'deposits' || $type === 'withdrawals') {
                 $transType = ($type === 'deposits') ? 'Deposit' : 'Withdraw';
-                $data = DB::table('nobs_transactions')
+                DB::table('nobs_transactions')
                     ->where('comp_id', $compId)
                     ->where('name_of_transaction', $transType)
                     ->whereBetween('created_at', [$startDate, $endDate])
-                    ->cursor();
-
-                foreach ($data as $row) {
-                    fputcsv($file, [$row->created_at, $row->account_number, $row->det_rep_name_of_transaction, $row->amount, $row->name_of_transaction, $row->agentname]);
-                }
+                    ->orderBy('created_at', 'ASC')
+                    ->chunk(500, function($rows) use($file) {
+                        foreach ($rows as $row) {
+                            fputcsv($file, [$row->created_at, $row->account_number, $row->det_rep_name_of_transaction, $row->amount, $row->name_of_transaction, $row->agentname]);
+                        }
+                    });
             } elseif ($type === 'customers') {
-                $data = DB::table('nobs_registration')
+                DB::table('nobs_registration')
                     ->where('comp_id', $compId)
                     ->whereBetween('created_at', [$startDate, $endDate])
-                    ->cursor();
-                foreach ($data as $row) {
-                    fputcsv($file, [$row->created_at, $row->account_number, "{$row->first_name} {$row->surname}", $row->phone_number, $row->gender, $row->user]);
-                }
+                    ->orderBy('created_at', 'ASC')
+                    ->chunk(500, function($rows) use($file) {
+                        foreach ($rows as $row) {
+                            fputcsv($file, [$row->created_at, $row->account_number, "{$row->first_name} {$row->surname}", $row->phone_number, $row->gender, $row->user]);
+                        }
+                    });
             }
-
             fclose($file);
         };
 
