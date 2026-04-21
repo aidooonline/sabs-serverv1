@@ -38,10 +38,10 @@ class ReportSystemController extends Controller
             }
 
             // --- 1. SYSTEM LIQUIDITY & POSITION ---
-            $totalAllTimeDeposits = DB::table('nobs_transactions')->where('comp_id', $compId)->where('name_of_transaction', 'Deposit')->sum('amount');
-            $totalAllTimeWithdrawals = DB::table('nobs_transactions')->where('comp_id', $compId)->where('name_of_transaction', 'Withdraw')->sum('amount');
+            $totalAllTimeDeposits = (float)DB::table('nobs_transactions')->where('comp_id', $compId)->where('name_of_transaction', 'Deposit')->sum('amount');
+            $totalAllTimeWithdrawals = (float)DB::table('nobs_transactions')->where('comp_id', $compId)->where('name_of_transaction', 'Withdraw')->sum('amount');
             $actualCashInHand = $totalAllTimeDeposits - $totalAllTimeWithdrawals;
-            $totalSavingsLiability = DB::table('nobs_user_account_numbers')->where('comp_id', $compId)->sum('balance');
+            $totalSavingsLiability = (float)DB::table('nobs_user_account_numbers')->where('comp_id', $compId)->sum('balance');
             $netSystemPosition = $actualCashInHand - $totalSavingsLiability;
 
             // --- 2. CUSTOMER VITALITY ---
@@ -111,7 +111,10 @@ class ReportSystemController extends Controller
                         'liquidity' => round($totalDepositAmt - $totalWithdrawAmt, 2),
                         'loan_to_deposit_ratio' => $ldRatio,
                         'net_system_position' => round($netSystemPosition, 2),
-                        'total_savings_liability' => round($totalSavingsLiability, 2)
+                        'total_savings_liability' => round($totalSavingsLiability, 2),
+                        '_debug_cash_in_hand' => round($actualCashInHand, 2),
+                        '_debug_all_deposits' => round($totalAllTimeDeposits, 2),
+                        '_debug_all_withdrawals' => round($totalAllTimeWithdrawals, 2)
                     ],
                     'customers' => [
                         'total_customers' => $totalCustomers,
