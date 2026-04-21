@@ -251,7 +251,12 @@ Route::get('/getdailycollectionsloanrepayment', 'ApiUsersController@getdailycoll
     //for reports
     Route::get('gen_systemreports', [ApiUsersController::class, 'gen_systemreports']);
 
-    
+    // --- ADVANCED REPORT SYSTEM (Sprint 14) ---
+    Route::group(['prefix' => 'report-system'], function () {
+        Route::get('live', [App\Http\Controllers\ReportSystemController::class, 'getLiveReport']);
+        Route::post('snapshot', [App\Http\Controllers\ReportSystemController::class, 'saveSnapshot']);
+        Route::get('export', [App\Http\Controllers\ReportSystemController::class, 'exportCsv']);
+    });
 });
 
 // Existing Routes
