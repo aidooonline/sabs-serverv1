@@ -309,32 +309,62 @@ class ReportSystemController extends Controller
         try {
             $month = $request->input('month', date('m'));
             $year = $request->input('year', date('Y'));
-            $compId = auth()->user()->comp_id;
+            $user = auth('api')->user();
+            if (!$user) return response()->json(['success' => false, 'message' => 'Unauthorized'], 200);
+            
+            $compId = $user->comp_id;
+            
+            // Fetch live data to snapshot
             $liveDataResponse = $this->getLiveReport($request);
-            $liveData = $liveDataResponse->getData()->summary;
+            $responseArray = $liveDataResponse->getData(true);
+            
+            if (!$responseArray['success']) {
+                throw new \Exception($responseArray['message']);
+            }
+            
+            $liveData = $responseArray['summary'];
 
             DB::table('report_snapshots')->updateOrInsert(
                 ['comp_id' => $compId, 'period_month' => $month, 'period_year' => $year],
                 [
-                    'total_customers_count' => $liveData->customers->total_customers,
-                    'new_registrations' => $liveData->customers->new_registrations,
-                    'total_deposit_amount' => $liveData->deposits->total_amount,
-                    'total_deposit_count' => $liveData->deposits->total_count,
-                    'total_withdrawal_amount' => $liveData->withdrawals->total_amount,
-                    'total_withdrawal_count' => $liveData->withdrawals->total_count,
-                    'net_cash_flow' => $liveData->analysis->liquidity,
-                    'total_disbursed_amount' => $liveData->loans->total_disbursed,
-                    'interest_collected' => $liveData->loans->interest_collected,
-                    'fees_collected' => $liveData->loans->fees_collected,
-                    'generated_by_user_id' => auth()->id(),
+                    'total_customers_count' => $liveData['customers']['total_customers'],
+                    'new_registrations' => $liveData['customers']['new_registrations'],
+                    'total_deposit_amount' => $liveData['deposits']['total_amount'],
+                    'total_deposit_count' => $liveData['deposits']['total_count'],
+                    'total_withdrawal_amount' => $liveData['withdrawals']['total_amount'],
+                    'total_withdrawal_count' => $liveData['withdrawals']['total_count'],
+                    'net_cash_flow' => $liveData['analysis']['liquidity'],
+                    'total_disbursed_amount' => $liveData['loans']['total_disbursed'],
+                    'total_repayments_collected' => round($liveData['loans']['total_disbursed'] * 0, 2), // Placeholder for actual repayment sum if needed
+                    'interest_collected' => $liveData['loans']['interest_collected'],
+                    'fees_collected' => $liveData['loans']['fees_collected'],
+                    'generated_by_user_id' => $user->id,
                     'created_at' => now()
                 ]
             );
             DB::commit();
-            return response()->json(['success' => true, 'message' => "Archive created successfully."]);
-        } catch (\Exception $e) {
+            return response()->json(['success' => true, 'message' => "Archive for $month/$year created successfully."]);
+        } catch (\Throwable $e) {
             DB::rollBack();
-            return response()->json(['success' => false, 'message' => 'Snapshot failed.'], 500);
+            return response()->json(['success' => false, 'message' => 'Snapshot failed: ' . $e->getMessage()], 200);
+        }
+    }
+
+    public function listSnapshots(Request $request)
+    {
+        try {
+            $user = auth('api')->user();
+            if (!$user) return response()->json(['success' => false, 'message' => 'Unauthorized'], 200);
+            
+            $snapshots = DB::table('report_snapshots')
+                ->where('comp_id', $user->comp_id)
+                ->orderBy('period_year', 'DESC')
+                ->orderBy('period_month', 'DESC')
+                ->get();
+                
+            return response()->json(['success' => true, 'snapshots' => $snapshots]);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 200);
         }
     }
 }

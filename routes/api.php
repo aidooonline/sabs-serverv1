@@ -88,6 +88,7 @@ Route::middleware(['auth:api'])->group(function () {
 
     // --- REPORTS ---
     Route::group(['prefix' => 'reports'], function () {
+        Route::get('snapshots', 'ReportSystemController@listSnapshots');
         Route::get('daily-expected', [App\Http\Controllers\LoanReportController::class, 'getDailyExpected']); 
         Route::get('daily-repayment-list', [App\Http\Controllers\LoanReportController::class, 'getDailyRepaymentList']); 
         Route::get('loan-dashboard-metrics', [App\Http\Controllers\LoanReportController::class, 'getLoanDashboardMetrics']);
