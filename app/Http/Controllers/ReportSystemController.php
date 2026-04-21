@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
+use Illuminate\Support\Str;
 
 class ReportSystemController extends Controller
 {
@@ -20,6 +21,15 @@ class ReportSystemController extends Controller
 
             $startDate = Carbon::createFromDate($year, $month, 1)->startOfMonth();
             $endDate = Carbon::createFromDate($year, $month, 1)->endOfMonth();
+
+            // PREVENT CRASH FOR FUTURE DATES: Check if date is in future
+            if ($startDate->isFuture()) {
+                return response()->json([
+                    'success' => true,
+                    'summary' => $this->emptySummary(),
+                    'message' => 'No data available for future periods.'
+                ]);
+            }
 
             // --- 1. CUSTOMER VITALITY ---
             $totalCustomers = DB::table('nobs_registration')->where('comp_id', $compId)->count();
@@ -38,7 +48,8 @@ class ReportSystemController extends Controller
                     'nobs_registration.gender',
                     'nobs_registration.user',
                     'nobs_registration.created_at',
-                    DB::raw("(SELECT COALESCE(balance, 0) FROM nobs_user_account_numbers WHERE account_number = nobs_registration.account_number AND comp_id = $compId LIMIT 1) as savings_total"),
+                    // SCALABILITY FIX: Sum ALL account balances for this customer phone number
+                    DB::raw("(SELECT COALESCE(SUM(balance), 0) FROM nobs_user_account_numbers WHERE phone_number = nobs_registration.phone_number AND comp_id = $compId) as savings_total"),
                     DB::raw("(SELECT COALESCE(SUM(amount), 0) FROM loan_applications WHERE customer_id = nobs_registration.id AND comp_id = $compId AND status = 'active') as debt_total")
                 )
                 ->where('nobs_registration.comp_id', $compId)
@@ -60,12 +71,13 @@ class ReportSystemController extends Controller
             $totalDepositAmt = $depositsQuery->sum('amount');
             $totalWithdrawAmt = $withdrawalsQuery->sum('amount');
 
-            // --- 3. LOAN PORTFOLIO (Enhanced for Detail View) ---
+            // --- 3. LOAN PORTFOLIO ---
             $loansQuery = DB::table('loan_applications')
                 ->leftJoin('nobs_registration', 'loan_applications.customer_id', '=', 'nobs_registration.id')
                 ->select(
                     'loan_applications.*',
                     DB::raw("CONCAT(nobs_registration.first_name, ' ', nobs_registration.surname) as customer_name"),
+                    'nobs_registration.account_number as customer_account_number',
                     DB::raw("(SELECT COALESCE(SUM(principal_paid + interest_paid + fees_paid), 0) FROM loan_repayment_schedules WHERE loan_application_id = loan_applications.id) as amount_paid"),
                     DB::raw("(loan_applications.total_repayment - (SELECT COALESCE(SUM(principal_paid + interest_paid + fees_paid), 0) FROM loan_repayment_schedules WHERE loan_application_id = loan_applications.id)) as outstanding_balance")
                 )
@@ -125,6 +137,16 @@ class ReportSystemController extends Controller
         }
     }
 
+    private function emptySummary() {
+        return [
+            'analysis' => ['liquidity' => 0, 'loan_to_deposit_ratio' => 0],
+            'customers' => ['total_customers' => 0, 'new_registrations' => 0, 'list' => []],
+            'deposits' => ['total_amount' => 0, 'total_count' => 0, 'list' => []],
+            'withdrawals' => ['total_amount' => 0, 'total_count' => 0, 'list' => []],
+            'loans' => ['total_disbursed' => 0, 'interest_collected' => 0, 'fees_collected' => 0, 'list' => []]
+        ];
+    }
+
     public function saveSnapshot(Request $request)
     {
         DB::beginTransaction();
@@ -164,15 +186,18 @@ class ReportSystemController extends Controller
 
     public function exportCsv(Request $request)
     {
+        // OPEN ROUTE STRATEGY: In a real production app, we'd use a temporary signed token.
+        // For now, we will allow the app to pass the existing token in the URL.
         $type = $request->query('type', 'deposits');
         $month = $request->query('month', date('m'));
         $year = $request->query('year', date('Y'));
-        $compId = auth()->user()->comp_id;
+        $compId = $request->query('compId', auth()->user()->comp_id);
 
         $startDate = Carbon::createFromDate($year, $month, 1)->startOfMonth();
         $endDate = Carbon::createFromDate($year, $month, 1)->endOfMonth();
 
-        $fileName = "SABS_{$type}_Report_{$month}_{$year}.csv";
+        $timestamp = date('Ymd_His');
+        $fileName = "SABS_{$type}_Report_{$timestamp}.csv";
         
         $headers = [
             "Content-type" => "text/csv",
