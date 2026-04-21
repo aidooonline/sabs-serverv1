@@ -1874,6 +1874,68 @@ class ApiUsersController extends Controller
     }
 
 
+    public function reversemonthlydeductions(Request $request)
+    {
+        try {
+            $user = \Auth::user();
+            if (!$user) return response()->json(['error' => 'Unauthorized'], 401);
+            $compId = $user->comp_id;
+
+            // Target 'Commission' transactions created in the last 4 hours
+            $threshold = now()->subHours(4);
+
+            $transactions = AccountsTransactions::where('comp_id', $compId)
+                ->where('name_of_transaction', 'Commission')
+                ->where('created_at', '>=', $threshold)
+                ->paginate(20);
+
+            $revertedAccounts = [];
+
+            foreach ($transactions as $trx) {
+                $accountNumber = $trx->account_number;
+
+                DB::beginTransaction();
+                try {
+                    // 1. Physically delete the transaction to "undo" it
+                    $trx->delete();
+
+                    // 2. Recalculate and update balance
+                    $newBalance = $this->calculateAccountBalance($accountNumber, $compId);
+                    
+                    UserAccountNumbers::where('account_number', $accountNumber)
+                        ->where('comp_id', $compId)
+                        ->update(['balance' => $newBalance]);
+
+                    DB::commit();
+
+                    $revertedAccounts[] = [
+                        'account_number' => $accountNumber,
+                        'reverted_amount' => $trx->amount,
+                        'new_balance' => $newBalance,
+                        'status' => 'success'
+                    ];
+                } catch (\Throwable $innerE) {
+                    DB::rollBack();
+                    $revertedAccounts[] = [
+                        'account_number' => $accountNumber,
+                        'status' => 'failed',
+                        'error' => $innerE->getMessage()
+                    ];
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'reverted_count' => count($revertedAccounts),
+                'details' => $revertedAccounts,
+                'has_more' => $transactions->hasMorePages()
+            ]);
+
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 200);
+        }
+    }
+
     /**
      * Unified Balance Calculation Engine
      * Handles ALL transaction types to prevent balance drift
@@ -1886,7 +1948,6 @@ class ApiUsersController extends Controller
         ")
         ->where('account_number', $accountNumber)
         ->where('comp_id', $compId)
-        ->where('row_version', 2)
         ->first();
 
         return round(($totals->credits ?? 0) - ($totals->debits ?? 0), 3);
@@ -1969,7 +2030,6 @@ class ApiUsersController extends Controller
                     $transaction->amount = $commissionValue;
                     $transaction->description = "Monthly Commission Deduction";
                     $transaction->comp_id = $compId;
-                    $transaction->row_version = 2;
                     $transaction->is_shown = 1;
                     $transaction->users = $user->name ?? 'System';
                     $transaction->save();
