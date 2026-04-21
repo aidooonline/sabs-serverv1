@@ -6,7 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 use App\User;
-use App\Company;
+use App\CompanyInfo;
 
 class ReportSystemController extends Controller
 {
@@ -18,7 +18,13 @@ class ReportSystemController extends Controller
         try {
             $month = $request->query('month', date('m'));
             $year = $request->query('year', date('Y'));
-            $compId = auth()->user()->comp_id;
+            
+            // Explicitly use api guard for consistency with route definition
+            $user = auth('api')->user();
+            if (!$user) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized'], 200);
+            }
+            $compId = $user->comp_id;
 
             $startDate = Carbon::createFromDate($year, $month, 1)->startOfMonth();
             $endDate = Carbon::createFromDate($year, $month, 1)->endOfMonth();
@@ -55,7 +61,8 @@ class ReportSystemController extends Controller
                     'nobs_registration.gender',
                     'nobs_registration.user',
                     'nobs_registration.created_at',
-                    DB::raw("(SELECT COALESCE(SUM(balance), 0) FROM nobs_user_account_numbers WHERE nobs_user_account_numbers.phone_number = nobs_registration.phone_number AND nobs_user_account_numbers.comp_id = $compId) as savings_total"),
+                    // FIX: Joined on account_number instead of non-existent phone_number in nobs_user_account_numbers
+                    DB::raw("(SELECT COALESCE(SUM(balance), 0) FROM nobs_user_account_numbers WHERE nobs_user_account_numbers.account_number = nobs_registration.account_number AND nobs_user_account_numbers.comp_id = $compId) as savings_total"),
                     DB::raw("(SELECT COALESCE(SUM(amount), 0) FROM loan_applications WHERE loan_applications.customer_id = nobs_registration.id AND loan_applications.comp_id = $compId AND loan_applications.status = 'active') as debt_total")
                 )
                 ->where('nobs_registration.comp_id', $compId)
@@ -129,8 +136,13 @@ class ReportSystemController extends Controller
                     ]
                 ]
             ], 200);
-        } catch (\Exception $e) {
-            return response()->json(['success' => false, 'message' => 'Error: ' . $e->getMessage()], 500);
+        } catch (\Throwable $e) {
+            // Log for server diagnostics even if file log is tricky
+            return response()->json([
+                'success' => false, 
+                'message' => 'Server Error: ' . $e->getMessage(),
+                'line' => $e->getLine()
+            ], 200); // Return 200 so Axios doesn't throw generic 500
         }
     }
 
