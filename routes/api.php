@@ -15,6 +15,9 @@ use App\Http\Controllers\LoanProductController;
  */
 
 Route::middleware(['auth:api'])->group(function () {
+    // AI Agent
+    Route::post('/ai/chat', 'AiAgentController@chat');
+
     Route::get('/user', function (Request $request) {
         return $request->user();
     });
