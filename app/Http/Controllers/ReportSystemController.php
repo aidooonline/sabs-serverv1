@@ -227,13 +227,13 @@ class ReportSystemController extends Controller
                                 $row->created_at, 
                                 $row->account_number, 
                                 $row->det_rep_name_of_transaction, 
-                                number_format($row->amount, 2), 
-                                number_format($row->balance, 2), 
+                                '="' . number_format($row->amount, 2) . '"', 
+                                '="' . number_format($row->balance, 2) . '"', 
                                 $row->agentname
                             ]);
                         }
                     });
-                fputcsv($file, ['TOTAL', '', '', number_format($totalAmount, 2), '', '']);
+                fputcsv($file, ['TOTAL', '', '', '="' . number_format($totalAmount, 2) . '"', '', '']);
 
             } elseif ($type === 'loans') {
                 DB::table('loan_applications')
@@ -260,15 +260,15 @@ class ReportSystemController extends Controller
                                 $row->id,
                                 $row->customer_name,
                                 $row->customer_account_number,
-                                number_format($row->amount, 2),
-                                number_format($row->total_repayment, 2),
-                                number_format($row->amount_paid, 2),
-                                number_format($outstanding, 2),
+                                '="' . number_format($row->amount, 2) . '"',
+                                '="' . number_format($row->total_repayment, 2) . '"',
+                                '="' . number_format($row->amount_paid, 2) . '"',
+                                '="' . number_format($outstanding, 2) . '"',
                                 $row->created_by
                             ]);
                         }
                     });
-                fputcsv($file, ['TOTAL', '', '', '', number_format($totalAmount, 2), number_format($totalRepay, 2), number_format($totalPaid, 2), number_format($totalBalance, 2), '']);
+                fputcsv($file, ['TOTAL', '', '', '', '="' . number_format($totalAmount, 2) . '"', '="' . number_format($totalRepay, 2) . '"', '="' . number_format($totalPaid, 2) . '"', '="' . number_format($totalBalance, 2) . '"', '']);
 
             } elseif ($type === 'customers') {
                 DB::table('nobs_registration')
@@ -290,12 +290,12 @@ class ReportSystemController extends Controller
                                 $row->phone_number, 
                                 $row->gender, 
                                 $row->user,
-                                number_format($savings, 2),
-                                number_format($debt, 2)
+                                '="' . number_format($savings, 2) . '"',
+                                '="' . number_format($debt, 2) . '"'
                             ]);
                         }
                     });
-                fputcsv($file, ['TOTAL', '', '', '', '', '', number_format($totalSavings, 2), number_format($totalDebt, 2)]);
+                fputcsv($file, ['TOTAL', '', '', '', '', '', '="' . number_format($totalSavings, 2) . '"', '="' . number_format($totalDebt, 2) . '"']);
             }
             fclose($file);
         };
