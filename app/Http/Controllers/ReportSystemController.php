@@ -38,10 +38,11 @@ class ReportSystemController extends Controller
             }
 
             // --- 1. SYSTEM LIQUIDITY & POSITION ---
-            $totalAllTimeDeposits = (float)DB::table('nobs_transactions')->where('comp_id', $compId)->where('name_of_transaction', 'Deposit')->sum('amount');
-            $totalAllTimeWithdrawals = (float)DB::table('nobs_transactions')->where('comp_id', $compId)->where('name_of_transaction', 'Withdraw')->sum('amount');
+            // CAP & CLEAN: Ignore outliers over 1 million to prevent corrupt data from skewing position
+            $totalAllTimeDeposits = (float)DB::table('nobs_transactions')->where('comp_id', $compId)->where('name_of_transaction', 'Deposit')->where('amount', '<', 1000000)->sum('amount');
+            $totalAllTimeWithdrawals = (float)DB::table('nobs_transactions')->where('comp_id', $compId)->where('name_of_transaction', 'Withdraw')->where('amount', '<', 1000000)->sum('amount');
             $actualCashInHand = $totalAllTimeDeposits - $totalAllTimeWithdrawals;
-            $totalSavingsLiability = (float)DB::table('nobs_user_account_numbers')->where('comp_id', $compId)->sum('balance');
+            $totalSavingsLiability = (float)DB::table('nobs_user_account_numbers')->where('comp_id', $compId)->where('balance', '<', 5000000)->sum('balance');
             $netSystemPosition = $actualCashInHand - $totalSavingsLiability;
 
             // --- 2. CUSTOMER VITALITY ---
