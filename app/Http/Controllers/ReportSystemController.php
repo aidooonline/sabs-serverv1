@@ -141,8 +141,8 @@ class ReportSystemController extends Controller
                         'net_system_position' => round($netSystemPosition, 2),
                         'total_savings_liability' => round($totalSavingsLiability, 2),
                         '_debug_cash_in_hand' => round($actualCashInHand, 2),
-                        '_debug_all_deposits' => round($totalAllTimeDeposits, 2),
-                        '_debug_all_withdrawals' => round($totalAllTimeWithdrawals, 2)
+                        '_debug_all_deposits' => round($totalPoolDeposits, 2),
+                        '_debug_all_withdrawals' => round($totalPoolWithdrawals, 2)
                     ],
                     'customers' => [
                         'total_customers' => $totalCustomers,
