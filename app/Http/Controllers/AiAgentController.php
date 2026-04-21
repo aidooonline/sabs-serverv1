@@ -53,8 +53,8 @@ class AiAgentController extends Controller
             Log::error("AI Chat Error: " . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'message' => 'The AI Assistant encountered an error.',
-                'error_debug' => env('APP_DEBUG') ? $e->getMessage() : null
+                'message' => 'AI Error: ' . $e->getMessage(), // Temporarily expose actual error
+                'trace' => env('APP_DEBUG') ? $e->getTraceAsString() : null
             ], 500);
         }
     }
