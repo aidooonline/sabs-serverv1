@@ -257,12 +257,6 @@ Route::get('/getdailycollectionsloanrepayment', 'ApiUsersController@getdailycoll
         Route::post('snapshot', [App\Http\Controllers\ReportSystemController::class, 'saveSnapshot']);
         Route::get('export', [App\Http\Controllers\ReportSystemController::class, 'exportCsv']);
     });
-});
-
-// Existing Routes
-Route::post('/login', [AuthController::class, 'login']);
-Route::get('insertcompanyinfo', [ApiUsersController::class, 'insertcompanyinfo']);
-Route::get('mymtn', [ApiUsersController::class, 'mymtn']);
 
     // --- ADMIN USER & ROLE MANAGEMENT ---
     Route::group(['prefix' => 'admin', 'namespace' => 'Admin'], function () {
@@ -288,4 +282,9 @@ Route::get('mymtn', [ApiUsersController::class, 'mymtn']);
         Route::post('settings', [App\Http\Controllers\SchedulerController::class, 'updateSettings']);
     });
     // -----------------------------
+});
 
+// Existing Routes
+Route::post('/login', [AuthController::class, 'login']);
+Route::get('insertcompanyinfo', [ApiUsersController::class, 'insertcompanyinfo']);
+Route::get('mymtn', [ApiUsersController::class, 'mymtn']);
