@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
-use Illuminate\Support\Str;
 
 class ReportSystemController extends Controller
 {
@@ -22,7 +21,6 @@ class ReportSystemController extends Controller
             $startDate = Carbon::createFromDate($year, $month, 1)->startOfMonth();
             $endDate = Carbon::createFromDate($year, $month, 1)->endOfMonth();
 
-            // PREVENT CRASH FOR FUTURE DATES: Check if date is in future
             if ($startDate->isFuture()) {
                 return response()->json([
                     'success' => true,
@@ -31,13 +29,26 @@ class ReportSystemController extends Controller
                 ]);
             }
 
-            // --- 1. CUSTOMER VITALITY ---
+            // --- 1. SYSTEM LIQUIDITY & POSITION (The "Main Point") ---
+            // A. Actual Cash In Hand (All time deposits - all time withdrawals)
+            $totalAllTimeDeposits = DB::table('nobs_transactions')->where('comp_id', $compId)->where('name_of_transaction', 'Deposit')->sum('amount');
+            $totalAllTimeWithdrawals = DB::table('nobs_transactions')->where('comp_id', $compId)->where('name_of_transaction', 'Withdraw')->sum('amount');
+            $actualCashInHand = $totalAllTimeDeposits - $totalAllTimeWithdrawals;
+
+            // B. Total Savings Liability (What we owe customers)
+            $totalSavingsLiability = DB::table('nobs_user_account_numbers')->where('comp_id', $compId)->sum('balance');
+
+            // C. Net System Position (Surplus/Deficit)
+            $netSystemPosition = $actualCashInHand - $totalSavingsLiability;
+
+            // --- 2. CUSTOMER VITALITY ---
             $totalCustomers = DB::table('nobs_registration')->where('comp_id', $compId)->count();
             $newRegs = DB::table('nobs_registration')
                 ->where('comp_id', $compId)
                 ->whereBetween('created_at', [$startDate, $endDate])
                 ->count();
             
+            // FIXED: Explicit Correlation Aliases to prevent global sum bug
             $customerList = DB::table('nobs_registration')
                 ->select(
                     'nobs_registration.id',
@@ -48,16 +59,15 @@ class ReportSystemController extends Controller
                     'nobs_registration.gender',
                     'nobs_registration.user',
                     'nobs_registration.created_at',
-                    // SCALABILITY FIX: Sum ALL account balances for this customer phone number
-                    DB::raw("(SELECT COALESCE(SUM(balance), 0) FROM nobs_user_account_numbers WHERE phone_number = nobs_registration.phone_number AND comp_id = $compId) as savings_total"),
-                    DB::raw("(SELECT COALESCE(SUM(amount), 0) FROM loan_applications WHERE customer_id = nobs_registration.id AND comp_id = $compId AND status = 'active') as debt_total")
+                    DB::raw("(SELECT COALESCE(SUM(balance), 0) FROM nobs_user_account_numbers WHERE nobs_user_account_numbers.phone_number = nobs_registration.phone_number AND nobs_user_account_numbers.comp_id = $compId) as savings_total"),
+                    DB::raw("(SELECT COALESCE(SUM(amount), 0) FROM loan_applications WHERE loan_applications.customer_id = nobs_registration.id AND loan_applications.comp_id = $compId AND loan_applications.status = 'active') as debt_total")
                 )
                 ->where('nobs_registration.comp_id', $compId)
                 ->whereBetween('nobs_registration.created_at', [$startDate, $endDate])
                 ->orderBy('nobs_registration.created_at', 'DESC')
                 ->limit(50)->get();
 
-            // --- 2. CASH FLOW ---
+            // --- 3. PERIOD CASH FLOW ---
             $depositsQuery = DB::table('nobs_transactions')
                 ->where('comp_id', $compId)
                 ->where('name_of_transaction', 'Deposit')
@@ -71,7 +81,7 @@ class ReportSystemController extends Controller
             $totalDepositAmt = $depositsQuery->sum('amount');
             $totalWithdrawAmt = $withdrawalsQuery->sum('amount');
 
-            // --- 3. LOAN PORTFOLIO ---
+            // --- 4. LOAN PORTFOLIO ---
             $loansQuery = DB::table('loan_applications')
                 ->leftJoin('nobs_registration', 'loan_applications.customer_id', '=', 'nobs_registration.id')
                 ->select(
@@ -83,16 +93,6 @@ class ReportSystemController extends Controller
                 )
                 ->where('loan_applications.comp_id', $compId)
                 ->whereBetween('loan_applications.created_at', [$startDate, $endDate]);
-
-            $interestCollected = DB::table('loan_repayment_schedules')
-                ->where('comp_id', $compId)
-                ->whereBetween('updated_at', [$startDate, $endDate])
-                ->sum('interest_paid');
-
-            $feesCollected = DB::table('loan_repayment_schedules')
-                ->where('comp_id', $compId)
-                ->whereBetween('updated_at', [$startDate, $endDate])
-                ->sum('fees_paid');
 
             $totalDisbursed = DB::table('loan_applications')
                 ->where('comp_id', $compId)
@@ -106,7 +106,9 @@ class ReportSystemController extends Controller
                 'summary' => [
                     'analysis' => [
                         'liquidity' => round($totalDepositAmt - $totalWithdrawAmt, 2),
-                        'loan_to_deposit_ratio' => $ldRatio
+                        'loan_to_deposit_ratio' => $ldRatio,
+                        'net_system_position' => round($netSystemPosition, 2),
+                        'total_savings_liability' => round($totalSavingsLiability, 2)
                     ],
                     'customers' => [
                         'total_customers' => $totalCustomers,
@@ -125,8 +127,8 @@ class ReportSystemController extends Controller
                     ],
                     'loans' => [
                         'total_disbursed' => round($totalDisbursed, 2),
-                        'interest_collected' => round($interestCollected, 2),
-                        'fees_collected' => round($feesCollected, 2),
+                        'interest_collected' => round(DB::table('loan_repayment_schedules')->where('comp_id', $compId)->whereBetween('updated_at', [$startDate, $endDate])->sum('interest_paid'), 2),
+                        'fees_collected' => round(DB::table('loan_repayment_schedules')->where('comp_id', $compId)->whereBetween('updated_at', [$startDate, $endDate])->sum('fees_paid'), 2),
                         'list' => $loansQuery->orderBy('loan_applications.created_at', 'DESC')->limit(50)->get()
                     ]
                 ]
@@ -139,7 +141,7 @@ class ReportSystemController extends Controller
 
     private function emptySummary() {
         return [
-            'analysis' => ['liquidity' => 0, 'loan_to_deposit_ratio' => 0],
+            'analysis' => ['liquidity' => 0, 'loan_to_deposit_ratio' => 0, 'net_system_position' => 0, 'total_savings_liability' => 0],
             'customers' => ['total_customers' => 0, 'new_registrations' => 0, 'list' => []],
             'deposits' => ['total_amount' => 0, 'total_count' => 0, 'list' => []],
             'withdrawals' => ['total_amount' => 0, 'total_count' => 0, 'list' => []],
@@ -177,7 +179,7 @@ class ReportSystemController extends Controller
             );
 
             DB::commit();
-            return response()->json(['success' => true, 'message' => "Archive for $month/$year created successfully."]);
+            return response()->json(['success' => true, 'message' => "Archive created successfully."]);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['success' => false, 'message' => 'Snapshot failed.'], 500);
@@ -186,8 +188,6 @@ class ReportSystemController extends Controller
 
     public function exportCsv(Request $request)
     {
-        // OPEN ROUTE STRATEGY: In a real production app, we'd use a temporary signed token.
-        // For now, we will allow the app to pass the existing token in the URL.
         $type = $request->query('type', 'deposits');
         $month = $request->query('month', date('m'));
         $year = $request->query('year', date('Y'));
