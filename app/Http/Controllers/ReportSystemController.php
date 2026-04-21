@@ -158,8 +158,6 @@ class ReportSystemController extends Controller
 
     public function exportCsv(Request $request)
     {
-        // Simple bypass for browser-based downloads: 
-        // We look for comp_id in the query or fallback to authenticated API user
         $compId = $request->query('comp_id');
         $user = auth('api')->user();
         
@@ -167,7 +165,6 @@ class ReportSystemController extends Controller
             $compId = $user->comp_id;
         }
 
-        // If still no compId, we cannot allow the export for security
         if (!$compId) {
             return response('Unauthorized: Missing company context.', 401);
         }
@@ -190,13 +187,31 @@ class ReportSystemController extends Controller
             "Expires" => "0"
         ];
 
-        $columns = ($type === 'customers') 
-            ? ['Reg Date', 'Account', 'Name', 'Phone', 'Gender', 'Agent']
-            : ['Date', 'Account', 'Name', 'Amount', 'Type', 'Agent'];
+        // Define Columns based on type
+        switch($type) {
+            case 'customers':
+                $columns = ['Reg Date', 'Account Number', 'Customer Name', 'Phone', 'Gender', 'Agent', 'Total Savings', 'Total Debt'];
+                break;
+            case 'loans':
+                $columns = ['Date', 'Loan ID', 'Customer Name', 'Account Number', 'Granted Amount', 'Total to Repay', 'Total Paid', 'Outstanding Balance', 'Agent'];
+                break;
+            case 'deposits':
+            case 'withdrawals':
+            default:
+                $columns = ['Date', 'Account Number', 'Customer Name', 'Amount', 'Running Balance', 'Agent Name'];
+                break;
+        }
 
         $callback = function() use($type, $compId, $startDate, $endDate, $columns) {
             $file = fopen('php://output', 'w');
             fputcsv($file, $columns);
+
+            $totalAmount = 0;
+            $totalRepay = 0;
+            $totalPaid = 0;
+            $totalBalance = 0;
+            $totalSavings = 0;
+            $totalDebt = 0;
 
             if ($type === 'deposits' || $type === 'withdrawals') {
                 $transType = ($type === 'deposits') ? 'Deposit' : 'Withdraw';
@@ -205,21 +220,82 @@ class ReportSystemController extends Controller
                     ->where('name_of_transaction', $transType)
                     ->whereBetween('created_at', [$startDate, $endDate])
                     ->orderBy('created_at', 'ASC')
-                    ->chunk(500, function($rows) use($file) {
+                    ->chunk(500, function($rows) use($file, &$totalAmount) {
                         foreach ($rows as $row) {
-                            fputcsv($file, [$row->created_at, $row->account_number, $row->det_rep_name_of_transaction, $row->amount, $row->name_of_transaction, $row->agentname]);
+                            $totalAmount += (float)$row->amount;
+                            fputcsv($file, [
+                                $row->created_at, 
+                                $row->account_number, 
+                                $row->det_rep_name_of_transaction, 
+                                number_format($row->amount, 2), 
+                                number_format($row->balance, 2), 
+                                $row->agentname
+                            ]);
                         }
                     });
+                fputcsv($file, ['TOTAL', '', '', number_format($totalAmount, 2), '', '']);
+
+            } elseif ($type === 'loans') {
+                DB::table('loan_applications')
+                    ->leftJoin('nobs_registration', 'loan_applications.customer_id', '=', 'nobs_registration.id')
+                    ->select(
+                        'loan_applications.*',
+                        DB::raw("CONCAT(nobs_registration.first_name, ' ', nobs_registration.surname) as customer_name"),
+                        'nobs_registration.account_number as customer_account_number',
+                        DB::raw("(SELECT COALESCE(SUM(principal_paid + interest_paid + fees_paid), 0) FROM loan_repayment_schedules WHERE loan_application_id = loan_applications.id) as amount_paid")
+                    )
+                    ->where('loan_applications.comp_id', $compId)
+                    ->whereBetween('loan_applications.created_at', [$startDate, $endDate])
+                    ->orderBy('loan_applications.created_at', 'ASC')
+                    ->chunk(500, function($rows) use($file, &$totalAmount, &$totalRepay, &$totalPaid, &$totalBalance) {
+                        foreach ($rows as $row) {
+                            $outstanding = $row->total_repayment - $row->amount_paid;
+                            $totalAmount += (float)$row->amount;
+                            $totalRepay += (float)$row->total_repayment;
+                            $totalPaid += (float)$row->amount_paid;
+                            $totalBalance += (float)$outstanding;
+                            
+                            fputcsv($file, [
+                                $row->created_at,
+                                $row->id,
+                                $row->customer_name,
+                                $row->customer_account_number,
+                                number_format($row->amount, 2),
+                                number_format($row->total_repayment, 2),
+                                number_format($row->amount_paid, 2),
+                                number_format($outstanding, 2),
+                                $row->created_by
+                            ]);
+                        }
+                    });
+                fputcsv($file, ['TOTAL', '', '', '', number_format($totalAmount, 2), number_format($totalRepay, 2), number_format($totalPaid, 2), number_format($totalBalance, 2), '']);
+
             } elseif ($type === 'customers') {
                 DB::table('nobs_registration')
                     ->where('comp_id', $compId)
                     ->whereBetween('created_at', [$startDate, $endDate])
                     ->orderBy('created_at', 'ASC')
-                    ->chunk(500, function($rows) use($file) {
+                    ->chunk(500, function($rows) use($file, $compId, &$totalSavings, &$totalDebt) {
                         foreach ($rows as $row) {
-                            fputcsv($file, [$row->created_at, $row->account_number, "{$row->first_name} {$row->surname}", $row->phone_number, $row->gender, $row->user]);
+                            $savings = DB::table('nobs_user_account_numbers')->where('account_number', $row->account_number)->where('comp_id', $compId)->sum('balance');
+                            $debt = DB::table('loan_applications')->where('customer_id', $row->id)->where('comp_id', $compId)->where('status', 'active')->sum('amount');
+                            
+                            $totalSavings += $savings;
+                            $totalDebt += $debt;
+
+                            fputcsv($file, [
+                                $row->created_at, 
+                                $row->account_number, 
+                                "{$row->first_name} {$row->surname}", 
+                                $row->phone_number, 
+                                $row->gender, 
+                                $row->user,
+                                number_format($savings, 2),
+                                number_format($debt, 2)
+                            ]);
                         }
                     });
+                fputcsv($file, ['TOTAL', '', '', '', '', '', number_format($totalSavings, 2), number_format($totalDebt, 2)]);
             }
             fclose($file);
         };
