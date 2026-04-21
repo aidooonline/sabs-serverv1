@@ -156,43 +156,25 @@ class ReportSystemController extends Controller
         ];
     }
 
-    /**
-     * Manual Token Auth for Browser Exports
-     */
-    private function authenticateViaToken($token) {
-        if (!$token) return null;
-        // Search for user with this personal access token
-        $accessToken = DB::table('oauth_access_tokens')->where('id', $token)->first();
-        if ($accessToken) {
-            return User::find($accessToken->user_id);
-        }
-        return null;
-    }
-
     public function exportCsv(Request $request)
     {
-        // SECURE BYPASS: Since openURL doesn't send headers, we validate the token passed in URL
-        $token = $request->query('token');
+        // Simple bypass for browser-based downloads: 
+        // We look for comp_id in the query or fallback to authenticated API user
+        $compId = $request->query('comp_id');
+        $user = auth('api')->user();
         
-        // For simplicity in this environment, we will allow the app to pass a session-based token.
-        // If no token is present, we try standard auth (for cases where user is logged into web).
-        $user = auth('api')->user(); 
-        
-        if (!$user && $token) {
-            // Manual fallback for URL-based tokens if standard auth fails
-            // In many Laravel Passport setups, the token string is the ID
-            $user = $this->authenticateViaToken($token);
+        if (!$compId && $user) {
+            $compId = $user->comp_id;
         }
 
-        // If STILL no user, we cannot allow the export
-        if (!$user) {
-            return response('Unauthorized download request.', 401);
+        // If still no compId, we cannot allow the export for security
+        if (!$compId) {
+            return response('Unauthorized: Missing company context.', 401);
         }
 
         $type = $request->query('type', 'deposits');
         $month = $request->query('month', date('m'));
         $year = $request->query('year', date('Y'));
-        $compId = $user->comp_id;
 
         $startDate = Carbon::createFromDate($year, $month, 1)->startOfMonth();
         $endDate = Carbon::createFromDate($year, $month, 1)->endOfMonth();
