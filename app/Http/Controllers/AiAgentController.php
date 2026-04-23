@@ -130,9 +130,37 @@ class AiAgentController extends Controller
             // Execute Tools and detect UI type
             $execution = $this->handleToolCalls($session, $toolCalls);
             $toolResults = $execution['results'];
-            $lastToolOutput = $execution['raw_data'];
-            $activeUiType = $execution['ui_type'];
             
+            // Only update metadata if we actually got new data
+            if ($execution['raw_data'] !== null) {
+                $lastToolOutput = $execution['raw_data'];
+            }
+            
+            // Only update UI type if it's more specific than 'text'
+            if ($execution['ui_type'] !== 'text') {
+                $activeUiType = $execution['ui_type'];
+            }
+            
+            // Store the tool execution in DB history
+            foreach ($toolResults as $tr) {
+                $this->storeMessage(
+                    $session->id, 
+                    'tool', 
+                    json_encode($tr['functionResponse']['response']), 
+                    null, 
+                    $activeUiType, 
+                    null
+                );
+                // Also update the storeMessage to accept tool_call_id if needed, 
+                // but here we just need to ensure the role 'tool' is recorded.
+                // Looking at the DB schema, tool_call_id is a column.
+                DB::table('ai_messages')
+                    ->where('session_id', $session->id)
+                    ->orderBy('id', 'desc')
+                    ->limit(1)
+                    ->update(['tool_call_id' => $tr['functionResponse']['name']]);
+            }
+
             $history[] = $candidate; 
             $history[] = [
                 'role' => 'function',
@@ -278,9 +306,29 @@ class AiAgentController extends Controller
         $history = [];
         foreach ($messages as $msg) {
             if ($msg->role === 'user' || $msg->role === 'model') {
+                $parts = [];
+                if ($msg->content) $parts[] = ['text' => $msg->content];
+                if ($msg->tool_calls) {
+                    $tc = json_decode($msg->tool_calls, true);
+                    foreach ($tc as $call) {
+                        $parts[] = $call;
+                    }
+                }
                 $history[] = [
                     'role' => $msg->role,
-                    'parts' => [['text' => $msg->content]]
+                    'parts' => $parts
+                ];
+            } else if ($msg->role === 'tool') {
+                $history[] = [
+                    'role' => 'function',
+                    'parts' => [
+                        [
+                            'functionResponse' => [
+                                'name' => $msg->tool_call_id, // This should store the function name
+                                'response' => json_decode($msg->content, true)
+                            ]
+                        ]
+                    ]
                 ];
             }
         }
@@ -294,11 +342,11 @@ class AiAgentController extends Controller
                 'function_declarations' => [
                     [
                         'name' => 'execute_analytical_query',
-                        'description' => 'Executes a READ-ONLY SQL SELECT query for BI and data analysis.',
+                        'description' => 'Executes a READ-ONLY SQL SELECT query for BI and data analysis. Use this for reports, totals, and counts.',
                         'parameters' => [
                             'type' => 'object',
                             'properties' => [
-                                'query' => ['type' => 'string']
+                                'query' => ['type' => 'string', 'description' => 'The SQL query to execute.']
                             ],
                             'required' => ['query']
                         ]
@@ -341,7 +389,9 @@ class AiAgentController extends Controller
                     'text' => "You are SABS AI Assistant. Context: Company ID is " . auth('api')->user()->comp_id . ". 
                     Security: Only SELECT queries. Always filter by comp_id.
                     Tone: Professional but friendly. 
-                    Rule: When a tool returns data, acknowledge it briefly and tell the user you are showing the results below."
+                    Rule: When a tool returns data, ALWAYS summarize the findings in your text response. 
+                    NEVER just say 'Action completed'. Explain what you found or what you did.
+                    For SQL queries, if the user asks for 'today', use CURDATE()."
                 ]
             ],
             'contents' => $history,
