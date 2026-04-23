@@ -397,8 +397,8 @@ class AiAgentController extends Controller
         Current Company ID: " . auth('api')->user()->comp_id . ".
         
         INTENT ROUTING LIBRARY (Strict Mapping):
-        - Intent: 'Total Deposits' -> Query: 'SELECT SUM(amount) FROM deposits WHERE comp_id = " . auth('api')->user()->comp_id . " AND deposit_date = CURDATE()'
-        - Intent: 'Total Withdrawals' -> Query: 'SELECT SUM(amount) FROM withdrawals WHERE comp_id = " . auth('api')->user()->comp_id . " AND withdrawal_date = CURDATE()'
+        - Intent: 'Total Deposits' -> Query: 'SELECT COALESCE(SUM(amount), 0) as total_amount, count(*) as count FROM deposits WHERE comp_id = " . auth('api')->user()->comp_id . " AND DATE(deposit_date) = CURDATE()'
+        - Intent: 'Total Withdrawals' -> Query: 'SELECT COALESCE(SUM(amount), 0) as total_amount, count(*) as count FROM withdrawals WHERE comp_id = " . auth('api')->user()->comp_id . " AND DATE(withdrawal_date) = CURDATE()'
         - Intent: 'Customer Search' -> Action: Use `search_customer` tool.
         - Intent: 'Loan Overview' -> Query: 'SELECT count(*) as total, status FROM loan_applications WHERE comp_id = " . auth('api')->user()->comp_id . " GROUP BY status'
         - Intent: 'Capability/Help' -> Action: Return 'capability_chips' with labels: [Search Customer, Daily Totals, Active Loans, System Health].
