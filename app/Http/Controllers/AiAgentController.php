@@ -64,9 +64,16 @@ class AiAgentController extends Controller
 
         } catch (\Throwable $e) {
             Log::error("AI Chat Error: " . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
+            
+            $debugMessage = "I encountered a technical issue. Please try again.";
+            if (config('app.debug')) {
+                $debugMessage = "Debug Error: " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine();
+            }
+
             return response()->json([
                 'success' => false,
-                'message' => 'I encountered a technical issue. Please try again.',
+                'message' => $debugMessage,
+                'trace' => config('app.debug') ? $e->getTraceAsString() : null
             ], 500);
         }
     }
