@@ -6,9 +6,20 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use App\Services\AiIntentLibrary;
+use App\Services\AiActionManager;
 
 class AiAgentController extends Controller
 {
+    private $intentLibrary;
+    private $actionManager;
+
+    public function __construct()
+    {
+        $this->intentLibrary = new AiIntentLibrary();
+        $this->actionManager = new AiActionManager();
+    }
+
     /**
      * Entry point for all AI Chat interactions.
      */
@@ -19,6 +30,9 @@ class AiAgentController extends Controller
             if (!$user) {
                 return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
             }
+
+            // Re-initialize with current user company
+            $this->intentLibrary = new AiIntentLibrary($user->comp_id);
 
             $prompt = $request->input('message');
             $sessionId = $request->input('session_id');
@@ -31,7 +45,7 @@ class AiAgentController extends Controller
 
             $apiKey = $requestApiKey ?: env('GOOGLE_AI_API_KEY');
             if (!$apiKey) {
-                return response()->json(['success' => false, 'message' => 'AI API Key is missing. Please check your AI Settings.'], 400);
+                return response()->json(['success' => false, 'message' => 'AI API Key is missing.'], 400);
             }
 
             $session = $this->getOrCreateSession($user, $sessionId, $model);
@@ -52,9 +66,26 @@ class AiAgentController extends Controller
             Log::error("AI Chat Error: " . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
             return response()->json([
                 'success' => false,
-                'message' => 'I encountered a technical issue. Please try again or contact support.',
-                'trace' => (config('app.debug') && !app()->environment('production')) ? $e->getTraceAsString() : null
+                'message' => 'I encountered a technical issue. Please try again.',
             ], 500);
+        }
+    }
+
+    /**
+     * Secure endpoint to execute a previously prepared AI action.
+     */
+    public function executeAction(Request $request)
+    {
+        try {
+            $payload = $request->input('payload');
+            if (!$payload) return response()->json(['success' => false, 'message' => 'Invalid action payload.'], 400);
+
+            $result = $this->actionManager->executeAction($payload);
+            
+            return response()->json($result);
+        } catch (\Throwable $e) {
+            Log::error("AI Execute Action Error: " . $e->getMessage());
+            return response()->json(['success' => false, 'message' => 'Execution failed.'], 500);
         }
     }
 
@@ -83,13 +114,18 @@ class AiAgentController extends Controller
 
     private function storeMessage($sessionId, $role, $content, $toolCalls = null, $uiType = 'text', $uiMetadata = null)
     {
+        $meta = null;
+        if ($uiMetadata !== null) {
+            $meta = is_string($uiMetadata) ? $uiMetadata : json_encode($uiMetadata);
+        }
+
         return DB::table('ai_messages')->insertGetId([
             'session_id' => $sessionId,
             'role' => $role,
             'content' => $content,
             'tool_calls' => $toolCalls ? (is_string($toolCalls) ? $toolCalls : json_encode($toolCalls)) : null,
             'ui_type' => $uiType,
-            'ui_metadata' => $uiMetadata ? (is_string($uiMetadata) ? $uiMetadata : json_encode($uiMetadata)) : null,
+            'ui_metadata' => $meta,
             'created_at' => now(),
             'updated_at' => now()
         ]);
@@ -127,46 +163,24 @@ class AiAgentController extends Controller
                 break;
             }
 
-            // Execute Tools and detect UI type
+            // Execute Intent Library or Action Manager
             $execution = $this->handleToolCalls($session, $toolCalls);
             $toolResults = $execution['results'];
             
-            // Only update metadata if we actually got new data
             if ($execution['raw_data'] !== null) {
                 $lastToolOutput = $execution['raw_data'];
             }
-            
-            // Only update UI type if it's more specific than 'text'
             if ($execution['ui_type'] !== 'text') {
                 $activeUiType = $execution['ui_type'];
             }
             
-            // Store the tool execution in DB history
             foreach ($toolResults as $tr) {
-                $this->storeMessage(
-                    $session->id, 
-                    'tool', 
-                    json_encode($tr['functionResponse']['response']), 
-                    null, 
-                    $activeUiType, 
-                    null
-                );
-                // Also update the storeMessage to accept tool_call_id if needed, 
-                // but here we just need to ensure the role 'tool' is recorded.
-                // Looking at the DB schema, tool_call_id is a column.
-                DB::table('ai_messages')
-                    ->where('session_id', $session->id)
-                    ->orderBy('id', 'desc')
-                    ->limit(1)
-                    ->update(['tool_call_id' => $tr['functionResponse']['name']]);
+                $this->storeMessage($session->id, 'tool', json_encode($tr['functionResponse']['response']), null, $activeUiType, null);
+                DB::table('ai_messages')->where('session_id', $session->id)->orderBy('id', 'desc')->limit(1)->update(['tool_call_id' => $tr['functionResponse']['name']]);
             }
 
             $history[] = $candidate; 
-            $history[] = [
-                'role' => 'function',
-                'parts' => $toolResults
-            ];
-
+            $history[] = ['role' => 'function', 'parts' => $toolResults];
             $currentTurn++;
         }
 
@@ -185,124 +199,78 @@ class AiAgentController extends Controller
 
         foreach ($toolCalls as $call) {
             $func = $call['functionCall'];
-            $methodName = 'tool_' . $func['name'];
-            
-            // Map tool names to UI types
-            if ($func['name'] === 'execute_analytical_query') $uiType = 'data_table';
-            if ($func['name'] === 'search_customer') $uiType = 'customer_card';
-            if ($func['name'] === 'process_deposit') $uiType = 'action_result';
+            $args = $func['args'] ?? [];
+            $name = $func['name'];
+            $output = null;
 
             try {
-                if (method_exists($this, $methodName)) {
-                    $output = $this->$methodName($session, $func['args'] ?? []);
-                    $rawData = $output; // Capture raw data for metadata
+                if ($name === 'fetch_from_library') {
+                    $intent = $args['intent_name'];
+                    $params = $args['params'] ?? [];
                     
+                    if ($intent === 'TOTAL_DEPOSITS') $output = $this->intentLibrary->getFinancialSummary('Deposit');
+                    elseif ($intent === 'TOTAL_WITHDRAWALS') $output = $this->intentLibrary->getFinancialSummary('Withdraw');
+                    elseif ($intent === 'CUSTOMER_SEARCH') $output = $this->intentLibrary->searchCustomers($params['term'] ?? '');
+                    elseif ($intent === 'LOAN_OVERVIEW') $output = $this->intentLibrary->getLoanOverview();
+                    elseif ($intent === 'RECENT_ACTIVITY') $output = $this->intentLibrary->getRecentActivity();
+                    elseif ($intent === 'HELP_MENU') $output = $this->intentLibrary->getHelpMenu();
+                } 
+                elseif ($name === 'prepare_bank_action') {
+                    $action = $args['action_type'];
+                    $output = $this->actionManager->prepareAction($action, $args['params'] ?? []);
+                }
+
+                if ($output) {
+                    $uiType = $output['ui_type'];
+                    $rawData = $output['ui_metadata'];
                     $results[] = [
                         'functionResponse' => [
-                            'name' => $func['name'],
-                            'response' => ['name' => $func['name'], 'content' => $output]
-                        ]
-                    ];
-                } else {
-                    $results[] = [
-                        'functionResponse' => [
-                            'name' => $func['name'],
-                            'response' => ['error' => "Tool '{$func['name']}' not implemented."]
+                            'name' => $name,
+                            'response' => ['result' => $output['caption'], 'data' => $output['ui_metadata']]
                         ]
                     ];
                 }
             } catch (\Throwable $e) {
-                $results[] = [
-                    'functionResponse' => [
-                        'name' => $func['name'],
-                        'response' => ['error' => $e->getMessage()]
-                    ]
-                ];
+                Log::error("AI Tool Routing Error: " . $e->getMessage());
+                $results[] = ['functionResponse' => ['name' => $name, 'response' => ['error' => 'Tool routing failed.']]];
             }
         }
         return ['results' => $results, 'raw_data' => $rawData, 'ui_type' => $uiType];
     }
 
-    /**
-     * SECURE SQL TOOL
-     */
-    private function tool_execute_analytical_query($session, $args)
+    private function getAvailableTools()
     {
-        $query = $args['query'] ?? null;
-        if (!$query) return "Error: No query provided.";
-
-        $forbidden = ['update', 'delete', 'insert', 'drop', 'truncate', 'alter', 'grant', 'revoke'];
-        $lowerQuery = strtolower($query);
-        foreach ($forbidden as $word) {
-            if (strpos($lowerQuery, $word) !== false) {
-                return "Security Error: Action not allowed.";
-            }
-        }
-
-        // Auto-fix common SQL hallucination errors with dates
-        $query = str_ireplace(['- CURDATE()', ' - INTERVAL'], ['= CURDATE()', ' - INTERVAL'], $query);
-        $query = str_ireplace(' WHEERE ', ' WHERE ', $query);
-
-        $compId = $session->comp_id;
-        if (strpos($lowerQuery, 'comp_id') === false) {
-             if (preg_match('/where/i', $query)) {
-                $query = preg_replace('/where/i', "WHERE comp_id = $compId AND (", $query) . ")";
-            } else {
-                $query .= " WHERE comp_id = $compId";
-            }
-        }
-
-        try {
-            // Using default connection to avoid permission issues with sabs_readonly
-            return DB::select($query);
-        } catch (\Throwable $e) {
-            Log::error("AI SQL Tool Error: " . $e->getMessage() . " Query: " . $query);
-            return [
-                'error' => true,
-                'message' => 'Data retrieval issue',
-                'context' => 'The query could not be completed.'
-            ];
-        }
-    }
-
-    private function tool_search_customer($session, $args)
-    {
-        $term = $args['search_term'] ?? null;
-        if (!$term) return "Error: No search term.";
-
-        return DB::table('nobs_registration')
-            ->where('comp_id', $session->comp_id)
-            ->where(function($q) use ($term) {
-                $q->where('first_name', 'LIKE', "%$term%")
-                  ->orWhere('surname', 'LIKE', "%$term%")
-                  ->orWhere('phone_number', 'LIKE', "%$term%")
-                  ->orWhere('account_number', 'LIKE', "%$term%");
-            })
-            ->limit(5)
-            ->get();
-    }
-
-    private function tool_process_deposit($session, $args)
-    {
-        $account = $args['account_number'] ?? null;
-        $amount = $args['amount'] ?? null;
-        if (!$account || !$amount) return "Error: Missing account or amount.";
-
-        $apiController = new ApiUsersController();
-        $request = new Request([
-            'account_number' => $account,
-            'amount' => $amount,
-            'users' => auth('api')->id(),
-            'comp_id' => $session->comp_id,
-            'name_of_transaction' => 'Deposit'
-        ]);
-
-        $res = $apiController->deposittransaction($request);
-        return [
-            'status' => $res == 200 ? 'success' : 'failed',
-            'message' => $res == 200 ? 'Deposit successful' : 'Transaction failed with code ' . $res,
-            'details' => ['account' => $account, 'amount' => $amount]
-        ];
+        return [[
+            'function_declarations' => [
+                [
+                    'name' => 'fetch_from_library',
+                    'description' => 'Fetches pre-verified reports and data from the bank library.',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'intent_name' => [
+                                'type' => 'string', 
+                                'enum' => ['TOTAL_DEPOSITS', 'TOTAL_WITHDRAWALS', 'CUSTOMER_SEARCH', 'LOAN_OVERVIEW', 'RECENT_ACTIVITY', 'HELP_MENU']
+                            ],
+                            'params' => ['type' => 'object', 'properties' => ['term' => ['type' => 'string']]]
+                        ],
+                        'required' => ['intent_name']
+                    ]
+                ],
+                [
+                    'name' => 'prepare_bank_action',
+                    'description' => 'Prepares a sensitive write action for user confirmation.',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'action_type' => ['type' => 'string', 'enum' => ['reactivate_account', 'toggle_user_status']],
+                            'params' => ['type' => 'object']
+                        ],
+                        'required' => ['action_type']
+                    ]
+                ]
+            ]
+        ]];
     }
 
     private function getHistory($sessionId)
@@ -324,110 +292,43 @@ class AiAgentController extends Controller
                         $parts[] = $call;
                     }
                 }
-                $history[] = [
-                    'role' => $msg->role,
-                    'parts' => $parts
-                ];
+                $history[] = ['role' => $msg->role, 'parts' => $parts];
             } else if ($msg->role === 'tool') {
                 $history[] = [
                     'role' => 'function',
-                    'parts' => [
-                        [
-                            'functionResponse' => [
-                                'name' => $msg->tool_call_id, // This should store the function name
-                                'response' => json_decode($msg->content, true)
-                            ]
+                    'parts' => [[
+                        'functionResponse' => [
+                            'name' => $msg->tool_call_id,
+                            'response' => json_decode($msg->content, true)
                         ]
-                    ]
+                    ]]
                 ];
             }
         }
         return $history;
     }
 
-    private function getAvailableTools()
-    {
-        return [
-            [
-                'function_declarations' => [
-                    [
-                        'name' => 'execute_analytical_query',
-                        'description' => 'Executes a READ-ONLY SQL SELECT query for BI and data analysis. Use this for reports, totals, and counts.',
-                        'parameters' => [
-                            'type' => 'object',
-                            'properties' => [
-                                'query' => ['type' => 'string', 'description' => 'The SQL query to execute.']
-                            ],
-                            'required' => ['query']
-                        ]
-                    ],
-                    [
-                        'name' => 'search_customer',
-                        'description' => 'Search for a customer by name, phone, or account number.',
-                        'parameters' => [
-                            'type' => 'object',
-                            'properties' => [
-                                'search_term' => ['type' => 'string']
-                            ],
-                            'required' => ['search_term']
-                        ]
-                    ],
-                    [
-                        'name' => 'process_deposit',
-                        'description' => 'Executes a financial deposit into a customer account.',
-                        'parameters' => [
-                            'type' => 'object',
-                            'properties' => [
-                                'account_number' => ['type' => 'string'],
-                                'amount' => ['type' => 'number']
-                            ],
-                            'required' => ['account_number', 'amount']
-                        ]
-                    ]
-                ]
-            ]
-        ];
-    }
-
     private function callGeminiApi($model, $apiKey, $history, $tools)
     {
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
 
-        $systemInstruction = "You are SABS AI Assistant. 
-        Current Company ID: " . auth('api')->user()->comp_id . ".
-        
-        INTENT ROUTING LIBRARY (Strict Mapping):
-        - Intent: 'Total Deposits' -> Query: 'SELECT COALESCE(SUM(amount), 0) as total_amount, count(*) as count FROM deposits WHERE comp_id = " . auth('api')->user()->comp_id . " AND DATE(deposit_date) = CURDATE()'
-        - Intent: 'Total Withdrawals' -> Query: 'SELECT COALESCE(SUM(amount), 0) as total_amount, count(*) as count FROM withdrawals WHERE comp_id = " . auth('api')->user()->comp_id . " AND DATE(withdrawal_date) = CURDATE()'
-        - Intent: 'Customer Search' -> Action: Use `search_customer` tool.
-        - Intent: 'Loan Overview' -> Query: 'SELECT count(*) as total, status FROM loan_applications WHERE comp_id = " . auth('api')->user()->comp_id . " GROUP BY status'
-        - Intent: 'Capability/Help' -> Action: Return 'capability_chips' with labels: [Search Customer, Daily Totals, Active Loans, System Health].
+        $systemInstruction = "You are SABS AI Assistant. Context: Company ID " . auth('api')->user()->comp_id . ".
         
         STRICT RULES:
-        1. ZERO SURPRISE: You are a router. If a request does not match the Library above, do NOT write SQL. Return the 'capability_chips' instead.
-        2. NO HALLUCINATION: Never use table names not mentioned in the Library (deposits, withdrawals, loan_applications, nobs_registration).
-        3. BREVITY: Text response must be under 10 words.
-        4. DATA ISOLATION: Every query MUST contain comp_id = " . auth('api')->user()->comp_id . ".";
+        1. NO SURPRISES: Never write your own SQL. You MUST only use `fetch_from_library` or `prepare_bank_action`.
+        2. ROUTING: Map user requests to the correct Library Intent or Bank Action.
+        3. BREVITY: Text response MUST be under 10 words. Summarize the data you found.
+        4. ACTIONS: For any change (reactivate, enable, disable), use `prepare_bank_action`. NEVER say an action is done until the user confirms it.";
 
         $payload = [
-            'system_instruction' => [
-                'parts' => [
-                    'text' => $systemInstruction
-                ]
-            ],
+            'system_instruction' => ['parts' => [['text' => $systemInstruction]]],
             'contents' => $history,
             'tools' => $tools,
-            'generationConfig' => [
-                'temperature' => 0.1,
-                'topP' => 0.8,
-                'topK' => 40
-            ]
+            'generationConfig' => ['temperature' => 0.1]
         ];
 
-        $response = Http::withHeaders(['Content-Type' => 'application/json'])->post($url, $payload);
-        if ($response->failed()) {
-            throw new \Exception("Gemini API Error: " . ($response->json()['error']['message'] ?? $response->body()));
-        }
+        $response = Http::post($url, $payload);
+        if ($response->failed()) throw new \Exception("Gemini API Error");
         return $response->json();
     }
 }
