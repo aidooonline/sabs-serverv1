@@ -219,8 +219,8 @@ class AiAgentController extends Controller
                     $intent = $args['intent_name'];
                     $params = $args['params'] ?? [];
                     
-                    if ($intent === 'TOTAL_DEPOSITS') $output = $this->intentLibrary->getFinancialSummary('Deposit');
-                    elseif ($intent === 'TOTAL_WITHDRAWALS') $output = $this->intentLibrary->getFinancialSummary('Withdraw');
+                    if ($intent === 'TOTAL_DEPOSITS') $output = $this->intentLibrary->getFinancialSummary('Deposit', $params['date'] ?? null);
+                    elseif ($intent === 'TOTAL_WITHDRAWALS') $output = $this->intentLibrary->getFinancialSummary('Withdraw', $params['date'] ?? null);
                     elseif ($intent === 'CUSTOMER_SEARCH') $output = $this->intentLibrary->searchCustomers($params['term'] ?? '');
                     elseif ($intent === 'LOAN_OVERVIEW') $output = $this->intentLibrary->getLoanOverview();
                     elseif ($intent === 'RECENT_ACTIVITY') $output = $this->intentLibrary->getRecentActivity();
@@ -263,7 +263,13 @@ class AiAgentController extends Controller
                                 'type' => 'string', 
                                 'enum' => ['TOTAL_DEPOSITS', 'TOTAL_WITHDRAWALS', 'CUSTOMER_SEARCH', 'LOAN_OVERVIEW', 'RECENT_ACTIVITY', 'HELP_MENU']
                             ],
-                            'params' => ['type' => 'object', 'properties' => ['term' => ['type' => 'string']]]
+                            'params' => [
+                                'type' => 'object', 
+                                'properties' => [
+                                    'term' => ['type' => 'string', 'description' => 'Search term for customers'],
+                                    'date' => ['type' => 'string', 'description' => 'Target date in YYYY-MM-DD format']
+                                ]
+                            ]
                         ],
                         'required' => ['intent_name']
                     ]
@@ -339,20 +345,22 @@ class AiAgentController extends Controller
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
 
         $systemInstruction = "You are the SABS Bank AI Assistant. 
-        Context: Company ID is $compId.
+        Context: Company ID is $compId. Current Date is " . date('Y-m-d') . ".
         
         MISSION: You are a secure router for bank data. 
         You MUST use `fetch_from_library` for all data requests.
         
         EXAMPLES:
-        - User: 'Show me total deposits' -> Call `fetch_from_library(intent_name='TOTAL_DEPOSITS')`
-        - User: 'Find John' -> Call `fetch_from_library(intent_name='CUSTOMER_SEARCH', params={'term': 'John'})`
-        - User: 'Loan status' -> Call `fetch_from_library(intent_name='LOAN_OVERVIEW')`
+        - User: 'Total deposits today' -> `fetch_from_library(intent_name='TOTAL_DEPOSITS', params={'date': '" . date('Y-m-d') . "'})`
+        - User: 'Deposits for April 1st 2026' -> `fetch_from_library(intent_name='TOTAL_DEPOSITS', params={'date': '2026-04-01'})`
+        - User: 'Find John' -> `fetch_from_library(intent_name='CUSTOMER_SEARCH', params={'term': 'John'})`
+        - User: 'Loan status' -> `fetch_from_library(intent_name='LOAN_OVERVIEW')`
         
         STRICT RULES:
         1. NEVER write SQL. 
         2. Always summarize the data you get in under 10 words.
-        3. If you can't find a matching intent, call `fetch_from_library(intent_name='HELP_MENU')`.";
+        3. For any date-specific request, extract the date and pass it in YYYY-MM-DD format.
+        4. If you can't find a matching intent, call `fetch_from_library(intent_name='HELP_MENU')`.";
 
         $payload = [
             'system_instruction' => ['parts' => [['text' => $systemInstruction]]],

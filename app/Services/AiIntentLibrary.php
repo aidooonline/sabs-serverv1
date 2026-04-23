@@ -24,27 +24,28 @@ class AiIntentLibrary
     public function getFinancialSummary($type = 'Deposit', $date = null)
     {
         $date = $date ?: date('Y-m-d');
-        $table = ($type === 'Withdraw') ? 'withdrawals' : 'deposits';
-        $dateCol = ($type === 'Withdraw') ? 'withdrawal_date' : 'deposit_date';
-
-        $data = DB::table($table)
+        
+        $data = DB::table('nobs_transactions')
             ->select(
                 DB::raw('COALESCE(SUM(amount), 0) as total_amount'),
                 DB::raw('COUNT(*) as count')
             )
             ->where('comp_id', $this->compId)
-            ->whereDate($dateCol, $date)
+            ->where('name_of_transaction', $type)
+            ->whereDate('created_at', $date)
             ->first();
+
+        $captionDate = ($date === date('Y-m-d')) ? 'today' : "on $date";
 
         return [
             'ui_type' => 'summary_stat_card',
             'ui_metadata' => [
-                'title' => "Total Today's " . ($type === 'Withdraw' ? 'Withdrawals' : 'Deposits'),
+                'title' => "Total " . ($type === 'Withdraw' ? 'Withdrawals' : 'Deposits') . " ($captionDate)",
                 'value' => number_format($data->total_amount, 2),
                 'suffix' => 'GHS',
                 'details' => "Count: " . $data->count . " transactions"
             ],
-            'caption' => "I found " . $data->count . " " . strtolower($type) . "s for today totaling GHS " . number_format($data->total_amount, 2) . "."
+            'caption' => "I found " . $data->count . " " . strtolower($type) . "s $captionDate totaling GHS " . number_format($data->total_amount, 2) . "."
         ];
     }
 
