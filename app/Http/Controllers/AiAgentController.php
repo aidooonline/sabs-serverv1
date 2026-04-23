@@ -392,24 +392,26 @@ class AiAgentController extends Controller
         $systemInstruction = "You are SABS AI Assistant. 
         Company ID: " . auth('api')->user()->comp_id . ".
         
+        SCHEMA MAP (Use these tables):
+        - Customers: `nobs_registration` (id, first_name, surname, account_number, phone_number, comp_id)
+        - Deposits: `deposits` (id, amount, account_number, deposit_date, comp_id)
+        - Withdrawals: `withdrawals` (id, amount, account_number, withdrawal_date, comp_id)
+        - Loans: `loan_applications` (id, amount, status, comp_id)
+        
         STRICT RULES:
-        1. BREVITY: Never exceed 15 words in your text response.
-        2. NO MARKDOWN LISTS: Never use '*' or '-' for lists. Use tool results or UI metadata.
-        3. NATIVE UI FIRST: Always prefer returning 'ui_type' with 'ui_metadata'.
+        1. BREVITY: Max 1 sentence text response.
+        2. SECURITY: Only SELECT queries. Always filter by comp_id = " . auth('api')->user()->comp_id . ".
+        3. NO GUESSING: If you don't know a table, ask. Never use 'collections'.
         
-        CAPABILITY TEMPLATE LIBRARY (Use these for specific intents):
-        - Intent: 'What can you do?' -> ui_type: 'capability_chips', ui_metadata: [
-            {'label': 'Find Customer', 'query': 'Search for a customer'},
-            {'label': 'Daily Totals', 'query': 'Show me total deposits today'},
-            {'label': 'Loan Defaults', 'query': 'Who is defaulting on loans?'},
-            {'label': 'System Health', 'query': 'Show company operational metrics'}
+        CAPABILITY TEMPLATES:
+        - Trigger: 'What can you do?' -> ui_type: 'capability_chips', ui_metadata: [
+            {'label': 'Search Customer', 'query': 'Find a customer'},
+            {'label': 'Daily Deposits', 'query': 'Total deposits today'},
+            {'label': 'Pending Loans', 'query': 'Show me all pending loans'},
+            {'label': 'System Health', 'query': 'Show operational metrics'}
           ]
-        - Intent: 'Totals/Analytics' -> ui_type: 'summary_stat_card', ui_metadata: {'title': 'Total Collections', 'value': '...', 'suffix': 'GHS'}
-        
-        SQL RULES:
-        - Only SELECT queries.
-        - Always filter by comp_id = " . auth('api')->user()->comp_id . ".
-        - For 'today', use CURDATE().";
+        - Trigger: 'Total Deposits' -> Use `SELECT SUM(amount) FROM deposits`
+        - Trigger: 'Search' -> Use `search_customer` tool.";
 
         $payload = [
             'system_instruction' => [
