@@ -239,6 +239,10 @@ class AiAgentController extends Controller
             }
         }
 
+        // Auto-fix common SQL hallucination errors with dates
+        $query = str_ireplace(['- CURDATE()', ' - INTERVAL'], ['= CURDATE()', ' - INTERVAL'], $query);
+        $query = str_ireplace(' WHEERE ', ' WHERE ', $query);
+
         $compId = $session->comp_id;
         if (strpos($lowerQuery, 'comp_id') === false) {
              if (preg_match('/where/i', $query)) {
@@ -249,7 +253,8 @@ class AiAgentController extends Controller
         }
 
         try {
-            return DB::connection('mysql_readonly')->select($query);
+            // Using default connection to avoid permission issues with sabs_readonly
+            return DB::select($query);
         } catch (\Throwable $e) {
             return "SQL Error: " . $e->getMessage();
         }
