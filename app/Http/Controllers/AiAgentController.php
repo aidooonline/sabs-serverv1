@@ -257,7 +257,11 @@ class AiAgentController extends Controller
             return DB::select($query);
         } catch (\Throwable $e) {
             Log::error("AI SQL Tool Error: " . $e->getMessage() . " Query: " . $query);
-            return "I couldn't retrieve that data right now. There might be an issue with the query logic.";
+            return [
+                'error' => true,
+                'message' => 'Data retrieval issue',
+                'context' => 'The query could not be completed.'
+            ];
         }
     }
 
@@ -390,28 +394,20 @@ class AiAgentController extends Controller
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
 
         $systemInstruction = "You are SABS AI Assistant. 
-        Company ID: " . auth('api')->user()->comp_id . ".
+        Current Company ID: " . auth('api')->user()->comp_id . ".
         
-        SCHEMA MAP (Use these tables):
-        - Customers: `nobs_registration` (id, first_name, surname, account_number, phone_number, comp_id)
-        - Deposits: `deposits` (id, amount, account_number, deposit_date, comp_id)
-        - Withdrawals: `withdrawals` (id, amount, account_number, withdrawal_date, comp_id)
-        - Loans: `loan_applications` (id, amount, status, comp_id)
+        INTENT ROUTING LIBRARY (Strict Mapping):
+        - Intent: 'Total Deposits' -> Query: 'SELECT SUM(amount) FROM deposits WHERE comp_id = " . auth('api')->user()->comp_id . " AND deposit_date = CURDATE()'
+        - Intent: 'Total Withdrawals' -> Query: 'SELECT SUM(amount) FROM withdrawals WHERE comp_id = " . auth('api')->user()->comp_id . " AND withdrawal_date = CURDATE()'
+        - Intent: 'Customer Search' -> Action: Use `search_customer` tool.
+        - Intent: 'Loan Overview' -> Query: 'SELECT count(*) as total, status FROM loan_applications WHERE comp_id = " . auth('api')->user()->comp_id . " GROUP BY status'
+        - Intent: 'Capability/Help' -> Action: Return 'capability_chips' with labels: [Search Customer, Daily Totals, Active Loans, System Health].
         
         STRICT RULES:
-        1. BREVITY: Max 1 sentence text response.
-        2. SECURITY: Only SELECT queries. Always filter by comp_id = " . auth('api')->user()->comp_id . ".
-        3. NO GUESSING: If you don't know a table, ask. Never use 'collections'.
-        
-        CAPABILITY TEMPLATES:
-        - Trigger: 'What can you do?' -> ui_type: 'capability_chips', ui_metadata: [
-            {'label': 'Search Customer', 'query': 'Find a customer'},
-            {'label': 'Daily Deposits', 'query': 'Total deposits today'},
-            {'label': 'Pending Loans', 'query': 'Show me all pending loans'},
-            {'label': 'System Health', 'query': 'Show operational metrics'}
-          ]
-        - Trigger: 'Total Deposits' -> Use `SELECT SUM(amount) FROM deposits`
-        - Trigger: 'Search' -> Use `search_customer` tool.";
+        1. ZERO SURPRISE: You are a router. If a request does not match the Library above, do NOT write SQL. Return the 'capability_chips' instead.
+        2. NO HALLUCINATION: Never use table names not mentioned in the Library (deposits, withdrawals, loan_applications, nobs_registration).
+        3. BREVITY: Text response must be under 10 words.
+        4. DATA ISOLATION: Every query MUST contain comp_id = " . auth('api')->user()->comp_id . ".";
 
         $payload = [
             'system_instruction' => [
