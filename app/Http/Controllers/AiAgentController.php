@@ -327,32 +327,46 @@ class AiAgentController extends Controller
             'gemini-2.5-flash',
             'gemini-3-flash-preview',
             'gemini-3.1-pro-preview',
-            'gemini-3.1-flash-lite-preview'
+            'gemini-3.1-flash-lite-preview',
+            'gemini-1.5-flash',
+            'gemini-1.5-pro'
         ];
         
-        // If an unknown model name is sent, default to gemini-3-flash-preview
         if (!in_array($model, $validModels)) {
-            $model = 'gemini-3-flash-preview'; 
+            $model = 'gemini-1.5-flash'; 
         }
 
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
 
-        $systemInstruction = "You are SABS AI Assistant. Context: Company ID $compId.
+        $systemInstruction = "You are the SABS Bank AI Assistant. 
+        Context: Company ID is $compId.
+        
+        MISSION: You are a secure router for bank data. 
+        You MUST use `fetch_from_library` for all data requests.
+        
+        EXAMPLES:
+        - User: 'Show me total deposits' -> Call `fetch_from_library(intent_name='TOTAL_DEPOSITS')`
+        - User: 'Find John' -> Call `fetch_from_library(intent_name='CUSTOMER_SEARCH', params={'term': 'John'})`
+        - User: 'Loan status' -> Call `fetch_from_library(intent_name='LOAN_OVERVIEW')`
         
         STRICT RULES:
-        1. NO SURPRISES: Never write your own SQL. You MUST only use `fetch_from_library` or `prepare_bank_action`.
-        2. ROUTING: Map user requests to the correct Library Intent or Bank Action.
-        3. BREVITY: Text response MUST be under 10 words. Summarize the data you found.
-        4. ACTIONS: For any change (reactivate, enable, disable), use `prepare_bank_action`. NEVER say an action is done until the user confirms it.";
+        1. NEVER write SQL. 
+        2. Always summarize the data you get in under 10 words.
+        3. If you can't find a matching intent, call `fetch_from_library(intent_name='HELP_MENU')`.";
 
         $payload = [
             'system_instruction' => ['parts' => [['text' => $systemInstruction]]],
             'contents' => $history,
             'tools' => $tools,
+            'safetySettings' => [
+                ['category' => 'HARM_CATEGORY_HARASSMENT', 'threshold' => 'BLOCK_NONE'],
+                ['category' => 'HARM_CATEGORY_HATE_SPEECH', 'threshold' => 'BLOCK_NONE'],
+                ['category' => 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'threshold' => 'BLOCK_NONE'],
+                ['category' => 'HARM_CATEGORY_DANGEROUS_CONTENT', 'threshold' => 'BLOCK_NONE']
+            ],
             'generationConfig' => [
                 'temperature' => 0.1,
-                'topP' => 0.8,
-                'topK' => 40
+                'topP' => 0.95,
             ]
         ];
 
