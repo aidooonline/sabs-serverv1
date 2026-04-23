@@ -321,6 +321,23 @@ class AiAgentController extends Controller
 
     private function callGeminiApi($model, $apiKey, $history, $tools, $compId)
     {
+        // Guard: Support all models from the mobile settings screen
+        $validModels = [
+            'gemini-1.5-flash', 
+            'gemini-1.5-pro', 
+            'gemini-2.0-flash',
+            'gemini-2.5-pro',
+            'gemini-2.5-flash',
+            'gemini-3-flash-preview',
+            'gemini-3.1-pro-preview',
+            'gemini-3.1-flash-lite-preview'
+        ];
+        
+        // If an unknown model name is sent, default to 1.5-flash for stability
+        if (!in_array($model, $validModels)) {
+            $model = 'gemini-1.5-flash'; 
+        }
+
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
 
         $systemInstruction = "You are SABS AI Assistant. Context: Company ID $compId.
@@ -335,11 +352,22 @@ class AiAgentController extends Controller
             'system_instruction' => ['parts' => [['text' => $systemInstruction]]],
             'contents' => $history,
             'tools' => $tools,
-            'generationConfig' => ['temperature' => 0.1]
+            'generationConfig' => [
+                'temperature' => 0.1,
+                'topP' => 0.8,
+                'topK' => 40
+            ]
         ];
 
         $response = Http::post($url, $payload);
-        if ($response->failed()) throw new \Exception("Gemini API Error");
+        
+        if ($response->failed()) {
+            $errorBody = $response->json();
+            Log::error("Gemini API Error Body:", $errorBody);
+            $errorMessage = $errorBody['error']['message'] ?? 'Unknown Gemini API Error';
+            throw new \Exception("Gemini API Error: " . $errorMessage);
+        }
+        
         return $response->json();
     }
 }
