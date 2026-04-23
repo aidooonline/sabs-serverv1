@@ -261,7 +261,7 @@ class AiAgentController extends Controller
                         'properties' => [
                             'intent_name' => [
                                 'type' => 'string', 
-                                'enum' => ['TOTAL_DEPOSITS', 'TOTAL_WITHDRAWALS', 'CUSTOMER_SEARCH', 'LOAN_OVERVIEW', 'RECENT_ACTIVITY', 'HELP_MENU']
+                                'enum' => ['TOTAL_DEPOSITS', 'TOTAL_WITHDRAWALS', 'ACCOUNT_SUMMARY', 'CUSTOMER_SEARCH', 'LOAN_OVERVIEW', 'RECENT_ACTIVITY', 'HELP_MENU']
                             ],
                             'params' => [
                                 'type' => 'object', 
@@ -353,16 +353,16 @@ class AiAgentController extends Controller
         
         GUIDE FOR PRECISION:
         1. FOR SUMS (DEPOSITS/WITHDRAWALS):
-           - Standard 'Deposits' query: `is_total: false` (Returns only literal deposits).
-           - 'Grand Total', 'All accounts', or 'Everything' query: `is_total: true` (Sums Deposits + Loan Repayments + Susu entries).
-           - RE-FETCH RULE: If the user clarifies their request (e.g., 'I meant for ALL accounts'), you MUST call the tool again with the updated `is_total` parameter. Never guess based on previous tool results.
-        2. FOR CUSTOMERS: Use CUSTOMER_SEARCH with the name or account number.
-        3. FOR LOANS: Use LOAN_OVERVIEW for portfolio-wide stats.
+           - Standard 'Deposits' query: `is_total: false`.
+           - 'Grand Total', 'All accounts', or 'Everything' query: `is_total: true`.
+        2. FOR DEFINITIVE SUMMARIES:
+           - If a user asks for 'Summary of accounts', 'Daily snapshot', 'Account performance', or 'How is the bank doing', use `ACCOUNT_SUMMARY`. This returns a detailed breakdown by category.
+           - RE-FETCH RULE: Always call the tool again if the user clarifies.
         
         EXAMPLES:
+        - User: 'Show me a summary of accounts today' -> `fetch_from_library(intent_name='ACCOUNT_SUMMARY', params={'date': '" . date('Y-m-d') . "'})`
+        - User: 'Daily snapshot' -> `fetch_from_library(intent_name='ACCOUNT_SUMMARY', params={'date': '" . date('Y-m-d') . "'})`
         - User: 'Total deposits today' -> `fetch_from_library(intent_name='TOTAL_DEPOSITS', params={'date': '" . date('Y-m-d') . "', 'is_total': false})`
-        - User: 'No, I meant for all accounts today' -> `fetch_from_library(intent_name='TOTAL_DEPOSITS', params={'date': '" . date('Y-m-d') . "', 'is_total': true})`
-        - User: 'How much was withdrawn yesterday?' -> `fetch_from_library(intent_name='TOTAL_WITHDRAWALS', params={'date': '" . date('Y-m-d', strtotime('-1 day')) . "'})`
         
         STRICT RULES:
         1. NEVER write SQL. 

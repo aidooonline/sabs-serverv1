@@ -19,6 +19,56 @@ class AiIntentLibrary
     }
 
     /**
+     * Intent: Detailed Account Summary
+     * Provides a granular breakdown of all money-in and money-out for the day.
+     */
+    public function getAccountSummary($date = null)
+    {
+        $date = $date ?: date('Y-m-d');
+
+        // 1. Fetch Grouped Totals
+        $breakdown = DB::table('nobs_transactions')
+            ->select(
+                'name_of_transaction',
+                'account_type',
+                DB::raw('COALESCE(SUM(amount), 0) as total'),
+                DB::raw('COUNT(*) as count')
+            )
+            ->where('comp_id', $this->compId)
+            ->whereDate('created_at', $date)
+            ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
+            ->where('description', 'NOT LIKE', '%reversal%')
+            ->where('amount', '<', 1000000)
+            ->groupBy('name_of_transaction', 'account_type')
+            ->get();
+
+        // 2. Calculate Totals for the Snapshot
+        $deposits = 0;
+        $withdrawals = 0;
+        $repayments = 0;
+        $fees = 0;
+
+        foreach ($breakdown as $item) {
+            $type = $item->name_of_transaction;
+            $amt = (float)$item->total;
+
+            if ($type === 'Deposit') $deposits += $amt;
+            elseif ($type === 'Withdraw') $withdrawals += $amt;
+            elseif ($type === 'Loan Repayment') $repayments += $amt;
+            elseif (stripos($type, 'fee') !== false || stripos($type, 'charge') !== false || $type === 'sms') $fees += $amt;
+        }
+
+        $grandTotalIn = $deposits + $repayments;
+        $netPosition = $grandTotalIn - $withdrawals;
+
+        return [
+            'ui_type' => 'data_table',
+            'ui_metadata' => $breakdown,
+            'caption' => "Financial Snapshot for $date: Total In: GHS " . number_format($grandTotalIn, 2) . " | Total Out: GHS " . number_format($withdrawals, 2) . " | Net: GHS " . number_format($netPosition, 2)
+        ];
+    }
+
+    /**
      * Intent: Total Deposits / Total Withdrawals
      * @param string $type - 'Deposit' or 'Withdraw'
      * @param string $date - YYYY-MM-DD
