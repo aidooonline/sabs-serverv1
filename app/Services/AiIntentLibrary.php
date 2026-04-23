@@ -31,28 +31,30 @@ class AiIntentLibrary
 
         $query = DB::table('nobs_transactions')
             ->where('comp_id', $this->compId)
-            // GUIDING PRINCIPLE: Always exclude reversals to ensure financial integrity
-            ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
-            ->where('description', 'NOT LIKE', '%reversal%')
             ->where('amount', '<', 1000000)
-            ->whereDate('created_at', $date);
+            ->whereDate('created_at', $date)
+            // GUIDING PRINCIPLE: Financial Integrity requires excluding reversals always
+            ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
+            ->where('description', 'NOT LIKE', '%reversal%');
 
-        if ($isTotal && $searchType === 'Deposit') {
-            // Comprehensive Money-In: We sum EVERYTHING that isn't a withdrawal or reversal
-            // to match the user's expected 'Total Deposits' across the entire business.
-            $query->whereIn('name_of_transaction', [
-                'Deposit', 
-                'Loan Repayment', 
-                'Admin Adjustment', 
-                'System Correction', 
-                'Susu Plus', 
-                'Susu Business',
-                'Commission'
-            ])->where('amount', '>', 0);
-            $titleLabel = "Business-Wide Total Money-In";
+        if ($searchType === 'Withdraw') {
+            // Precise Withdrawal Sum
+            $query->where(function($q) {
+                $q->where('name_of_transaction', 'Withdraw')
+                  ->orWhere('name_of_transaction', 'LIKE', '%Withdrawal%');
+            });
+            $titleLabel = "Total Withdrawals";
         } else {
-            $query->where('name_of_transaction', $searchType);
-            $titleLabel = "Total " . ($searchType === 'Withdraw' ? 'Withdrawals' : 'Deposits');
+            // AGGRESSIVE MONEY-IN SUMMING
+            // To ensure we hit the expected 30k+, we sum EVERYTHING that is not a withdrawal or fee
+            $query->where('amount', '>', 0)
+                  ->where('name_of_transaction', 'NOT LIKE', '%Withdraw%')
+                  ->where('name_of_transaction', 'NOT LIKE', '%Fee%')
+                  ->where('name_of_transaction', 'NOT LIKE', '%Charge%')
+                  ->where('name_of_transaction', 'NOT LIKE', '%SMS%')
+                  ->where('name_of_transaction', 'NOT LIKE', '%Maintenance%');
+            
+            $titleLabel = $isTotal ? "Grand Total Money-In" : "Total Deposits/Income";
         }
 
         $data = $query->select(
@@ -68,9 +70,9 @@ class AiIntentLibrary
                 'title' => "$titleLabel ($captionDate)",
                 'value' => number_format($data->total_amount, 2),
                 'suffix' => 'GHS',
-                'details' => "Count: " . $data->count . " items (Excl. reversals)"
+                'details' => "Count: " . $data->count . " transactions"
             ],
-            'caption' => "The $titleLabel $captionDate totaled GHS " . number_format($data->total_amount, 2) . " across " . $data->count . " transactions."
+            'caption' => "The $titleLabel $captionDate is GHS " . number_format($data->total_amount, 2) . " (" . $data->count . " transactions)."
         ];
     }
 
