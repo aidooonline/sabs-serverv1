@@ -74,13 +74,13 @@ class AiActionManager
      * Executes the action after user confirmation.
      * MUST re-verify permissions here.
      */
-    public function executeAction($payload)
+    public function executeAction($payload, $user)
     {
         $action = $payload['action'];
         $params = $payload['params'];
-        $compId = Auth::user()->comp_id;
+        $compId = $user->comp_id;
 
-        Log::info("AI Execute Action: " . $action, ['user' => Auth::id(), 'params' => $params]);
+        Log::info("AI Execute Action: " . $action, ['user' => $user->id, 'params' => $params]);
 
         try {
             if ($action === 'reactivate_account') {
@@ -93,16 +93,17 @@ class AiActionManager
 
             if ($action === 'toggle_user_status') {
                 // Security: Only management can toggle status
-                if (!Auth::user()->hasAnyRole(['Admin', 'Owner', 'Manager'])) {
+                $managementTypes = ['Admin', 'owner', 'super admin', 'God Admin', 'Manager'];
+                if (!in_array($user->type, $managementTypes)) {
                     return ['success' => false, 'message' => 'Insufficient permissions to toggle user status.'];
                 }
                 
-                $user = DB::table('users')->where('id', $params['user_id'])->where('comp_id', $compId)->first();
-                if (!$user) return ['success' => false, 'message' => 'User not found.'];
+                $targetUser = DB::table('users')->where('id', $params['user_id'])->where('comp_id', $compId)->first();
+                if (!$targetUser) return ['success' => false, 'message' => 'User not found.'];
                 
-                DB::table('users')->where('id', $user->id)->update(['is_disabled' => !$user->is_disabled]);
-                $status = !$user->is_disabled ? 'Disabled' : 'Enabled';
-                return ['success' => true, 'message' => "User {$user->name} is now $status."];
+                DB::table('users')->where('id', $targetUser->id)->update(['is_disabled' => !$targetUser->is_disabled]);
+                $status = $targetUser->is_disabled ? 'Enabled' : 'Disabled';
+                return ['success' => true, 'message' => "User {$targetUser->name} is now $status."];
             }
 
             return ['success' => false, 'message' => "Action '$action' not recognized."];

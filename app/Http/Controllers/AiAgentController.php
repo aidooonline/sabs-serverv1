@@ -16,8 +16,7 @@ class AiAgentController extends Controller
 
     public function __construct()
     {
-        $this->intentLibrary = new AiIntentLibrary();
-        $this->actionManager = new AiActionManager();
+        // Don't initialize Auth-dependent services here
     }
 
     /**
@@ -31,8 +30,9 @@ class AiAgentController extends Controller
                 return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
             }
 
-            // Re-initialize with current user company
-            $this->intentLibrary = new AiIntentLibrary($user->comp_id);
+            $compId = $user->comp_id;
+            $this->intentLibrary = new AiIntentLibrary($compId);
+            $this->actionManager = new AiActionManager();
 
             $prompt = $request->input('message');
             $sessionId = $request->input('session_id');
@@ -52,7 +52,7 @@ class AiAgentController extends Controller
             $this->storeMessage($session->id, 'user', $prompt);
 
             // Process with Gemini and get enriched result
-            $result = $this->processWithGemini($session, $prompt, $model, $apiKey);
+            $result = $this->processWithGemini($session, $prompt, $model, $apiKey, $compId);
 
             return response()->json([
                 'success' => true,
@@ -77,10 +77,14 @@ class AiAgentController extends Controller
     public function executeAction(Request $request)
     {
         try {
+            $user = auth('api')->user();
+            if (!$user) return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+            
             $payload = $request->input('payload');
             if (!$payload) return response()->json(['success' => false, 'message' => 'Invalid action payload.'], 400);
 
-            $result = $this->actionManager->executeAction($payload);
+            $this->actionManager = new AiActionManager();
+            $result = $this->actionManager->executeAction($payload, $user);
             
             return response()->json($result);
         } catch (\Throwable $e) {
@@ -131,7 +135,7 @@ class AiAgentController extends Controller
         ]);
     }
 
-    private function processWithGemini($session, $prompt, $model, $apiKey)
+    private function processWithGemini($session, $prompt, $model, $apiKey, $compId)
     {
         $history = $this->getHistory($session->id);
         $tools = $this->getAvailableTools();
@@ -143,7 +147,7 @@ class AiAgentController extends Controller
         $activeUiType = 'text';
 
         while ($currentTurn < $maxTurns) {
-            $response = $this->callGeminiApi($model, $apiKey, $history, $tools);
+            $response = $this->callGeminiApi($model, $apiKey, $history, $tools, $compId);
             $lastResponse = $response;
             $candidate = $response['candidates'][0]['content'] ?? null;
 
@@ -308,11 +312,11 @@ class AiAgentController extends Controller
         return $history;
     }
 
-    private function callGeminiApi($model, $apiKey, $history, $tools)
+    private function callGeminiApi($model, $apiKey, $history, $tools, $compId)
     {
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
 
-        $systemInstruction = "You are SABS AI Assistant. Context: Company ID " . auth('api')->user()->comp_id . ".
+        $systemInstruction = "You are SABS AI Assistant. Context: Company ID $compId.
         
         STRICT RULES:
         1. NO SURPRISES: Never write your own SQL. You MUST only use `fetch_from_library` or `prepare_bank_action`.
