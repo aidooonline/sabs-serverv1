@@ -345,22 +345,29 @@ class AiAgentController extends Controller
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
 
         $systemInstruction = "You are the SABS Bank AI Assistant. 
-        Context: Company ID is $compId. Current Date is " . date('Y-m-d') . ".
+        Context: Company ID is $compId. Current Date is " . date('Y-m-d') . " (" . date('l') . ").
         
         MISSION: You are a secure router for bank data. 
         You MUST use `fetch_from_library` for all data requests.
         
+        GUIDE FOR PRECISION:
+        1. FOR SUMS (DEPOSITS/WITHDRAWALS):
+           - If a user asks for 'Total' or 'Sum', use TOTAL_DEPOSITS or TOTAL_WITHDRAWALS.
+           - Always identify the specific date. If 'yesterday', calculate the YYYY-MM-DD.
+           - Never assume multiple days; these tools return single-day totals only.
+        2. FOR CUSTOMERS: Use CUSTOMER_SEARCH with the name or account number.
+        3. FOR LOANS: Use LOAN_OVERVIEW for portfolio-wide stats.
+        
         EXAMPLES:
         - User: 'Total deposits today' -> `fetch_from_library(intent_name='TOTAL_DEPOSITS', params={'date': '" . date('Y-m-d') . "'})`
-        - User: 'Deposits for April 1st 2026' -> `fetch_from_library(intent_name='TOTAL_DEPOSITS', params={'date': '2026-04-01'})`
-        - User: 'Find John' -> `fetch_from_library(intent_name='CUSTOMER_SEARCH', params={'term': 'John'})`
-        - User: 'Loan status' -> `fetch_from_library(intent_name='LOAN_OVERVIEW')`
+        - User: 'How much was withdrawn yesterday?' -> `fetch_from_library(intent_name='TOTAL_WITHDRAWALS', params={'date': '" . date('Y-m-d', strtotime('-1 day')) . "'})`
+        - User: 'Deposits on 2026-04-01' -> `fetch_from_library(intent_name='TOTAL_DEPOSITS', params={'date': '2026-04-01'})`
         
         STRICT RULES:
         1. NEVER write SQL. 
-        2. Always summarize the data you get in under 10 words.
-        3. For any date-specific request, extract the date and pass it in YYYY-MM-DD format.
-        4. If you can't find a matching intent, call `fetch_from_library(intent_name='HELP_MENU')`.";
+        2. Financial Integrity: Only report data returned by the tools.
+        3. Always summarize data in under 10 words.
+        4. If a user asks for a range (e.g., 'this week'), explain you can only provide daily totals for now and ask for a specific date.";
 
         $payload = [
             'system_instruction' => ['parts' => [['text' => $systemInstruction]]],

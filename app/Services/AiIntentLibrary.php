@@ -25,27 +25,35 @@ class AiIntentLibrary
     {
         $date = $date ?: date('Y-m-d');
         
+        // Strict mapping to ensure precision
+        $searchType = ($type === 'Withdraw') ? 'Withdraw' : 'Deposit';
+
         $data = DB::table('nobs_transactions')
             ->select(
                 DB::raw('COALESCE(SUM(amount), 0) as total_amount'),
                 DB::raw('COUNT(*) as count')
             )
             ->where('comp_id', $this->compId)
-            ->where('name_of_transaction', $type)
+            ->where('name_of_transaction', $searchType)
+            // GUIDING PRINCIPLE: Always exclude reversals to ensure financial integrity
+            ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
+            ->where('description', 'NOT LIKE', '%reversal%')
+            ->where('amount', '<', 1000000) // Filter out sanity-breaking test data
             ->whereDate('created_at', $date)
             ->first();
 
         $captionDate = ($date === date('Y-m-d')) ? 'today' : "on $date";
+        $titleType = ($searchType === 'Withdraw' ? 'Withdrawals' : 'Deposits');
 
         return [
             'ui_type' => 'summary_stat_card',
             'ui_metadata' => [
-                'title' => "Total " . ($type === 'Withdraw' ? 'Withdrawals' : 'Deposits') . " ($captionDate)",
+                'title' => "Total $titleType ($captionDate)",
                 'value' => number_format($data->total_amount, 2),
                 'suffix' => 'GHS',
-                'details' => "Count: " . $data->count . " transactions"
+                'details' => "Count: " . $data->count . " transactions (Excluding reversals)"
             ],
-            'caption' => "I found " . $data->count . " " . strtolower($type) . "s $captionDate totaling GHS " . number_format($data->total_amount, 2) . "."
+            'caption' => "The $titleType $captionDate totaled GHS " . number_format($data->total_amount, 2) . " across " . $data->count . " valid transactions."
         ];
     }
 
