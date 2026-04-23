@@ -49,11 +49,11 @@ class AiAgentController extends Controller
             ]);
 
         } catch (\Throwable $e) {
-            Log::error("AI Chat Error: " . $e->getMessage());
+            Log::error("AI Chat Error: " . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
             return response()->json([
                 'success' => false,
-                'message' => 'AI Error: ' . $e->getMessage(),
-                'trace' => env('APP_DEBUG') ? $e->getTraceAsString() : null
+                'message' => 'I encountered a technical issue. Please try again or contact support.',
+                'trace' => (config('app.debug') && !app()->environment('production')) ? $e->getTraceAsString() : null
             ], 500);
         }
     }
@@ -235,7 +235,7 @@ class AiAgentController extends Controller
         $lowerQuery = strtolower($query);
         foreach ($forbidden as $word) {
             if (strpos($lowerQuery, $word) !== false) {
-                return "Security Error: Query contains forbidden keyword '$word'. Only SELECT is allowed.";
+                return "Security Error: Action not allowed.";
             }
         }
 
@@ -256,7 +256,8 @@ class AiAgentController extends Controller
             // Using default connection to avoid permission issues with sabs_readonly
             return DB::select($query);
         } catch (\Throwable $e) {
-            return "SQL Error: " . $e->getMessage();
+            Log::error("AI SQL Tool Error: " . $e->getMessage() . " Query: " . $query);
+            return "I couldn't retrieve that data right now. There might be an issue with the query logic.";
         }
     }
 
