@@ -38,9 +38,18 @@ class AiIntentLibrary
             ->whereDate('created_at', $date);
 
         if ($isTotal && $searchType === 'Deposit') {
-            // Comprehensive Money-In: Deposits + Loan Repayments
-            $query->whereIn('name_of_transaction', ['Deposit', 'Loan Repayment']);
-            $titleLabel = "Grand Total Money-In";
+            // Comprehensive Money-In: We sum EVERYTHING that isn't a withdrawal or reversal
+            // to match the user's expected 'Total Deposits' across the entire business.
+            $query->whereIn('name_of_transaction', [
+                'Deposit', 
+                'Loan Repayment', 
+                'Admin Adjustment', 
+                'System Correction', 
+                'Susu Plus', 
+                'Susu Business',
+                'Commission'
+            ])->where('amount', '>', 0);
+            $titleLabel = "Business-Wide Total Money-In";
         } else {
             $query->where('name_of_transaction', $searchType);
             $titleLabel = "Total " . ($searchType === 'Withdraw' ? 'Withdrawals' : 'Deposits');
