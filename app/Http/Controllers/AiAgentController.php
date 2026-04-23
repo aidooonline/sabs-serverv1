@@ -321,11 +321,8 @@ class AiAgentController extends Controller
 
     private function callGeminiApi($model, $apiKey, $history, $tools, $compId)
     {
-        // Guard: Support all models from the mobile settings screen
+        // Guard: Support only your preferred models
         $validModels = [
-            'gemini-1.5-flash', 
-            'gemini-1.5-pro', 
-            'gemini-2.0-flash',
             'gemini-2.5-pro',
             'gemini-2.5-flash',
             'gemini-3-flash-preview',
@@ -333,9 +330,9 @@ class AiAgentController extends Controller
             'gemini-3.1-flash-lite-preview'
         ];
         
-        // If an unknown model name is sent, default to 1.5-flash for stability
+        // If an unknown model name is sent, default to gemini-3-flash-preview
         if (!in_array($model, $validModels)) {
-            $model = 'gemini-1.5-flash'; 
+            $model = 'gemini-3-flash-preview'; 
         }
 
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
