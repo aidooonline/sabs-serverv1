@@ -219,8 +219,8 @@ class AiAgentController extends Controller
                     $intent = $args['intent_name'];
                     $params = $args['params'] ?? [];
                     
-                    if ($intent === 'TOTAL_DEPOSITS') $output = $this->intentLibrary->getFinancialSummary('Deposit', $params['date'] ?? null);
-                    elseif ($intent === 'TOTAL_WITHDRAWALS') $output = $this->intentLibrary->getFinancialSummary('Withdraw', $params['date'] ?? null);
+                    if ($intent === 'TOTAL_DEPOSITS') $output = $this->intentLibrary->getFinancialSummary('Deposit', $params['date'] ?? null, $params['is_total'] ?? false);
+                    elseif ($intent === 'TOTAL_WITHDRAWALS') $output = $this->intentLibrary->getFinancialSummary('Withdraw', $params['date'] ?? null, $params['is_total'] ?? false);
                     elseif ($intent === 'CUSTOMER_SEARCH') $output = $this->intentLibrary->searchCustomers($params['term'] ?? '');
                     elseif ($intent === 'LOAN_OVERVIEW') $output = $this->intentLibrary->getLoanOverview();
                     elseif ($intent === 'RECENT_ACTIVITY') $output = $this->intentLibrary->getRecentActivity();
@@ -267,7 +267,8 @@ class AiAgentController extends Controller
                                 'type' => 'object', 
                                 'properties' => [
                                     'term' => ['type' => 'string', 'description' => 'Search term for customers'],
-                                    'date' => ['type' => 'string', 'description' => 'Target date in YYYY-MM-DD format']
+                                    'date' => ['type' => 'string', 'description' => 'Target date in YYYY-MM-DD format'],
+                                    'is_total' => ['type' => 'boolean', 'description' => 'Set to true if user wants TOTAL across ALL account types (e.g. Regular + Susu + Repayments)']
                                 ]
                             ]
                         ],
@@ -348,25 +349,25 @@ class AiAgentController extends Controller
         Context: Company ID is $compId. Current Date is " . date('Y-m-d') . " (" . date('l') . ").
         
         MISSION: You are a secure router for bank data. 
-        You MUST use `fetch_from_library` for all data requests.
+        You MUST use `fetch_from_library` for ALL data requests.
         
         GUIDE FOR PRECISION:
         1. FOR SUMS (DEPOSITS/WITHDRAWALS):
-           - If a user asks for 'Total' or 'Sum', use TOTAL_DEPOSITS or TOTAL_WITHDRAWALS.
-           - Always identify the specific date. If 'yesterday', calculate the YYYY-MM-DD.
-           - Never assume multiple days; these tools return single-day totals only.
+           - Standard 'Deposits' query: `is_total: false` (Returns only literal deposits).
+           - 'Grand Total', 'All accounts', or 'Everything' query: `is_total: true` (Sums Deposits + Loan Repayments + Susu entries).
+           - RE-FETCH RULE: If the user clarifies their request (e.g., 'I meant for ALL accounts'), you MUST call the tool again with the updated `is_total` parameter. Never guess based on previous tool results.
         2. FOR CUSTOMERS: Use CUSTOMER_SEARCH with the name or account number.
         3. FOR LOANS: Use LOAN_OVERVIEW for portfolio-wide stats.
         
         EXAMPLES:
-        - User: 'Total deposits today' -> `fetch_from_library(intent_name='TOTAL_DEPOSITS', params={'date': '" . date('Y-m-d') . "'})`
+        - User: 'Total deposits today' -> `fetch_from_library(intent_name='TOTAL_DEPOSITS', params={'date': '" . date('Y-m-d') . "', 'is_total': false})`
+        - User: 'No, I meant for all accounts today' -> `fetch_from_library(intent_name='TOTAL_DEPOSITS', params={'date': '" . date('Y-m-d') . "', 'is_total': true})`
         - User: 'How much was withdrawn yesterday?' -> `fetch_from_library(intent_name='TOTAL_WITHDRAWALS', params={'date': '" . date('Y-m-d', strtotime('-1 day')) . "'})`
-        - User: 'Deposits on 2026-04-01' -> `fetch_from_library(intent_name='TOTAL_DEPOSITS', params={'date': '2026-04-01'})`
         
         STRICT RULES:
         1. NEVER write SQL. 
-        2. Financial Integrity: Only report data returned by the tools.
-        3. Always summarize data in under 10 words.
+        2. MANDATORY TOOL USE: You are prohibited from answering financial questions from memory. Always call a tool.
+        3. Summarize data in under 10 words.
         4. If a user asks for a range (e.g., 'this week'), explain you can only provide daily totals for now and ask for a specific date.";
 
         $payload = [

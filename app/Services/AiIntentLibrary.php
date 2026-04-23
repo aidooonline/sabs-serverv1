@@ -20,40 +20,48 @@ class AiIntentLibrary
 
     /**
      * Intent: Total Deposits / Total Withdrawals
+     * @param string $type - 'Deposit' or 'Withdraw'
+     * @param string $date - YYYY-MM-DD
+     * @param bool $isTotal - If true, sums all 'money-in' (Deposits + Loan Repayments)
      */
-    public function getFinancialSummary($type = 'Deposit', $date = null)
+    public function getFinancialSummary($type = 'Deposit', $date = null, $isTotal = false)
     {
         $date = $date ?: date('Y-m-d');
-        
-        // Strict mapping to ensure precision
         $searchType = ($type === 'Withdraw') ? 'Withdraw' : 'Deposit';
 
-        $data = DB::table('nobs_transactions')
-            ->select(
-                DB::raw('COALESCE(SUM(amount), 0) as total_amount'),
-                DB::raw('COUNT(*) as count')
-            )
+        $query = DB::table('nobs_transactions')
             ->where('comp_id', $this->compId)
-            ->where('name_of_transaction', $searchType)
             // GUIDING PRINCIPLE: Always exclude reversals to ensure financial integrity
             ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
             ->where('description', 'NOT LIKE', '%reversal%')
-            ->where('amount', '<', 1000000) // Filter out sanity-breaking test data
-            ->whereDate('created_at', $date)
-            ->first();
+            ->where('amount', '<', 1000000)
+            ->whereDate('created_at', $date);
+
+        if ($isTotal && $searchType === 'Deposit') {
+            // Comprehensive Money-In: Deposits + Loan Repayments
+            $query->whereIn('name_of_transaction', ['Deposit', 'Loan Repayment']);
+            $titleLabel = "Grand Total Money-In";
+        } else {
+            $query->where('name_of_transaction', $searchType);
+            $titleLabel = "Total " . ($searchType === 'Withdraw' ? 'Withdrawals' : 'Deposits');
+        }
+
+        $data = $query->select(
+            DB::raw('COALESCE(SUM(amount), 0) as total_amount'),
+            DB::raw('COUNT(*) as count')
+        )->first();
 
         $captionDate = ($date === date('Y-m-d')) ? 'today' : "on $date";
-        $titleType = ($searchType === 'Withdraw' ? 'Withdrawals' : 'Deposits');
 
         return [
             'ui_type' => 'summary_stat_card',
             'ui_metadata' => [
-                'title' => "Total $titleType ($captionDate)",
+                'title' => "$titleLabel ($captionDate)",
                 'value' => number_format($data->total_amount, 2),
                 'suffix' => 'GHS',
-                'details' => "Count: " . $data->count . " transactions (Excluding reversals)"
+                'details' => "Count: " . $data->count . " items (Excl. reversals)"
             ],
-            'caption' => "The $titleType $captionDate totaled GHS " . number_format($data->total_amount, 2) . " across " . $data->count . " valid transactions."
+            'caption' => "The $titleLabel $captionDate totaled GHS " . number_format($data->total_amount, 2) . " across " . $data->count . " transactions."
         ];
     }
 
