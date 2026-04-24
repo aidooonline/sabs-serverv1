@@ -19,17 +19,21 @@ class AiAgentController extends Controller
     private $allowedTables = [
         'nobs_transactions', 'nobs_registration', 'loan_applications', 
         'loan_repayment_schedules', 'agent_commissions', 'capital_accounts',
-        'capital_account_transactions', 'nobs_user_account_numbers'
+        'capital_account_transactions', 'nobs_user_account_numbers',
+        'loan_products', 'loan_fees', 'account_types', 'loan_product_fees'
     ];
 
     private $forbiddenColumns = [
-        'password', 'remember_token', 'api_token', 'secret', 'key', 'auth'
+        'password', 'remember_token', 'api_token', 'secret', 'key', 'auth', 'iv', 'salt'
     ];
 
     public function __construct()
     {
     }
 
+    /**
+     * Entry point for all AI Chat interactions.
+     */
     public function chat(Request $request)
     {
         try {
@@ -60,6 +64,7 @@ class AiAgentController extends Controller
             $session = $this->getOrCreateSession($user, $sessionId, $model);
             $this->storeMessage($session->id, 'user', $prompt);
 
+            // Process with Gemini and get enriched result
             $result = $this->processWithGemini($session, $prompt, $model, $apiKey, $compId, $userContext);
 
             return response()->json([
@@ -72,10 +77,21 @@ class AiAgentController extends Controller
 
         } catch (\Throwable $e) {
             Log::error("AI Chat Error: " . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
-            return response()->json(['success' => false, 'message' => "I encountered an issue: " . $e->getMessage()], 500);
+            
+            $msg = $e->getMessage();
+            // Don't leak raw SQL errors to users, but keep security violations clear
+            if ($e instanceof QueryException) $msg = "Database analysis failed. Please refine your question.";
+
+            return response()->json([
+                'success' => false,
+                'message' => "I encountered an issue: " . $msg
+            ], 500);
         }
     }
 
+    /**
+     * Secure endpoint to execute a previously prepared AI action.
+     */
     public function executeAction(Request $request)
     {
         try {
@@ -143,7 +159,7 @@ class AiAgentController extends Controller
         $history = $this->getHistory($session->id);
         $tools = $this->getAvailableTools();
         
-        $maxTurns = 3;
+        $maxTurns = 4; // Increased for complex analytical multi-steps
         $currentTurn = 0;
         $lastResponse = null;
         $lastToolOutput = null;
@@ -246,12 +262,7 @@ class AiAgentController extends Controller
                 }
             } catch (\Throwable $e) {
                 Log::error("AI Tool Routing Error: " . $e->getMessage());
-                $results[] = [
-                    'functionResponse' => [
-                        'name' => $name, 
-                        'response' => ['error' => 'Tool failed: ' . $e->getMessage()]
-                    ]
-                ];
+                $results[] = ['functionResponse' => ['name' => $name, 'response' => ['error' => $e->getMessage()]]];
             }
         }
         return ['results' => $results, 'raw_data' => $rawData, 'ui_type' => $uiType];
@@ -263,39 +274,35 @@ class AiAgentController extends Controller
     private function executeSecureSql($sql)
     {
         // 1. Strict Read-Only Guard
-        if (preg_match('/(DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER|CREATE|REPLACE|GRANT|REVOKE|EXEC)/i', $sql)) {
+        if (preg_match('/(DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER|CREATE|REPLACE|GRANT|REVOKE|EXEC|UNION)/i', $sql)) {
             throw new \Exception("Security Violation: Only SELECT queries are permitted.");
         }
 
-        // 2. Column Blacklist Check (Prevent PII leaks)
+        // 2. Strict Column & Table Check (Regex Word Boundaries)
         foreach ($this->forbiddenColumns as $col) {
-            if (stripos($sql, $col) !== false) {
+            if (preg_match("/\b$col\b/i", $sql)) {
                 throw new \Exception("Security Violation: Access to system column '$col' is forbidden.");
             }
         }
 
-        // 3. Table Whitelist Check
         $foundAllowedTable = false;
         foreach ($this->allowedTables as $table) {
-            if (stripos($sql, $table) !== false) {
+            if (preg_match("/\b$table\b/i", $sql)) {
                 $foundAllowedTable = true;
                 break;
             }
         }
         if (!$foundAllowedTable) {
-            throw new \Exception("Security Violation: Unauthorized table access attempted.");
+            throw new \Exception("Security Violation: Access restricted to verified business tables only.");
         }
 
-        // 4. Automated Multi-Tenancy Injection (Robust)
+        // 3. Automated Multi-Tenancy Injection
         $user = auth('api')->user();
         $compId = (int)$user->comp_id;
 
-        // We use a more surgical injection that only targets the first WHERE or adds it safely
         if (stripos($sql, 'WHERE') !== false) {
-            // Replace ONLY the first 'WHERE' to avoid breaking subqueries
             $sql = preg_replace('/WHERE/i', "WHERE comp_id = $compId AND ", $sql, 1);
         } else {
-            // Check for GROUP BY, ORDER BY, or LIMIT to inject before
             if (preg_match('/(GROUP BY|ORDER BY|LIMIT)/i', $sql, $matches, PREG_OFFSET_CAPTURE)) {
                 $pos = $matches[0][1];
                 $sql = substr($sql, 0, $pos) . " WHERE comp_id = $compId " . substr($sql, $pos);
@@ -311,11 +318,11 @@ class AiAgentController extends Controller
             return [
                 'ui_type' => 'data_table',
                 'ui_metadata' => $results,
-                'caption' => "Analysis complete. I found " . count($results) . " matching records."
+                'caption' => "I've analyzed the data and found " . count($results) . " matching records."
             ];
         } catch (QueryException $qe) {
             Log::error("AI SQL Syntax Error: " . $qe->getMessage());
-            throw new \Exception("Database syntax error. Please refine your query logic.");
+            throw new \Exception("The generated analysis plan had a syntax error. Please try asking in a different way.");
         }
     }
 
@@ -351,14 +358,14 @@ class AiAgentController extends Controller
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
-                            'sql' => ['type' => 'string', 'description' => 'SQL SELECT statement. Do NOT include comp_id.']
+                            'sql' => ['type' => 'string', 'description' => 'The SQL SELECT statement. Important: If joining tables, always use table_name.column_name to avoid ambiguity.']
                         ],
                         'required' => ['sql']
                     ]
                 ],
                 [
                     'name' => 'prepare_bank_action',
-                    'description' => 'Prepares a sensitive write action.',
+                    'description' => 'Prepares a sensitive write action for user confirmation.',
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
@@ -407,7 +414,7 @@ class AiAgentController extends Controller
 
     private function callGeminiApi($model, $apiKey, $history, $tools, $compId, $userContext = null)
     {
-        $validModels = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+        $validModels = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-3.1-pro-preview', 'gemini-1.5-flash', 'gemini-1.5-pro'];
         if (!in_array($model, $validModels)) $model = 'gemini-1.5-flash'; 
 
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
@@ -429,11 +436,13 @@ class AiAgentController extends Controller
         - `nobs_registration`: first_name, surname, account_number, phone_number.
         - `loan_applications`: status, amount, customer_id.
         - `loan_repayment_schedules`: due_date, total_due, total_paid, status.
+        - `loan_products`: name, interest_rate, duration.
         
         RULES:
         1. FIRST MESSAGE: Warm welcome + call `fetch_from_library(intent_name='HELP_MENU')`.
-        2. SQL SECURITY: Never add `comp_id`. Select specific columns only.
-        3. ERROR HANDLING: If a tool returns an error, explain it simply. NEVER invent data.";
+        2. SQL AMBIGUITY: If joining tables, you MUST qualify column names with the table name (e.g. `nobs_transactions.comp_id`).
+        3. SQL SECURITY: Never add `comp_id`. Select specific columns only.
+        4. ERROR HANDLING: If a tool returns an error, explain it simply. NEVER invent data.";
 
         $payload = [
             'system_instruction' => ['parts' => [['text' => $systemInstruction]]],
@@ -443,7 +452,7 @@ class AiAgentController extends Controller
         ];
 
         $response = Http::post($url, $payload);
-        if ($response->failed()) throw new \Exception("Gemini API error: " . ($response->json()['error']['message'] ?? 'Unknown'));
+        if ($response->failed()) throw new \Exception("Gemini API connection error.");
         
         return $response->json();
     }
