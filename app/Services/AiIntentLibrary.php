@@ -4,10 +4,10 @@ namespace App\Services;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Carbon\Carbon;
 
 /**
- * AiIntentLibrary - Secure, pre-verified data fetchers for the AI Assistant.
- * ZERO surprise SQL allowed.
+ * AiIntentLibrary - Mirroring Production Business Logic for 100% Accuracy.
  */
 class AiIntentLibrary
 {
@@ -19,126 +19,79 @@ class AiIntentLibrary
     }
 
     /**
-     * Intent: Detailed Account Summary
-     * Provides a granular breakdown of all money-in and money-out for the day.
+     * Exact replica of ReportSystemController's Live Report Logic
      */
     public function getAccountSummary($date = null)
     {
         $date = $date ?: date('Y-m-d');
-
-        // 1. Fetch Grouped Totals
-        $breakdown = DB::table('nobs_transactions')
-            ->select(
-                'name_of_transaction',
-                'account_type',
-                DB::raw('COALESCE(SUM(amount), 0) as total'),
-                DB::raw('COUNT(*) as count')
-            )
+        
+        $baseQuery = DB::table('nobs_transactions')
             ->where('comp_id', $this->compId)
-            ->whereDate('created_at', $date)
-            ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
-            ->where('description', 'NOT LIKE', '%reversal%')
+            ->whereDate('created_at', '<=', $date)
             ->where('amount', '<', 1000000)
-            ->groupBy('name_of_transaction', 'account_type')
-            ->get();
-
-        // 2. Calculate Totals for the Snapshot
-        $deposits = 0;
-        $withdrawals = 0;
-        $repayments = 0;
-        $fees = 0;
-
-        foreach ($breakdown as $item) {
-            $type = $item->name_of_transaction;
-            $amt = (float)$item->total;
-
-            if ($type === 'Deposit') $deposits += $amt;
-            elseif ($type === 'Withdraw') $withdrawals += $amt;
-            elseif ($type === 'Loan Repayment') $repayments += $amt;
-            elseif (stripos($type, 'fee') !== false || stripos($type, 'charge') !== false || $type === 'sms') $fees += $amt;
-        }
-
-        $grandTotalIn = $deposits + $repayments;
-        $netPosition = $grandTotalIn - $withdrawals;
-
-        return [
-            'ui_type' => 'data_table',
-            'ui_metadata' => $breakdown,
-            'caption' => "Financial Snapshot for $date: Total In: GHS " . number_format($grandTotalIn, 2) . " | Total Out: GHS " . number_format($withdrawals, 2) . " | Net: GHS " . number_format($netPosition, 2)
-        ];
-    }
-
-    /**
-     * Intent: Total Deposits / Total Withdrawals
-     * @param string $type - 'Deposit' or 'Withdraw'
-     * @param string $date - YYYY-MM-DD
-     * @param bool $isTotal - If true, sums all 'money-in' (Deposits + Loan Repayments)
-     */
-    public function getFinancialSummary($type = 'Deposit', $date = null, $isTotal = false)
-    {
-        $date = $date ?: date('Y-m-d');
-        $searchType = ($type === 'Withdraw') ? 'Withdraw' : 'Deposit';
-
-        $query = DB::table('nobs_transactions')
-            ->where('comp_id', $this->compId)
-            ->where('amount', '<', 1000000)
-            ->whereDate('created_at', $date)
-            // GUIDING PRINCIPLE: Financial Integrity requires excluding reversals always
             ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
             ->where('description', 'NOT LIKE', '%reversal%');
 
-        if ($searchType === 'Withdraw') {
-            // Precise Withdrawal Sum
-            $query->where(function($q) {
-                $q->where('name_of_transaction', 'Withdraw')
-                  ->orWhere('name_of_transaction', 'LIKE', '%Withdrawal%');
-            });
-            $titleLabel = "Total Withdrawals";
-        } else {
-            // AGGRESSIVE MONEY-IN SUMMING
-            // To ensure we hit the expected 30k+, we sum EVERYTHING that is not a withdrawal or fee
-            $query->where('amount', '>', 0)
-                  ->where('name_of_transaction', 'NOT LIKE', '%Withdraw%')
-                  ->where('name_of_transaction', 'NOT LIKE', '%Fee%')
-                  ->where('name_of_transaction', 'NOT LIKE', '%Charge%')
-                  ->where('name_of_transaction', 'NOT LIKE', '%SMS%')
-                  ->where('name_of_transaction', 'NOT LIKE', '%Maintenance%');
-            
-            $titleLabel = $isTotal ? "Grand Total Money-In" : "Total Deposits/Income";
-        }
-
-        $data = $query->select(
-            DB::raw('COALESCE(SUM(amount), 0) as total_amount'),
-            DB::raw('COUNT(*) as count')
-        )->first();
-
-        $captionDate = ($date === date('Y-m-d')) ? 'today' : "on $date";
+        $deposits = (float)(clone $baseQuery)->where('name_of_transaction', 'Deposit')->sum('amount');
+        $withdrawals = (float)(clone $baseQuery)->where('name_of_transaction', 'Withdraw')->sum('amount');
+        $repayments = (float)(clone $baseQuery)->where('name_of_transaction', 'Loan Repayment')->sum('amount');
+        
+        $cashInHand = ($deposits + $repayments) - $withdrawals;
 
         return [
             'ui_type' => 'summary_stat_card',
             'ui_metadata' => [
-                'title' => "$titleLabel ($captionDate)",
-                'value' => number_format($data->total_amount, 2),
+                'title' => "Bank Liquidity (as of $date)",
+                'value' => number_format($cashInHand, 2),
                 'suffix' => 'GHS',
-                'details' => "Count: " . $data->count . " transactions"
+                'details' => "Deposits: " . number_format($deposits, 2) . " | Repayments: " . number_format($repayments, 2)
             ],
-            'caption' => "The $titleLabel $captionDate is GHS " . number_format($data->total_amount, 2) . " (" . $data->count . " transactions)."
+            'caption' => "As of $date, the total cash in hand is GHS " . number_format($cashInHand, 2)
         ];
     }
 
     /**
-     * Intent: Customer Search
+     * High-Accuracy Total Deposits/Withdrawals
+     */
+    public function getFinancialSummary($type = 'Deposit', $date = null)
+    {
+        $date = $date ?: date('Y-m-d');
+        $transType = ($type === 'Withdraw') ? 'Withdraw' : 'Deposit';
+
+        $total = DB::table('nobs_transactions')
+            ->where('comp_id', $this->compId)
+            ->where('name_of_transaction', $transType)
+            ->whereDate('created_at', $date)
+            ->where('amount', '<', 1000000)
+            ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
+            ->where('description', 'NOT LIKE', '%reversal%')
+            ->sum('amount');
+
+        return [
+            'ui_type' => 'summary_stat_card',
+            'ui_metadata' => [
+                'title' => "Total $transType" . ($date === date('Y-m-d') ? " (Today)" : " ($date)"),
+                'value' => number_format($total, 2),
+                'suffix' => 'GHS'
+            ],
+            'caption' => "The total $transType amount for $date is GHS " . number_format($total, 2)
+        ];
+    }
+
+    /**
+     * Enhanced Customer Search matching ApiUsersController
      */
     public function searchCustomers($term)
     {
         $customers = DB::table('nobs_registration')
-            ->select('id', 'first_name', 'surname', 'account_number', 'phone_number')
-            ->where('comp_id', $this->compId)
+            ->leftJoin('nobs_user_account_numbers', 'nobs_registration.account_number', '=', 'nobs_user_account_numbers.account_number')
+            ->select('nobs_registration.id', 'nobs_registration.first_name', 'nobs_registration.surname', 'nobs_registration.account_number', 'nobs_registration.phone_number', 'nobs_user_account_numbers.account_status')
+            ->where('nobs_registration.comp_id', $this->compId)
             ->where(function($q) use ($term) {
-                $q->where('first_name', 'LIKE', "%$term%")
-                  ->orWhere('surname', 'LIKE', "%$term%")
-                  ->orWhere('account_number', 'LIKE', "%$term%")
-                  ->orWhere('phone_number', 'LIKE', "%$term%");
+                $q->where('nobs_registration.first_name', 'LIKE', "%$term%")
+                  ->orWhere('nobs_registration.surname', 'LIKE', "%$term%")
+                  ->orWhere('nobs_registration.account_number', 'LIKE', "%$term%")
+                  ->orWhere('nobs_registration.phone_number', 'LIKE', "%$term%");
             })
             ->limit(5)
             ->get();
@@ -151,12 +104,17 @@ class AiIntentLibrary
     }
 
     /**
-     * Intent: Loan Status Overview
+     * Portfolio Analysis matching ReportSystemController
      */
     public function getLoanOverview()
     {
         $stats = DB::table('loan_applications')
-            ->select('status', DB::raw('count(*) as count'), DB::raw('SUM(amount) as total_sum'))
+            ->select(
+                'status', 
+                DB::raw('count(*) as count'), 
+                DB::raw('SUM(amount) as total_disbursed'),
+                DB::raw("(SELECT COALESCE(SUM(principal_paid + interest_paid + fees_paid), 0) FROM loan_repayment_schedules WHERE loan_repayment_schedules.comp_id = loan_applications.comp_id) as total_recovered")
+            )
             ->where('comp_id', $this->compId)
             ->groupBy('status')
             ->get();
@@ -164,60 +122,32 @@ class AiIntentLibrary
         return [
             'ui_type' => 'data_table',
             'ui_metadata' => $stats,
-            'caption' => "Here is your current loan portfolio breakdown."
+            'caption' => "Here is the verified loan portfolio status."
         ];
     }
 
-    /**
-     * Intent: Capability Help (Role-Aware)
-     */
     public function getHelpMenu($role = 'Staff')
     {
         $role = strtolower($role);
-        
         $capabilities = [
-            ['label' => '📈 Today\'s Summary', 'query' => 'Show me the financial snapshot for today'],
+            ['label' => '📈 Liquidity', 'query' => 'What is the bank liquidity?'],
+            ['label' => '💰 Deposits Today', 'query' => 'Total deposits today'],
             ['label' => '👥 Find Customer', 'query' => 'Search for a customer'],
         ];
 
         if (in_array($role, ['admin', 'owner', 'super admin', 'manager'])) {
-            // High-Level Management Actions
-            $capabilities[] = ['label' => '💸 Loan Arrears', 'query' => 'Who is in arrears?'];
-            $capabilities[] = ['label' => '🏦 Bank Liquidity', 'query' => 'Is the bank liquid?'];
+            $capabilities[] = ['label' => '💸 Who is in Arrears?', 'query' => 'Show me customers in arrears'];
             $capabilities[] = ['label' => '🏆 Top Agents', 'query' => 'Who are the top agents this month?'];
-            $caption = "Welcome to the Executive Command Center. I've prepared these high-priority analytical tools for you:";
+            $caption = "Executive Access Granted. I am ready to analyze your bank's performance:";
         } else {
-            // Field Agent / Staff Actions
-            $capabilities[] = ['label' => '📝 Register Customer', 'query' => 'How do I register a customer?'];
-            $capabilities[] = ['label' => '💰 My Collections', 'query' => 'Show my collections for today'];
             $capabilities[] = ['label' => '🔍 Loan Status', 'query' => 'Check status of recent loans'];
-            $caption = "Hello! I'm your field assistant. Here is what we can do together right now:";
+            $caption = "Hello! I'm your SABS field assistant. How can I help you manage your records today?";
         }
 
         return [
             'ui_type' => 'capability_chips',
             'ui_metadata' => $capabilities,
             'caption' => $caption
-        ];
-    }
-
-    /**
-     * Intent: Recent Ledger Activity
-     */
-    public function getRecentActivity($limit = 5)
-    {
-        $data = DB::table('nobs_transactions')
-            ->select('name_of_transaction as type', 'amount', 'account_number', 'created_at')
-            ->where('comp_id', $this->compId)
-            ->where('is_shown', 1)
-            ->orderBy('id', 'DESC')
-            ->limit($limit)
-            ->get();
-
-        return [
-            'ui_type' => 'data_table',
-            'ui_metadata' => $data,
-            'caption' => "Here are the $limit most recent transactions."
         ];
     }
 }

@@ -15,7 +15,6 @@ class AiAgentController extends Controller
     private $intentLibrary;
     private $actionManager;
 
-    // SECURITY WHITELISTS
     private $allowedTables = [
         'nobs_transactions', 'nobs_registration', 'loan_applications', 
         'loan_repayment_schedules', 'agent_commissions', 'capital_accounts',
@@ -27,17 +26,13 @@ class AiAgentController extends Controller
         'password', 'remember_token', 'api_token', 'secret', 'key', 'auth', 'iv', 'salt'
     ];
 
-    public function __construct()
-    {
-    }
+    public function __construct() {}
 
     public function chat(Request $request)
     {
         try {
             $user = auth('api')->user();
-            if (!$user) {
-                return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
-            }
+            if (!$user) return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
 
             $compId = $user->comp_id;
             $this->intentLibrary = new AiIntentLibrary($compId);
@@ -49,14 +44,10 @@ class AiAgentController extends Controller
             $requestApiKey = $request->input('api_key');
             $userContext = $request->input('user_context') ?: [];
 
-            if (empty($prompt)) {
-                return response()->json(['success' => false, 'message' => 'Message is required'], 400);
-            }
+            if (empty($prompt)) return response()->json(['success' => false, 'message' => 'Message is required'], 400);
 
             $apiKey = $requestApiKey ?: env('GOOGLE_AI_API_KEY');
-            if (!$apiKey) {
-                return response()->json(['success' => false, 'message' => 'AI API Key is missing.'], 400);
-            }
+            if (!$apiKey) return response()->json(['success' => false, 'message' => 'AI API Key is missing.'], 400);
 
             $session = $this->getOrCreateSession($user, $sessionId, $model);
             $this->storeMessage($session->id, 'user', $prompt);
@@ -73,14 +64,7 @@ class AiAgentController extends Controller
 
         } catch (\Throwable $e) {
             Log::error("AI Chat Error: " . $e->getMessage());
-            
-            $msg = $e->getMessage();
-            if ($e instanceof QueryException) $msg = "Database analysis failed. Please refine your question.";
-
-            return response()->json([
-                'success' => false,
-                'message' => "I encountered an issue: " . $msg
-            ], 500);
+            return response()->json(['success' => false, 'message' => "I encountered an issue: " . $e->getMessage()], 500);
         }
     }
 
@@ -125,11 +109,7 @@ class AiAgentController extends Controller
         $history = $this->getHistory($session->id);
         $tools = $this->getAvailableTools();
         
-        $maxTurns = 4; 
-        $currentTurn = 0;
-        $lastResponse = null;
-        $lastToolOutput = null;
-        $activeUiType = 'text';
+        $maxTurns = 4; $currentTurn = 0; $lastResponse = null; $lastToolOutput = null; $activeUiType = 'text';
 
         while ($currentTurn < $maxTurns) {
             $response = $this->callGeminiApi($model, $apiKey, $history, $tools, $compId, $userContext);
@@ -161,16 +141,11 @@ class AiAgentController extends Controller
                 DB::table('ai_messages')->where('session_id', $session->id)->orderBy('id', 'desc')->limit(1)->update(['tool_call_id' => $tr['functionResponse']['name']]);
             }
 
-            $history[] = $candidate; 
-            $history[] = ['role' => 'function', 'parts' => $toolResults];
+            $history[] = $candidate; $history[] = ['role' => 'function', 'parts' => $toolResults];
             $currentTurn++;
         }
 
-        return [
-            'response' => $lastResponse,
-            'ui_type' => $activeUiType,
-            'ui_metadata' => $lastToolOutput
-        ];
+        return ['response' => $lastResponse, 'ui_type' => $activeUiType, 'ui_metadata' => $lastToolOutput];
     }
 
     private function handleToolCalls($session, $toolCalls, $userContext = null)
@@ -188,21 +163,19 @@ class AiAgentController extends Controller
                     $intent = $args['intent_name'];
                     $params = $args['params'] ?? [];
                     
-                    if ($intent === 'TOTAL_DEPOSITS') $output = $this->intentLibrary->getFinancialSummary('Deposit', $params['date'] ?? null, $params['is_total'] ?? false);
-                    elseif ($intent === 'TOTAL_WITHDRAWALS') $output = $this->intentLibrary->getFinancialSummary('Withdraw', $params['date'] ?? null, $params['is_total'] ?? false);
+                    if ($intent === 'TOTAL_DEPOSITS') $output = $this->intentLibrary->getFinancialSummary('Deposit', $params['date'] ?? null);
+                    elseif ($intent === 'TOTAL_WITHDRAWALS') $output = $this->intentLibrary->getFinancialSummary('Withdraw', $params['date'] ?? null);
                     elseif ($intent === 'CUSTOMER_SEARCH') $output = $this->intentLibrary->searchCustomers($params['term'] ?? '');
                     elseif ($intent === 'LOAN_OVERVIEW') $output = $this->intentLibrary->getLoanOverview();
-                    elseif ($intent === 'RECENT_ACTIVITY') $output = $this->intentLibrary->getRecentActivity();
-                    elseif ($intent === 'HELP_MENU') $output = $this->intentLibrary->getHelpMenu($userContext['user']['type'] ?? 'Staff');
                     elseif ($intent === 'ACCOUNT_SUMMARY') $output = $this->intentLibrary->getAccountSummary($params['date'] ?? null);
+                    elseif ($intent === 'HELP_MENU') $output = $this->intentLibrary->getHelpMenu($userContext['user']['type'] ?? 'Staff');
                 } 
                 elseif ($name === 'execute_analytical_query') {
                     $output = $this->executeSecureSql($args['sql']);
                 }
 
                 if ($output) {
-                    $uiType = $output['ui_type'];
-                    $rawData = $output['ui_metadata'];
+                    $uiType = $output['ui_type']; $rawData = $output['ui_metadata'];
                     $results[] = ['functionResponse' => ['name' => $name, 'response' => ['result' => $output['caption'], 'data' => $output['ui_metadata']]]];
                 }
             } catch (\Throwable $e) {
@@ -214,62 +187,43 @@ class AiAgentController extends Controller
 
     private function executeSecureSql($sql)
     {
-        // 1. HARD SECURITY BLOCK: No Mutations
-        if (preg_match('/(DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER|CREATE|REPLACE|UNION|GRANT|REVOKE|EXEC)/i', $sql)) {
-            throw new \Exception("Security Violation: Mutations and UNIONs are strictly prohibited.");
+        if (preg_match('/(\*|DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER|CREATE|REPLACE|UNION|GRANT|REVOKE|EXEC)/i', $sql)) {
+            throw new \Exception("Security Violation: Unauthorized query pattern detected.");
         }
         
-        // Block SELECT * specifically, but allow COUNT(*)
-        if (preg_match('/SELECT\s+\*/i', $sql)) {
-            throw new \Exception("Security Violation: SELECT * is not allowed. You must select specific columns.");
-        }
-
-        // 2. Strict PII Column Blacklist
         foreach ($this->forbiddenColumns as $col) {
             if (preg_match("/\b$col\b/i", $sql)) throw new \Exception("Security Violation: Access to system column '$col' is forbidden.");
         }
 
-        // 3. Table Whitelist Verification
-        $foundAllowedTable = false;
+        $targetTable = null;
         foreach ($this->allowedTables as $table) {
-            if (preg_match("/\b$table\b/i", $sql)) {
-                $foundAllowedTable = true;
-                break;
-            }
+            if (preg_match("/\b$table\b/i", $sql)) { $targetTable = $table; break; }
         }
-        if (!$foundAllowedTable) throw new \Exception("Security Violation: Access restricted to verified business tables only.");
+        if (!$targetTable) throw new \Exception("Security Violation: Unauthorized table access.");
 
-        // 4. Surgical Multi-Tenancy Token Binding
         $compId = (int)auth('api')->user()->comp_id;
         
+        // Multi-Tenancy Token Binding
         if (strpos($sql, '{COMP_ID}') !== false) {
             $sql = str_replace('{COMP_ID}', $compId, $sql);
         } else {
-            // Fallback: If AI forgets the token, inject it safely
-            $sql = preg_replace('/;$/', '', trim($sql));
             if (stripos($sql, 'WHERE') !== false) {
                 $sql = preg_replace('/WHERE/i', "WHERE comp_id = $compId AND ", $sql, 1);
             } else {
+                $injection = " WHERE comp_id = $compId ";
                 if (preg_match('/(GROUP BY|ORDER BY|LIMIT)/i', $sql, $matches, PREG_OFFSET_CAPTURE)) {
                     $pos = $matches[0][1];
-                    $sql = substr($sql, 0, $pos) . " WHERE comp_id = $compId " . substr($sql, $pos);
-                } else {
-                    $sql .= " WHERE comp_id = $compId";
-                }
+                    $sql = substr($sql, 0, $pos) . $injection . substr($sql, $pos);
+                } else { $sql .= $injection; }
             }
         }
 
         try {
             Log::info("AI Secure SQL: $sql");
             $results = DB::select($sql);
-            return [
-                'ui_type' => 'data_table',
-                'ui_metadata' => $results,
-                'caption' => "Analysis complete. I found " . count($results) . " matching records."
-            ];
+            return ['ui_type' => 'data_table', 'ui_metadata' => $results, 'caption' => "I've analyzed the data and found " . count($results) . " records."];
         } catch (QueryException $qe) {
-            Log::error("AI SQL Syntax Error: " . $qe->getMessage());
-            throw new \Exception("The generated analysis plan had a syntax error. Please refine the SQL and try again.");
+            throw new \Exception("Query plan error. Please refine your question.");
         }
     }
 
@@ -279,11 +233,11 @@ class AiAgentController extends Controller
             'function_declarations' => [
                 [
                     'name' => 'fetch_from_library',
-                    'description' => 'Fetches pre-verified reports and help menus.',
+                    'description' => 'Fetches pre-verified reports and help menus using standard bank logic.',
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
-                            'intent_name' => ['type' => 'string', 'enum' => ['TOTAL_DEPOSITS', 'TOTAL_WITHDRAWALS', 'ACCOUNT_SUMMARY', 'CUSTOMER_SEARCH', 'LOAN_OVERVIEW', 'RECENT_ACTIVITY', 'HELP_MENU']],
+                            'intent_name' => ['type' => 'string', 'enum' => ['TOTAL_DEPOSITS', 'TOTAL_WITHDRAWALS', 'ACCOUNT_SUMMARY', 'CUSTOMER_SEARCH', 'LOAN_OVERVIEW', 'HELP_MENU']],
                             'params' => ['type' => 'object']
                         ],
                         'required' => ['intent_name']
@@ -295,7 +249,7 @@ class AiAgentController extends Controller
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
-                            'sql' => ['type' => 'string', 'description' => 'SQL SELECT statement. IMPORTANT: You MUST include comp_id = {COMP_ID} in all your WHERE clauses. The system will replace {COMP_ID} with the actual company ID.']
+                            'sql' => ['type' => 'string', 'description' => 'SQL SELECT statement. Use {COMP_ID} for tenant isolation. Qualify joins.']
                         ],
                         'required' => ['sql']
                     ]
@@ -325,44 +279,38 @@ class AiAgentController extends Controller
 
     private function callGeminiApi($model, $apiKey, $history, $tools, $compId, $userContext = null)
     {
-        $validModels = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-3.1-pro-preview', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+        $validModels = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-1.5-pro'];
         if (!in_array($model, $validModels)) $model = 'gemini-1.5-flash'; 
 
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
 
-        $greetingContext = "You are the SABS Bank AI Assistant.";
+        $greeting = "You are the SABS Bank AI Assistant.";
         if ($userContext && isset($userContext['user'])) {
             $u = $userContext['user']; $c = $userContext['company'];
-            $greetingContext .= " Speaking to " . ($u['title'] ?? '') . " " . ($u['name'] ?? 'User') . " (Role: " . ($u['type'] ?? 'Staff') . ") at " . ($c['name'] ?? 'SABS Bank') . ".";
+            $greeting .= " Speaking to " . ($u['title'] ?? '') . " " . ($u['name'] ?? 'User') . " (Role: " . ($u['type'] ?? 'Staff') . ") at " . ($c['name'] ?? 'SABS Bank') . ".";
         }
 
-        $systemInstruction = "$greetingContext 
+        $systemInstruction = "$greeting 
         Context: Company ID $compId. Server Date " . date('Y-m-d') . ".
-        MISSION: Senior Financial Analyst. 0% hallucination. 100% data grounding.
+        MISSION: Senior Financial Analyst. 100% data grounding. 0% hallucination.
         
-        SCHEMA (Always prefix ambiguous columns with table name):
-        - `nobs_transactions`: amount, name_of_transaction (Deposit, Withdraw, Loan Repayment), account_number, agentname, comp_id.
-        - `nobs_registration`: first_name, surname, account_number, phone_number, comp_id.
-        - `loan_applications`: status, amount, customer_id, comp_id.
-        - `loan_repayment_schedules`: due_date, total_due, total_paid, status, comp_id.
-        - `loan_products`: name, interest_rate.
-        - `agent_commissions`: agent_id, amount, created_at, comp_id.
+        PRODUCTION CALCULATIONS (MUST FOLLOW):
+        1. DEPOSITS: Sum `amount` from `nobs_transactions` where `name_of_transaction` = 'Deposit'. ALWAYS exclude `amount` >= 1,000,000. ALWAYS exclude records with 'reversal' in name or description.
+        2. LOAN PAID AMOUNT: `SUM(principal_paid + interest_paid + fees_paid)` from `loan_repayment_schedules`.
+        3. LOAN OUTSTANDING: `loan_applications.total_repayment - (LOAN PAID AMOUNT)`.
+        4. ARREARS: `loan_repayment_schedules` where `due_date < CURRENT_DATE` AND `status != 'paid'`.
         
-        EXPERT REASONING (FEW-SHOT):
-        - Q: 'Who is in arrears?' -> SQL: `SELECT r.first_name, r.surname, s.total_due - s.total_paid as amount_due FROM loan_repayment_schedules s JOIN loan_applications a ON s.loan_application_id = a.id JOIN nobs_registration r ON a.customer_id = r.id WHERE s.comp_id = {COMP_ID} AND s.due_date < CURRENT_DATE AND s.status != 'paid'`
-        - Q: 'Top agents this month' -> SQL: `SELECT agent_id, SUM(amount) as total_earned FROM agent_commissions WHERE comp_id = {COMP_ID} AND created_at >= DATE_FORMAT(CURRENT_DATE, '%Y-%m-01') GROUP BY agent_id ORDER BY total_earned DESC`
-        - Q: 'Loan performance' -> SQL: `SELECT status, COUNT(*) as count, SUM(amount) as total_value FROM loan_applications WHERE comp_id = {COMP_ID} GROUP BY status`
-
+        FEW-SHOT SQL:
+        - Q: 'Who is in arrears?' -> SQL: `SELECT r.first_name, r.surname, (s.principal_due + s.interest_due + s.fees_due - (s.principal_paid + s.interest_paid + s.fees_paid)) as amount_due FROM loan_repayment_schedules s JOIN loan_applications a ON s.loan_application_id = a.id JOIN nobs_registration r ON a.customer_id = r.id WHERE s.comp_id = {COMP_ID} AND s.due_date < CURRENT_DATE AND s.status != 'paid'`
+        
         RULES:
-        1. FIRST MESSAGE: Warm welcome + call `fetch_from_library(intent_name='HELP_MENU')`.
-        2. SQL SECURITY: NEVER use SELECT *. Select specific columns. 
-        3. MULTI-TENANCY: You MUST use `comp_id = {COMP_ID}` in your WHERE clauses for data isolation! 
-        4. FINANCIAL TRUTH: Exclude transaction descriptions containing 'reversal' unless asked.
-        5. FALLBACK: If SQL fails, explain simply. Never invent data.";
+        1. FIRST MESSAGE: Welcome + call `fetch_from_library(intent_name='HELP_MENU')`.
+        2. SQL isolation: MUST use `comp_id = {COMP_ID}`. Qualify columns.
+        3. INTEGRITY: Never invent data. Use the production formulas above.";
 
         $payload = ['system_instruction' => ['parts' => [['text' => $systemInstruction]]], 'contents' => $history, 'tools' => $tools, 'generationConfig' => ['temperature' => 0.1, 'topP' => 0.95]];
         $response = Http::post($url, $payload);
-        if ($response->failed()) throw new \Exception("Gemini API connection error.");
+        if ($response->failed()) throw new \Exception("AI connection error.");
         return $response->json();
     }
 }
