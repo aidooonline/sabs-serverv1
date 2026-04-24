@@ -169,19 +169,35 @@ class AiIntentLibrary
     }
 
     /**
-     * Intent: Capability Help
+     * Intent: Capability Help (Role-Aware)
      */
-    public function getHelpMenu()
+    public function getHelpMenu($role = 'Staff')
     {
+        $role = strtolower($role);
+        
+        $capabilities = [
+            ['label' => '📈 Today\'s Summary', 'query' => 'Show me the financial snapshot for today'],
+            ['label' => '👥 Find Customer', 'query' => 'Search for a customer'],
+        ];
+
+        if (in_array($role, ['admin', 'owner', 'super admin', 'manager'])) {
+            // High-Level Management Actions
+            $capabilities[] = ['label' => '💸 Loan Arrears', 'query' => 'Who is in arrears?'];
+            $capabilities[] = ['label' => '🏦 Bank Liquidity', 'query' => 'Is the bank liquid?'];
+            $capabilities[] = ['label' => '🏆 Top Agents', 'query' => 'Who are the top agents this month?'];
+            $caption = "Welcome to the Executive Command Center. I've prepared these high-priority analytical tools for you:";
+        } else {
+            // Field Agent / Staff Actions
+            $capabilities[] = ['label' => '📝 Register Customer', 'query' => 'How do I register a customer?'];
+            $capabilities[] = ['label' => '💰 My Collections', 'query' => 'Show my collections for today'];
+            $capabilities[] = ['label' => '🔍 Loan Status', 'query' => 'Check status of recent loans'];
+            $caption = "Hello! I'm your field assistant. Here is what we can do together right now:";
+        }
+
         return [
             'ui_type' => 'capability_chips',
-            'ui_metadata' => [
-                ['label' => 'Today\'s Deposits', 'query' => 'Show me total deposits for today'],
-                ['label' => 'Find Customer', 'query' => 'Search for a customer'],
-                ['label' => 'Active Loans', 'query' => 'Show loan status overview'],
-                ['label' => 'Recent Activity', 'query' => 'Show me the last 5 transactions']
-            ],
-            'caption' => "I can help you manage your bank. Select an action below:"
+            'ui_metadata' => $capabilities,
+            'caption' => $caption
         ];
     }
 

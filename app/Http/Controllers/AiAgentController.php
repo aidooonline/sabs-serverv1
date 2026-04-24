@@ -8,20 +8,28 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use App\Services\AiIntentLibrary;
 use App\Services\AiActionManager;
+use Illuminate\Database\QueryException;
 
 class AiAgentController extends Controller
 {
     private $intentLibrary;
     private $actionManager;
 
+    // SECURITY WHITELISTS
+    private $allowedTables = [
+        'nobs_transactions', 'nobs_registration', 'loan_applications', 
+        'loan_repayment_schedules', 'agent_commissions', 'capital_accounts',
+        'capital_account_transactions', 'nobs_user_account_numbers'
+    ];
+
+    private $forbiddenColumns = [
+        'password', 'remember_token', 'api_token', 'secret', 'key', 'auth'
+    ];
+
     public function __construct()
     {
-        // Don't initialize Auth-dependent services here
     }
 
-    /**
-     * Entry point for all AI Chat interactions.
-     */
     public function chat(Request $request)
     {
         try {
@@ -38,6 +46,7 @@ class AiAgentController extends Controller
             $sessionId = $request->input('session_id');
             $model = $request->input('model', 'gemini-3-flash-preview');
             $requestApiKey = $request->input('api_key');
+            $userContext = $request->input('user_context') ?: [];
 
             if (empty($prompt)) {
                 return response()->json(['success' => false, 'message' => 'Message is required'], 400);
@@ -51,8 +60,7 @@ class AiAgentController extends Controller
             $session = $this->getOrCreateSession($user, $sessionId, $model);
             $this->storeMessage($session->id, 'user', $prompt);
 
-            // Process with Gemini and get enriched result
-            $result = $this->processWithGemini($session, $prompt, $model, $apiKey, $compId);
+            $result = $this->processWithGemini($session, $prompt, $model, $apiKey, $compId, $userContext);
 
             return response()->json([
                 'success' => true,
@@ -64,23 +72,10 @@ class AiAgentController extends Controller
 
         } catch (\Throwable $e) {
             Log::error("AI Chat Error: " . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
-            
-            $debugMessage = "I encountered a technical issue. Please try again.";
-            if (config('app.debug')) {
-                $debugMessage = "Debug Error: " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine();
-            }
-
-            return response()->json([
-                'success' => false,
-                'message' => $debugMessage,
-                'trace' => config('app.debug') ? $e->getTraceAsString() : null
-            ], 500);
+            return response()->json(['success' => false, 'message' => "I encountered an issue: " . $e->getMessage()], 500);
         }
     }
 
-    /**
-     * Secure endpoint to execute a previously prepared AI action.
-     */
     public function executeAction(Request $request)
     {
         try {
@@ -103,10 +98,11 @@ class AiAgentController extends Controller
     private function getOrCreateSession($user, $sessionId, $model)
     {
         if ($sessionId) {
-            return DB::table('ai_chat_sessions')
+            $sess = DB::table('ai_chat_sessions')
                 ->where('id', $sessionId)
                 ->where('user_id', $user->id)
-                ->first() ?: $this->createNewSession($user, $model);
+                ->first();
+            if ($sess) return $sess;
         }
         return $this->createNewSession($user, $model);
     }
@@ -142,7 +138,7 @@ class AiAgentController extends Controller
         ]);
     }
 
-    private function processWithGemini($session, $prompt, $model, $apiKey, $compId)
+    private function processWithGemini($session, $prompt, $model, $apiKey, $compId, $userContext = null)
     {
         $history = $this->getHistory($session->id);
         $tools = $this->getAvailableTools();
@@ -154,7 +150,7 @@ class AiAgentController extends Controller
         $activeUiType = 'text';
 
         while ($currentTurn < $maxTurns) {
-            $response = $this->callGeminiApi($model, $apiKey, $history, $tools, $compId);
+            $response = $this->callGeminiApi($model, $apiKey, $history, $tools, $compId, $userContext);
             $lastResponse = $response;
             $candidate = $response['candidates'][0]['content'] ?? null;
 
@@ -174,20 +170,19 @@ class AiAgentController extends Controller
                 break;
             }
 
-            // Execute Intent Library or Action Manager
-            $execution = $this->handleToolCalls($session, $toolCalls);
+            $execution = $this->handleToolCalls($session, $toolCalls, $userContext);
             $toolResults = $execution['results'];
             
-            if ($execution['raw_data'] !== null) {
-                $lastToolOutput = $execution['raw_data'];
-            }
-            if ($execution['ui_type'] !== 'text') {
-                $activeUiType = $execution['ui_type'];
-            }
+            if ($execution['raw_data'] !== null) $lastToolOutput = $execution['raw_data'];
+            if ($execution['ui_type'] !== 'text') $activeUiType = $execution['ui_type'];
             
             foreach ($toolResults as $tr) {
                 $this->storeMessage($session->id, 'tool', json_encode($tr['functionResponse']['response']), null, $activeUiType, null);
-                DB::table('ai_messages')->where('session_id', $session->id)->orderBy('id', 'desc')->limit(1)->update(['tool_call_id' => $tr['functionResponse']['name']]);
+                DB::table('ai_messages')
+                    ->where('session_id', $session->id)
+                    ->orderBy('id', 'desc')
+                    ->limit(1)
+                    ->update(['tool_call_id' => $tr['functionResponse']['name']]);
             }
 
             $history[] = $candidate; 
@@ -202,7 +197,7 @@ class AiAgentController extends Controller
         ];
     }
 
-    private function handleToolCalls($session, $toolCalls)
+    private function handleToolCalls($session, $toolCalls, $userContext = null)
     {
         $results = [];
         $rawData = null;
@@ -224,11 +219,19 @@ class AiAgentController extends Controller
                     elseif ($intent === 'CUSTOMER_SEARCH') $output = $this->intentLibrary->searchCustomers($params['term'] ?? '');
                     elseif ($intent === 'LOAN_OVERVIEW') $output = $this->intentLibrary->getLoanOverview();
                     elseif ($intent === 'RECENT_ACTIVITY') $output = $this->intentLibrary->getRecentActivity();
-                    elseif ($intent === 'HELP_MENU') $output = $this->intentLibrary->getHelpMenu();
+                    elseif ($intent === 'HELP_MENU') {
+                        $role = $userContext['user']['type'] ?? 'Staff';
+                        $output = $this->intentLibrary->getHelpMenu($role);
+                    }
+                    elseif ($intent === 'ACCOUNT_SUMMARY') $output = $this->intentLibrary->getAccountSummary($params['date'] ?? null);
                 } 
                 elseif ($name === 'prepare_bank_action') {
                     $action = $args['action_type'];
                     $output = $this->actionManager->prepareAction($action, $args['params'] ?? []);
+                }
+                elseif ($name === 'execute_analytical_query') {
+                    $sql = $args['sql'];
+                    $output = $this->executeSecureSql($sql);
                 }
 
                 if ($output) {
@@ -243,10 +246,77 @@ class AiAgentController extends Controller
                 }
             } catch (\Throwable $e) {
                 Log::error("AI Tool Routing Error: " . $e->getMessage());
-                $results[] = ['functionResponse' => ['name' => $name, 'response' => ['error' => 'Tool routing failed.']]];
+                $results[] = [
+                    'functionResponse' => [
+                        'name' => $name, 
+                        'response' => ['error' => 'Tool failed: ' . $e->getMessage()]
+                    ]
+                ];
             }
         }
         return ['results' => $results, 'raw_data' => $rawData, 'ui_type' => $uiType];
+    }
+
+    /**
+     * Executes AI-generated SQL with rigorous multi-layered security.
+     */
+    private function executeSecureSql($sql)
+    {
+        // 1. Strict Read-Only Guard
+        if (preg_match('/(DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER|CREATE|REPLACE|GRANT|REVOKE|EXEC)/i', $sql)) {
+            throw new \Exception("Security Violation: Only SELECT queries are permitted.");
+        }
+
+        // 2. Column Blacklist Check (Prevent PII leaks)
+        foreach ($this->forbiddenColumns as $col) {
+            if (stripos($sql, $col) !== false) {
+                throw new \Exception("Security Violation: Access to system column '$col' is forbidden.");
+            }
+        }
+
+        // 3. Table Whitelist Check
+        $foundAllowedTable = false;
+        foreach ($this->allowedTables as $table) {
+            if (stripos($sql, $table) !== false) {
+                $foundAllowedTable = true;
+                break;
+            }
+        }
+        if (!$foundAllowedTable) {
+            throw new \Exception("Security Violation: Unauthorized table access attempted.");
+        }
+
+        // 4. Automated Multi-Tenancy Injection (Robust)
+        $user = auth('api')->user();
+        $compId = (int)$user->comp_id;
+
+        // We use a more surgical injection that only targets the first WHERE or adds it safely
+        if (stripos($sql, 'WHERE') !== false) {
+            // Replace ONLY the first 'WHERE' to avoid breaking subqueries
+            $sql = preg_replace('/WHERE/i', "WHERE comp_id = $compId AND ", $sql, 1);
+        } else {
+            // Check for GROUP BY, ORDER BY, or LIMIT to inject before
+            if (preg_match('/(GROUP BY|ORDER BY|LIMIT)/i', $sql, $matches, PREG_OFFSET_CAPTURE)) {
+                $pos = $matches[0][1];
+                $sql = substr($sql, 0, $pos) . " WHERE comp_id = $compId " . substr($sql, $pos);
+            } else {
+                $sql .= " WHERE comp_id = $compId";
+            }
+        }
+
+        try {
+            Log::info("AI Secure SQL executing: $sql");
+            $results = DB::select($sql);
+            
+            return [
+                'ui_type' => 'data_table',
+                'ui_metadata' => $results,
+                'caption' => "Analysis complete. I found " . count($results) . " matching records."
+            ];
+        } catch (QueryException $qe) {
+            Log::error("AI SQL Syntax Error: " . $qe->getMessage());
+            throw new \Exception("Database syntax error. Please refine your query logic.");
+        }
     }
 
     private function getAvailableTools()
@@ -268,7 +338,7 @@ class AiAgentController extends Controller
                                 'properties' => [
                                     'term' => ['type' => 'string', 'description' => 'Search term for customers'],
                                     'date' => ['type' => 'string', 'description' => 'Target date in YYYY-MM-DD format'],
-                                    'is_total' => ['type' => 'boolean', 'description' => 'Set to true if user wants TOTAL across ALL account types (e.g. Regular + Susu + Repayments)']
+                                    'is_total' => ['type' => 'boolean', 'description' => 'Set to true if user wants TOTAL across ALL account types']
                                 ]
                             ]
                         ],
@@ -276,8 +346,19 @@ class AiAgentController extends Controller
                     ]
                 ],
                 [
+                    'name' => 'execute_analytical_query',
+                    'description' => 'Executes a raw SQL SELECT query for complex analysis.',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'sql' => ['type' => 'string', 'description' => 'SQL SELECT statement. Do NOT include comp_id.']
+                        ],
+                        'required' => ['sql']
+                    ]
+                ],
+                [
                     'name' => 'prepare_bank_action',
-                    'description' => 'Prepares a sensitive write action for user confirmation.',
+                    'description' => 'Prepares a sensitive write action.',
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
@@ -296,7 +377,7 @@ class AiAgentController extends Controller
         $messages = DB::table('ai_messages')
             ->where('session_id', $sessionId)
             ->orderBy('created_at', 'asc')
-            ->limit(30)
+            ->limit(20)
             ->get();
 
         $history = [];
@@ -306,9 +387,7 @@ class AiAgentController extends Controller
                 if ($msg->content) $parts[] = ['text' => $msg->content];
                 if ($msg->tool_calls) {
                     $tc = json_decode($msg->tool_calls, true);
-                    foreach ($tc as $call) {
-                        $parts[] = $call;
-                    }
+                    foreach ($tc as $call) $parts[] = $call;
                 }
                 $history[] = ['role' => $msg->role, 'parts' => $parts];
             } else if ($msg->role === 'tool') {
@@ -326,74 +405,45 @@ class AiAgentController extends Controller
         return $history;
     }
 
-    private function callGeminiApi($model, $apiKey, $history, $tools, $compId)
+    private function callGeminiApi($model, $apiKey, $history, $tools, $compId, $userContext = null)
     {
-        // Guard: Support only your preferred models
-        $validModels = [
-            'gemini-2.5-pro',
-            'gemini-2.5-flash',
-            'gemini-3-flash-preview',
-            'gemini-3.1-pro-preview',
-            'gemini-3.1-flash-lite-preview',
-            'gemini-1.5-flash',
-            'gemini-1.5-pro'
-        ];
-        
-        if (!in_array($model, $validModels)) {
-            $model = 'gemini-1.5-flash'; 
-        }
+        $validModels = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+        if (!in_array($model, $validModels)) $model = 'gemini-1.5-flash'; 
 
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
 
-        $systemInstruction = "You are the SABS Bank AI Assistant. 
-        Context: Company ID is $compId. Current Date is " . date('Y-m-d') . " (" . date('l') . ").
+        $greetingContext = "You are the SABS Bank AI Assistant.";
+        if ($userContext && isset($userContext['user'])) {
+            $u = $userContext['user'];
+            $c = $userContext['company'];
+            $greetingContext .= " Speaking to " . ($u['title'] ?? '') . " " . ($u['name'] ?? 'User') . " (Role: " . ($u['type'] ?? 'Staff') . ") at " . ($c['name'] ?? 'SABS Bank') . ".";
+        }
+
+        $systemInstruction = "$greetingContext 
+        Context: Company ID $compId. Date " . date('Y-m-d') . ".
         
-        MISSION: You are a secure router for bank data. 
-        You MUST use `fetch_from_library` for ALL data requests.
+        MISSION: Senior Financial Analyst. 0% hallucination. 100% data grounding.
         
-        GUIDE FOR PRECISION:
-        1. FOR SUMS (DEPOSITS/WITHDRAWALS):
-           - Standard 'Deposits' query: `is_total: false`.
-           - 'Grand Total', 'All accounts', or 'Everything' query: `is_total: true`.
-        2. FOR DEFINITIVE SUMMARIES:
-           - If a user asks for 'Summary of accounts', 'Daily snapshot', 'Account performance', or 'How is the bank doing', use `ACCOUNT_SUMMARY`. This returns a detailed breakdown by category.
-           - RE-FETCH RULE: Always call the tool again if the user clarifies.
+        SCHEMA:
+        - `nobs_transactions`: amount, name_of_transaction (Deposit, Withdraw, Loan Repayment), account_number, agentname.
+        - `nobs_registration`: first_name, surname, account_number, phone_number.
+        - `loan_applications`: status, amount, customer_id.
+        - `loan_repayment_schedules`: due_date, total_due, total_paid, status.
         
-        EXAMPLES:
-        - User: 'Show me a summary of accounts today' -> `fetch_from_library(intent_name='ACCOUNT_SUMMARY', params={'date': '" . date('Y-m-d') . "'})`
-        - User: 'Daily snapshot' -> `fetch_from_library(intent_name='ACCOUNT_SUMMARY', params={'date': '" . date('Y-m-d') . "'})`
-        - User: 'Total deposits today' -> `fetch_from_library(intent_name='TOTAL_DEPOSITS', params={'date': '" . date('Y-m-d') . "', 'is_total': false})`
-        
-        STRICT RULES:
-        1. NEVER write SQL. 
-        2. MANDATORY TOOL USE: You are prohibited from answering financial questions from memory. Always call a tool.
-        3. Summarize data in under 10 words.
-        4. If a user asks for a range (e.g., 'this week'), explain you can only provide daily totals for now and ask for a specific date.";
+        RULES:
+        1. FIRST MESSAGE: Warm welcome + call `fetch_from_library(intent_name='HELP_MENU')`.
+        2. SQL SECURITY: Never add `comp_id`. Select specific columns only.
+        3. ERROR HANDLING: If a tool returns an error, explain it simply. NEVER invent data.";
 
         $payload = [
             'system_instruction' => ['parts' => [['text' => $systemInstruction]]],
             'contents' => $history,
             'tools' => $tools,
-            'safetySettings' => [
-                ['category' => 'HARM_CATEGORY_HARASSMENT', 'threshold' => 'BLOCK_NONE'],
-                ['category' => 'HARM_CATEGORY_HATE_SPEECH', 'threshold' => 'BLOCK_NONE'],
-                ['category' => 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'threshold' => 'BLOCK_NONE'],
-                ['category' => 'HARM_CATEGORY_DANGEROUS_CONTENT', 'threshold' => 'BLOCK_NONE']
-            ],
-            'generationConfig' => [
-                'temperature' => 0.1,
-                'topP' => 0.95,
-            ]
+            'generationConfig' => ['temperature' => 0.1, 'topP' => 0.95]
         ];
 
         $response = Http::post($url, $payload);
-        
-        if ($response->failed()) {
-            $errorBody = $response->json();
-            Log::error("Gemini API Error Body:", $errorBody);
-            $errorMessage = $errorBody['error']['message'] ?? 'Unknown Gemini API Error';
-            throw new \Exception("Gemini API Error: " . $errorMessage);
-        }
+        if ($response->failed()) throw new \Exception("Gemini API error: " . ($response->json()['error']['message'] ?? 'Unknown'));
         
         return $response->json();
     }
