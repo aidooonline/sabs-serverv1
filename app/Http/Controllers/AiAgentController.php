@@ -57,6 +57,28 @@ class AiAgentController extends Controller
         }
     }
 
+    public function clearChat(Request $request)
+    {
+        try {
+            $user = auth('api')->user();
+            if (!$user) return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+
+            $sessionId = $request->input('session_id');
+            if (!$sessionId) return response()->json(['success' => false, 'message' => 'Session ID required'], 400);
+
+            $session = DB::table('ai_chat_sessions')->where('id', $sessionId)->where('user_id', $user->id)->first();
+            if (!$session) return response()->json(['success' => false, 'message' => 'Session not found'], 404);
+
+            DB::table('ai_messages')->where('session_id', $sessionId)->delete();
+            DB::table('ai_chat_sessions')->where('id', $sessionId)->delete();
+
+            return response()->json(['success' => true, 'message' => 'Chat history cleared.']);
+        } catch (\Throwable $e) {
+            Log::error("AI Clear Chat Error: " . $e->getMessage());
+            return response()->json(['success' => false, 'message' => 'Could not clear chat.'], 500);
+        }
+    }
+
     private function getOrCreateSession($user, $sessionId, $model)
     {
         if ($sessionId) {
