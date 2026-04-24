@@ -187,10 +187,12 @@ class AiAgentController extends Controller
 
     private function executeSecureSql($sql)
     {
-        if (preg_match('/(\*|DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER|CREATE|REPLACE|UNION|GRANT|REVOKE|EXEC)/i', $sql)) {
-            throw new \Exception("Security Violation: Unauthorized query pattern detected.");
+        if (preg_match('/(DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER|CREATE|REPLACE|UNION|GRANT|REVOKE|EXEC)/i', $sql)) {
+            throw new \Exception("Security Violation: mutations and UNIONs are prohibited.");
         }
         
+        if (preg_match('/SELECT\s+\*/i', $sql)) throw new \Exception("Security Violation: Please select specific columns instead of *.");
+
         foreach ($this->forbiddenColumns as $col) {
             if (preg_match("/\b$col\b/i", $sql)) throw new \Exception("Security Violation: Access to system column '$col' is forbidden.");
         }
@@ -199,14 +201,14 @@ class AiAgentController extends Controller
         foreach ($this->allowedTables as $table) {
             if (preg_match("/\b$table\b/i", $sql)) { $targetTable = $table; break; }
         }
-        if (!$targetTable) throw new \Exception("Security Violation: Unauthorized table access.");
+        if (!$targetTable) throw new \Exception("Security Violation: Access restricted to verified business tables.");
 
         $compId = (int)auth('api')->user()->comp_id;
         
-        // Multi-Tenancy Token Binding
         if (strpos($sql, '{COMP_ID}') !== false) {
             $sql = str_replace('{COMP_ID}', $compId, $sql);
         } else {
+            $sql = preg_replace('/;$/', '', trim($sql));
             if (stripos($sql, 'WHERE') !== false) {
                 $sql = preg_replace('/WHERE/i', "WHERE comp_id = $compId AND ", $sql, 1);
             } else {
@@ -249,7 +251,7 @@ class AiAgentController extends Controller
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
-                            'sql' => ['type' => 'string', 'description' => 'SQL SELECT statement. Use {COMP_ID} for tenant isolation. Qualify joins.']
+                            'sql' => ['type' => 'string', 'description' => 'SQL SELECT statement. Use {COMP_ID} for isolation. IMPORTANT: For unique lists, use GROUP BY customer ID.']
                         ],
                         'required' => ['sql']
                     ]
@@ -294,19 +296,19 @@ class AiAgentController extends Controller
         Context: Company ID $compId. Server Date " . date('Y-m-d') . ".
         MISSION: Senior Financial Analyst. 100% data grounding. 0% hallucination.
         
-        PRODUCTION CALCULATIONS (MUST FOLLOW):
-        1. DEPOSITS: Sum `amount` from `nobs_transactions` where `name_of_transaction` = 'Deposit'. ALWAYS exclude `amount` >= 1,000,000. ALWAYS exclude records with 'reversal' in name or description.
-        2. LOAN PAID AMOUNT: `SUM(principal_paid + interest_paid + fees_paid)` from `loan_repayment_schedules`.
-        3. LOAN OUTSTANDING: `loan_applications.total_repayment - (LOAN PAID AMOUNT)`.
-        4. ARREARS: `loan_repayment_schedules` where `due_date < CURRENT_DATE` AND `status != 'paid'`.
+        PRODUCTION RULES:
+        1. DEPOSITS: Sum amount from nobs_transactions where name_of_transaction = 'Deposit'. ALWAYS exclude reversals and amounts >= 1M.
+        2. ARREARS (GROUPED): To show people in arrears, you MUST GROUP BY customer to avoid redundant names. 
+           Formula: SUM(principal_due + interest_due + fees_due - (principal_paid + interest_paid + fees_paid)) as total_arrears.
         
-        FEW-SHOT SQL:
-        - Q: 'Who is in arrears?' -> SQL: `SELECT r.first_name, r.surname, (s.principal_due + s.interest_due + s.fees_due - (s.principal_paid + s.interest_paid + s.fees_paid)) as amount_due FROM loan_repayment_schedules s JOIN loan_applications a ON s.loan_application_id = a.id JOIN nobs_registration r ON a.customer_id = r.id WHERE s.comp_id = {COMP_ID} AND s.due_date < CURRENT_DATE AND s.status != 'paid'`
-        
+        FEW-SHOT ARREARS:
+        `SELECT r.first_name, r.surname, SUM(s.principal_due + s.interest_due + s.fees_due - (s.principal_paid + s.interest_paid + s.fees_paid)) as total_arrears FROM loan_repayment_schedules s JOIN loan_applications a ON s.loan_application_id = a.id JOIN nobs_registration r ON a.customer_id = r.id WHERE s.comp_id = {COMP_ID} AND s.due_date < CURRENT_DATE AND s.status != 'paid' GROUP BY r.id, r.first_name, r.surname HAVING total_arrears > 0`
+
         RULES:
         1. FIRST MESSAGE: Welcome + call `fetch_from_library(intent_name='HELP_MENU')`.
-        2. SQL isolation: MUST use `comp_id = {COMP_ID}`. Qualify columns.
-        3. INTEGRITY: Never invent data. Use the production formulas above.";
+        2. DATA INTEGRITY: If tool returns 'Not found', tell the user 'I could not find records' instead of showing unrelated data.
+        3. CUSTOMER SEARCH: Always use `fetch_from_library(intent_name='CUSTOMER_SEARCH')` first.
+        4. SQL: You MUST use `comp_id = {COMP_ID}` and GROUP BY customer names for lists.";
 
         $payload = ['system_instruction' => ['parts' => [['text' => $systemInstruction]]], 'contents' => $history, 'tools' => $tools, 'generationConfig' => ['temperature' => 0.1, 'topP' => 0.95]];
         $response = Http::post($url, $payload);
