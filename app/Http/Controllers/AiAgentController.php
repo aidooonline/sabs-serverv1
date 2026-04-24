@@ -225,7 +225,17 @@ class AiAgentController extends Controller
                     elseif ($intent === 'BANK_LIQUIDITY') $output = $this->intentLibrary->getSystemLiquidity();
                     elseif ($intent === 'AGENT_RANKING') $output = $this->intentLibrary->getAgentPerformance($month);
                     elseif ($intent === 'PORTFOLIO_HEALTH') $output = $this->intentLibrary->getPortfolioSummary();
-                    elseif ($intent === 'HELP_MENU') $output = $this->intentLibrary->getHelpMenu($userContext['user']['type'] ?? 'Staff');
+                    elseif ($intent === 'HELP_MENU') $output = $this->intentLibrary->getHelpMenu($userContext['user']['type_name'] ?? 'Staff', $menu);
+                    elseif ($intent === 'ACCOUNT_BALANCES') $output = $this->intentLibrary->getAccountBalancesByType();
+                    elseif ($intent === 'CASH_POOL_BALANCE') $output = $this->intentLibrary->getCashAndPool();
+                    elseif ($intent === 'DAILY_SUMMARY') $output = $this->intentLibrary->getDailySummary($date);
+                    elseif ($intent === 'RECENT_TRANSACTIONS') $output = $this->intentLibrary->getRecentTransactions();
+                    elseif ($intent === 'NEW_REGISTRATIONS') $output = $this->intentLibrary->getDailySummary($date);
+                    elseif ($intent === 'RECENT_CUSTOMERS') $output = $this->intentLibrary->getRecentRegistrations();
+                    elseif ($intent === 'EXPECTED_REPAYMENTS') $output = $this->intentLibrary->getExpectedRepayments($date);
+                    elseif ($intent === 'DAILY_DISBURSEMENTS') $output = $this->intentLibrary->getDailyDisbursements($date);
+                    elseif ($intent === 'PENDING_LOANS') $output = $this->intentLibrary->getPendingLoans();
+                    elseif ($intent === 'AGENT_COLLECTIONS') $output = $this->intentLibrary->getAgentCollections($date);
                 } 
 
                 if ($output) {
@@ -252,14 +262,21 @@ class AiAgentController extends Controller
                         'properties' => [
                             'intent_name' => [
                                 'type' => 'string', 
-                                'enum' => ['TOTAL_DEPOSITS', 'TOTAL_WITHDRAWALS', 'BANK_LIQUIDITY', 'ARREARS_REPORT', 'AGENT_RANKING', 'PORTFOLIO_HEALTH', 'CUSTOMER_SEARCH', 'HELP_MENU']
+                                'enum' => [
+                                    'TOTAL_DEPOSITS', 'TOTAL_WITHDRAWALS', 'BANK_LIQUIDITY', 'ARREARS_REPORT', 
+                                    'AGENT_RANKING', 'PORTFOLIO_HEALTH', 'CUSTOMER_SEARCH', 'HELP_MENU',
+                                    'ACCOUNT_BALANCES', 'CASH_POOL_BALANCE', 'DAILY_SUMMARY', 'RECENT_TRANSACTIONS',
+                                    'NEW_REGISTRATIONS', 'RECENT_CUSTOMERS', 'EXPECTED_REPAYMENTS', 'DAILY_DISBURSEMENTS',
+                                    'PENDING_LOANS', 'AGENT_COLLECTIONS'
+                                ]
                             ],
                             'params' => [
                                 'type' => 'object',
                                 'properties' => [
                                     'term' => ['type' => 'string', 'description' => 'Name/Account for search'],
                                     'date' => ['type' => 'string', 'description' => 'YYYY-MM-DD'],
-                                    'month' => ['type' => 'string', 'description' => 'MM (01-12)']
+                                    'month' => ['type' => 'string', 'description' => 'MM (01-12)'],
+                                    'menu' => ['type' => 'string', 'description' => 'liquidity|transactions|customers|loans|performance|main']
                                 ]
                             ]
                         ],
