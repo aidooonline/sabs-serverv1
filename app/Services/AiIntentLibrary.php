@@ -80,9 +80,9 @@ class AiIntentLibrary
             ->get();
 
         return [
-            'ui_type' => 'data_table',
+            'ui_type' => 'mobile_optimized_list',
             'ui_metadata' => $arrears,
-            'caption' => "Here are the top 10 customers in arrears based on missed installments."
+            'caption' => "Arrears Report:"
         ];
     }
 
@@ -106,9 +106,9 @@ class AiIntentLibrary
             ->get();
 
         return [
-            'ui_type' => 'data_table',
+            'ui_type' => 'mobile_optimized_list',
             'ui_metadata' => $performance,
-            'caption' => "Agent performance ranking for the current month."
+            'caption' => "Agent Rankings:"
         ];
     }
 
@@ -128,9 +128,9 @@ class AiIntentLibrary
             ->get();
 
         return [
-            'ui_type' => 'data_table',
+            'ui_type' => 'mobile_optimized_list',
             'ui_metadata' => $summary,
-            'caption' => "Overall loan portfolio health breakdown."
+            'caption' => "Portfolio Summary:"
         ];
     }
 
@@ -218,9 +218,9 @@ class AiIntentLibrary
             ->get();
 
         return [
-            'ui_type' => 'data_table',
+            'ui_type' => 'mobile_optimized_list',
             'ui_metadata' => $balances,
-            'caption' => "Here is the total balance breakdown by account type."
+            'caption' => "Balance Breakdown:"
         ];
     }
 
