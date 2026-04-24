@@ -139,16 +139,33 @@ class AiIntentLibrary
         $term = trim($term);
         if (empty($term)) return ['ui_type' => 'text', 'ui_metadata' => [], 'caption' => 'Please provide a name or account number.'];
 
-        $customers = DB::table('nobs_registration')
+        $query = DB::table('nobs_registration')
             ->select('id', 'first_name', 'surname', 'account_number', 'phone_number')
-            ->where('comp_id', $this->compId)
-            ->where(function($q) use ($term) {
+            ->where('comp_id', $this->compId);
+
+        $parts = explode(' ', $term);
+        if (count($parts) > 1) {
+            $query->where(function($q) use ($parts, $term) {
+                // All parts must match either first_name or surname
+                $q->where(function($sq) use ($parts) {
+                    foreach ($parts as $p) {
+                        $sq->where(function($ssq) use ($p) {
+                            $ssq->where('first_name', 'LIKE', "%$p%")
+                                ->orWhere('surname', 'LIKE', "%$p%");
+                        });
+                    }
+                })
+                ->orWhere('account_number', 'LIKE', "%$term%");
+            });
+        } else {
+            $query->where(function($q) use ($term) {
                 $q->where('first_name', 'LIKE', "%$term%")
                   ->orWhere('surname', 'LIKE', "%$term%")
                   ->orWhere('account_number', 'LIKE', "%$term%");
-            })
-            ->limit(5)
-            ->get();
+            });
+        }
+
+        $customers = $query->limit(5)->get();
 
         if ($customers->isEmpty()) {
             return ['ui_type' => 'text', 'ui_metadata' => [], 'caption' => "I could not find any customer matching '$term'."];
@@ -157,7 +174,7 @@ class AiIntentLibrary
         return [
             'ui_type' => 'customer_card',
             'ui_metadata' => $customers,
-            'caption' => "I found these matching customers:"
+            'caption' => "I found " . count($customers) . " matching customer(s):"
         ];
     }
 

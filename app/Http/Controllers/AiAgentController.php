@@ -107,17 +107,25 @@ class AiAgentController extends Controller
 
             if (!$candidate) break;
 
+            $modelText = null;
             $toolCalls = [];
             foreach ($candidate['parts'] as $part) {
-                if (isset($part['functionCall'])) $toolCalls[] = $part;
+                if (isset($part['functionCall'])) {
+                    $toolCalls[] = $part;
+                } elseif (isset($part['text'])) {
+                    $modelText = $part['text'];
+                }
             }
 
             if (empty($toolCalls)) {
-                if (isset($candidate['parts'][0]['text'])) {
-                    $this->storeMessage($session->id, 'model', $candidate['parts'][0]['text'], null, $activeUiType, $lastToolOutput);
+                if ($modelText) {
+                    $this->storeMessage($session->id, 'model', $modelText, null, $activeUiType, $lastToolOutput);
                 }
                 break;
             }
+
+            // Store the model's function call so history is preserved for next turns/requests
+            $this->storeMessage($session->id, 'model', $modelText, $toolCalls, $activeUiType, null);
 
             $execution = $this->handleToolCalls($session, $toolCalls, $userContext);
             $toolResults = $execution['results'];
@@ -152,12 +160,17 @@ class AiAgentController extends Controller
                     $intent = $args['intent_name'];
                     $params = $args['params'] ?? [];
                     
-                    if ($intent === 'TOTAL_DEPOSITS') $output = $this->intentLibrary->getFinancialSummary('Deposit', $params['date'] ?? null);
-                    elseif ($intent === 'TOTAL_WITHDRAWALS') $output = $this->intentLibrary->getFinancialSummary('Withdraw', $params['date'] ?? null);
-                    elseif ($intent === 'CUSTOMER_SEARCH') $output = $this->intentLibrary->searchCustomers($params['term'] ?? '');
+                    // Resilience: Check both nested params and top-level args
+                    $term = $params['term'] ?? ($args['term'] ?? '');
+                    $date = $params['date'] ?? ($args['date'] ?? null);
+                    $month = $params['month'] ?? ($args['month'] ?? null);
+                    
+                    if ($intent === 'TOTAL_DEPOSITS') $output = $this->intentLibrary->getFinancialSummary('Deposit', $date);
+                    elseif ($intent === 'TOTAL_WITHDRAWALS') $output = $this->intentLibrary->getFinancialSummary('Withdraw', $date);
+                    elseif ($intent === 'CUSTOMER_SEARCH') $output = $this->intentLibrary->searchCustomers($term);
                     elseif ($intent === 'ARREARS_REPORT') $output = $this->intentLibrary->getArrearsList();
                     elseif ($intent === 'BANK_LIQUIDITY') $output = $this->intentLibrary->getSystemLiquidity();
-                    elseif ($intent === 'AGENT_RANKING') $output = $this->intentLibrary->getAgentPerformance($params['month'] ?? null);
+                    elseif ($intent === 'AGENT_RANKING') $output = $this->intentLibrary->getAgentPerformance($month);
                     elseif ($intent === 'PORTFOLIO_HEALTH') $output = $this->intentLibrary->getPortfolioSummary();
                     elseif ($intent === 'HELP_MENU') $output = $this->intentLibrary->getHelpMenu($userContext['user']['type'] ?? 'Staff');
                 } 
