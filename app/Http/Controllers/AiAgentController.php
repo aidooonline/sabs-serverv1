@@ -31,9 +31,6 @@ class AiAgentController extends Controller
     {
     }
 
-    /**
-     * Entry point for all AI Chat interactions.
-     */
     public function chat(Request $request)
     {
         try {
@@ -64,7 +61,6 @@ class AiAgentController extends Controller
             $session = $this->getOrCreateSession($user, $sessionId, $model);
             $this->storeMessage($session->id, 'user', $prompt);
 
-            // Process with Gemini and get enriched result
             $result = $this->processWithGemini($session, $prompt, $model, $apiKey, $compId, $userContext);
 
             return response()->json([
@@ -76,48 +72,15 @@ class AiAgentController extends Controller
             ]);
 
         } catch (\Throwable $e) {
-            Log::error("AI Chat Error: " . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
-            
-            $msg = $e->getMessage();
-            // Don't leak raw SQL errors to users, but keep security violations clear
-            if ($e instanceof QueryException) $msg = "Database analysis failed. Please refine your question.";
-
-            return response()->json([
-                'success' => false,
-                'message' => "I encountered an issue: " . $msg
-            ], 500);
-        }
-    }
-
-    /**
-     * Secure endpoint to execute a previously prepared AI action.
-     */
-    public function executeAction(Request $request)
-    {
-        try {
-            $user = auth('api')->user();
-            if (!$user) return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
-            
-            $payload = $request->input('payload');
-            if (!$payload) return response()->json(['success' => false, 'message' => 'Invalid action payload.'], 400);
-
-            $this->actionManager = new AiActionManager();
-            $result = $this->actionManager->executeAction($payload, $user);
-            
-            return response()->json($result);
-        } catch (\Throwable $e) {
-            Log::error("AI Execute Action Error: " . $e->getMessage());
-            return response()->json(['success' => false, 'message' => 'Execution failed.'], 500);
+            Log::error("AI Chat Error: " . $e->getMessage());
+            return response()->json(['success' => false, 'message' => "I encountered an issue: " . $e->getMessage()], 500);
         }
     }
 
     private function getOrCreateSession($user, $sessionId, $model)
     {
         if ($sessionId) {
-            $sess = DB::table('ai_chat_sessions')
-                ->where('id', $sessionId)
-                ->where('user_id', $user->id)
-                ->first();
+            $sess = DB::table('ai_chat_sessions')->where('id', $sessionId)->where('user_id', $user->id)->first();
             if ($sess) return $sess;
         }
         return $this->createNewSession($user, $model);
@@ -137,11 +100,7 @@ class AiAgentController extends Controller
 
     private function storeMessage($sessionId, $role, $content, $toolCalls = null, $uiType = 'text', $uiMetadata = null)
     {
-        $meta = null;
-        if ($uiMetadata !== null) {
-            $meta = is_string($uiMetadata) ? $uiMetadata : json_encode($uiMetadata);
-        }
-
+        $meta = $uiMetadata !== null ? (is_string($uiMetadata) ? $uiMetadata : json_encode($uiMetadata)) : null;
         return DB::table('ai_messages')->insertGetId([
             'session_id' => $sessionId,
             'role' => $role,
@@ -159,7 +118,7 @@ class AiAgentController extends Controller
         $history = $this->getHistory($session->id);
         $tools = $this->getAvailableTools();
         
-        $maxTurns = 4; // Increased for complex analytical multi-steps
+        $maxTurns = 4; 
         $currentTurn = 0;
         $lastResponse = null;
         $lastToolOutput = null;
@@ -174,9 +133,7 @@ class AiAgentController extends Controller
 
             $toolCalls = [];
             foreach ($candidate['parts'] as $part) {
-                if (isset($part['functionCall'])) {
-                    $toolCalls[] = $part;
-                }
+                if (isset($part['functionCall'])) $toolCalls[] = $part;
             }
 
             if (empty($toolCalls)) {
@@ -194,11 +151,7 @@ class AiAgentController extends Controller
             
             foreach ($toolResults as $tr) {
                 $this->storeMessage($session->id, 'tool', json_encode($tr['functionResponse']['response']), null, $activeUiType, null);
-                DB::table('ai_messages')
-                    ->where('session_id', $session->id)
-                    ->orderBy('id', 'desc')
-                    ->limit(1)
-                    ->update(['tool_call_id' => $tr['functionResponse']['name']]);
+                DB::table('ai_messages')->where('session_id', $session->id)->orderBy('id', 'desc')->limit(1)->update(['tool_call_id' => $tr['functionResponse']['name']]);
             }
 
             $history[] = $candidate; 
@@ -215,9 +168,7 @@ class AiAgentController extends Controller
 
     private function handleToolCalls($session, $toolCalls, $userContext = null)
     {
-        $results = [];
-        $rawData = null;
-        $uiType = 'text';
+        $results = []; $rawData = null; $uiType = 'text';
 
         foreach ($toolCalls as $call) {
             $func = $call['functionCall'];
@@ -235,94 +186,73 @@ class AiAgentController extends Controller
                     elseif ($intent === 'CUSTOMER_SEARCH') $output = $this->intentLibrary->searchCustomers($params['term'] ?? '');
                     elseif ($intent === 'LOAN_OVERVIEW') $output = $this->intentLibrary->getLoanOverview();
                     elseif ($intent === 'RECENT_ACTIVITY') $output = $this->intentLibrary->getRecentActivity();
-                    elseif ($intent === 'HELP_MENU') {
-                        $role = $userContext['user']['type'] ?? 'Staff';
-                        $output = $this->intentLibrary->getHelpMenu($role);
-                    }
+                    elseif ($intent === 'HELP_MENU') $output = $this->intentLibrary->getHelpMenu($userContext['user']['type'] ?? 'Staff');
                     elseif ($intent === 'ACCOUNT_SUMMARY') $output = $this->intentLibrary->getAccountSummary($params['date'] ?? null);
                 } 
-                elseif ($name === 'prepare_bank_action') {
-                    $action = $args['action_type'];
-                    $output = $this->actionManager->prepareAction($action, $args['params'] ?? []);
-                }
                 elseif ($name === 'execute_analytical_query') {
-                    $sql = $args['sql'];
-                    $output = $this->executeSecureSql($sql);
+                    $output = $this->executeSecureSql($args['sql']);
                 }
 
                 if ($output) {
                     $uiType = $output['ui_type'];
                     $rawData = $output['ui_metadata'];
-                    $results[] = [
-                        'functionResponse' => [
-                            'name' => $name,
-                            'response' => ['result' => $output['caption'], 'data' => $output['ui_metadata']]
-                        ]
-                    ];
+                    $results[] = ['functionResponse' => ['name' => $name, 'response' => ['result' => $output['caption'], 'data' => $output['ui_metadata']]]];
                 }
             } catch (\Throwable $e) {
-                Log::error("AI Tool Routing Error: " . $e->getMessage());
                 $results[] = ['functionResponse' => ['name' => $name, 'response' => ['error' => $e->getMessage()]]];
             }
         }
         return ['results' => $results, 'raw_data' => $rawData, 'ui_type' => $uiType];
     }
 
-    /**
-     * Executes AI-generated SQL with rigorous multi-layered security.
-     */
     private function executeSecureSql($sql)
     {
-        // 1. Strict Read-Only Guard
-        if (preg_match('/(DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER|CREATE|REPLACE|GRANT|REVOKE|EXEC|UNION)/i', $sql)) {
-            throw new \Exception("Security Violation: Only SELECT queries are permitted.");
+        // 1. HARD SECURITY BLOCK: No Wildcards & No Mutations
+        if (preg_match('/(\*|DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER|CREATE|REPLACE|UNION)/i', $sql)) {
+            throw new \Exception("Security Violation: Wildcards and mutations are strictly prohibited.");
         }
 
-        // 2. Strict Column & Table Check (Regex Word Boundaries)
+        // 2. Strict PII Column Blacklist
         foreach ($this->forbiddenColumns as $col) {
-            if (preg_match("/\b$col\b/i", $sql)) {
-                throw new \Exception("Security Violation: Access to system column '$col' is forbidden.");
-            }
+            if (preg_match("/\b$col\b/i", $sql)) throw new \Exception("Security Violation: Access to system column '$col' is forbidden.");
         }
 
-        $foundAllowedTable = false;
+        // 3. Table Whitelist Verification
+        $targetTable = null;
         foreach ($this->allowedTables as $table) {
             if (preg_match("/\b$table\b/i", $sql)) {
-                $foundAllowedTable = true;
+                $targetTable = $table;
                 break;
             }
         }
-        if (!$foundAllowedTable) {
-            throw new \Exception("Security Violation: Access restricted to verified business tables only.");
-        }
+        if (!$targetTable) throw new \Exception("Security Violation: Access restricted to verified business tables only.");
 
-        // 3. Automated Multi-Tenancy Injection
-        $user = auth('api')->user();
-        $compId = (int)$user->comp_id;
-
+        // 4. Surgical Multi-Tenancy (Handles Joins via Table Aliasing)
+        $compId = (int)auth('api')->user()->comp_id;
+        
+        // Find the FIRST table mention to use as the security anchor
         if (stripos($sql, 'WHERE') !== false) {
-            $sql = preg_replace('/WHERE/i', "WHERE comp_id = $compId AND ", $sql, 1);
+            $sql = preg_replace('/WHERE/i', "WHERE $targetTable.comp_id = $compId AND ", $sql, 1);
         } else {
+            $injection = " WHERE $targetTable.comp_id = $compId ";
             if (preg_match('/(GROUP BY|ORDER BY|LIMIT)/i', $sql, $matches, PREG_OFFSET_CAPTURE)) {
                 $pos = $matches[0][1];
-                $sql = substr($sql, 0, $pos) . " WHERE comp_id = $compId " . substr($sql, $pos);
+                $sql = substr($sql, 0, $pos) . $injection . substr($sql, $pos);
             } else {
-                $sql .= " WHERE comp_id = $compId";
+                $sql .= $injection;
             }
         }
 
         try {
-            Log::info("AI Secure SQL executing: $sql");
+            Log::info("AI Secure SQL: $sql");
             $results = DB::select($sql);
-            
             return [
                 'ui_type' => 'data_table',
                 'ui_metadata' => $results,
-                'caption' => "I've analyzed the data and found " . count($results) . " matching records."
+                'caption' => "Analysis complete. I found " . count($results) . " matching records."
             ];
         } catch (QueryException $qe) {
-            Log::error("AI SQL Syntax Error: " . $qe->getMessage());
-            throw new \Exception("The generated analysis plan had a syntax error. Please try asking in a different way.");
+            throw new \Exception("The generated analysis plan had a syntax error. Please try asking in a simpler way.");
         }
     }
 
@@ -332,47 +262,25 @@ class AiAgentController extends Controller
             'function_declarations' => [
                 [
                     'name' => 'fetch_from_library',
-                    'description' => 'Fetches pre-verified reports and data from the bank library.',
+                    'description' => 'Fetches pre-verified reports and help menus.',
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
-                            'intent_name' => [
-                                'type' => 'string', 
-                                'enum' => ['TOTAL_DEPOSITS', 'TOTAL_WITHDRAWALS', 'ACCOUNT_SUMMARY', 'CUSTOMER_SEARCH', 'LOAN_OVERVIEW', 'RECENT_ACTIVITY', 'HELP_MENU']
-                            ],
-                            'params' => [
-                                'type' => 'object', 
-                                'properties' => [
-                                    'term' => ['type' => 'string', 'description' => 'Search term for customers'],
-                                    'date' => ['type' => 'string', 'description' => 'Target date in YYYY-MM-DD format'],
-                                    'is_total' => ['type' => 'boolean', 'description' => 'Set to true if user wants TOTAL across ALL account types']
-                                ]
-                            ]
+                            'intent_name' => ['type' => 'string', 'enum' => ['TOTAL_DEPOSITS', 'TOTAL_WITHDRAWALS', 'ACCOUNT_SUMMARY', 'CUSTOMER_SEARCH', 'LOAN_OVERVIEW', 'RECENT_ACTIVITY', 'HELP_MENU']],
+                            'params' => ['type' => 'object']
                         ],
                         'required' => ['intent_name']
                     ]
                 ],
                 [
                     'name' => 'execute_analytical_query',
-                    'description' => 'Executes a raw SQL SELECT query for complex analysis.',
+                    'description' => 'Executes a raw SQL SELECT query for custom analysis.',
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
-                            'sql' => ['type' => 'string', 'description' => 'The SQL SELECT statement. Important: If joining tables, always use table_name.column_name to avoid ambiguity.']
+                            'sql' => ['type' => 'string', 'description' => 'SQL SELECT. IMPORTANT: NEVER use *. Select specific columns. If joining, qualify columns (e.g. table.column). Do NOT add comp_id.']
                         ],
                         'required' => ['sql']
-                    ]
-                ],
-                [
-                    'name' => 'prepare_bank_action',
-                    'description' => 'Prepares a sensitive write action for user confirmation.',
-                    'parameters' => [
-                        'type' => 'object',
-                        'properties' => [
-                            'action_type' => ['type' => 'string', 'enum' => ['reactivate_account', 'toggle_user_status']],
-                            'params' => ['type' => 'object']
-                        ],
-                        'required' => ['action_type']
                     ]
                 ]
             ]
@@ -381,32 +289,18 @@ class AiAgentController extends Controller
 
     private function getHistory($sessionId)
     {
-        $messages = DB::table('ai_messages')
-            ->where('session_id', $sessionId)
-            ->orderBy('created_at', 'asc')
-            ->limit(20)
-            ->get();
-
+        $messages = DB::table('ai_messages')->where('session_id', $sessionId)->orderBy('created_at', 'asc')->limit(20)->get();
         $history = [];
         foreach ($messages as $msg) {
             if ($msg->role === 'user' || $msg->role === 'model') {
                 $parts = [];
                 if ($msg->content) $parts[] = ['text' => $msg->content];
                 if ($msg->tool_calls) {
-                    $tc = json_decode($msg->tool_calls, true);
-                    foreach ($tc as $call) $parts[] = $call;
+                    foreach (json_decode($msg->tool_calls, true) as $call) $parts[] = $call;
                 }
                 $history[] = ['role' => $msg->role, 'parts' => $parts];
             } else if ($msg->role === 'tool') {
-                $history[] = [
-                    'role' => 'function',
-                    'parts' => [[
-                        'functionResponse' => [
-                            'name' => $msg->tool_call_id,
-                            'response' => json_decode($msg->content, true)
-                        ]
-                    ]]
-                ];
+                $history[] = ['role' => 'function', 'parts' => [['functionResponse' => ['name' => $msg->tool_call_id, 'response' => json_decode($msg->content, true)]]]];
             }
         }
         return $history;
@@ -421,39 +315,27 @@ class AiAgentController extends Controller
 
         $greetingContext = "You are the SABS Bank AI Assistant.";
         if ($userContext && isset($userContext['user'])) {
-            $u = $userContext['user'];
-            $c = $userContext['company'];
+            $u = $userContext['user']; $c = $userContext['company'];
             $greetingContext .= " Speaking to " . ($u['title'] ?? '') . " " . ($u['name'] ?? 'User') . " (Role: " . ($u['type'] ?? 'Staff') . ") at " . ($c['name'] ?? 'SABS Bank') . ".";
         }
 
         $systemInstruction = "$greetingContext 
-        Context: Company ID $compId. Date " . date('Y-m-d') . ".
-        
+        Context: Company ID $compId. Server Date " . date('Y-m-d') . ".
         MISSION: Senior Financial Analyst. 0% hallucination. 100% data grounding.
-        
         SCHEMA:
         - `nobs_transactions`: amount, name_of_transaction (Deposit, Withdraw, Loan Repayment), account_number, agentname.
         - `nobs_registration`: first_name, surname, account_number, phone_number.
         - `loan_applications`: status, amount, customer_id.
         - `loan_repayment_schedules`: due_date, total_due, total_paid, status.
-        - `loan_products`: name, interest_rate, duration.
-        
+        - `loan_products`: name, interest_rate.
         RULES:
         1. FIRST MESSAGE: Warm welcome + call `fetch_from_library(intent_name='HELP_MENU')`.
-        2. SQL AMBIGUITY: If joining tables, you MUST qualify column names with the table name (e.g. `nobs_transactions.comp_id`).
-        3. SQL SECURITY: Never add `comp_id`. Select specific columns only.
-        4. ERROR HANDLING: If a tool returns an error, explain it simply. NEVER invent data.";
+        2. SQL SECURITY: NEVER use *. Select specific columns. If joining, you MUST qualify columns with table names.
+        3. FINANCIAL TRUTH: Exclude transaction descriptions containing 'reversal' unless asked.";
 
-        $payload = [
-            'system_instruction' => ['parts' => [['text' => $systemInstruction]]],
-            'contents' => $history,
-            'tools' => $tools,
-            'generationConfig' => ['temperature' => 0.1, 'topP' => 0.95]
-        ];
-
+        $payload = ['system_instruction' => ['parts' => [['text' => $systemInstruction]]], 'contents' => $history, 'tools' => $tools, 'generationConfig' => ['temperature' => 0.1, 'topP' => 0.95]];
         $response = Http::post($url, $payload);
         if ($response->failed()) throw new \Exception("Gemini API connection error.");
-        
         return $response->json();
     }
 }
