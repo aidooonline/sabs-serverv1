@@ -351,7 +351,10 @@ class AiAgentController extends Controller
         3. AGENT PERFORMANCE: Use `AGENT_RANKING`.
         4. DEPOSITS/WITHDRAWALS: Use `TOTAL_DEPOSITS` or `TOTAL_WITHDRAWALS`.
         5. CUSTOMER SEARCH: Use `CUSTOMER_SEARCH`.
-        6. START OF SESSION: If history is empty, say welcome and call `HELP_MENU`.
+        6. HELP/MENUS: Use `HELP_MENU`. 
+           - When the user asks for help or says "menu", call `HELP_MENU` with `menu="main"`.
+           - When the user asks for liquidity info, transactions, customers, loans, or performance specifically, you can also trigger the sub-menus via `HELP_MENU` with `menu` as "liquidity", "transactions", "customers", "loans", or "performance".
+        7. START OF SESSION: If history is empty, call `HELP_MENU` with `menu="main"`.
         
         STRICT RULES:
         - If the user asks a question not covered by the library tools, politely say you only provide verified bank reports.
