@@ -188,10 +188,18 @@ class AiAgentController extends Controller
                 DB::table('ai_messages')->where('session_id', $session->id)->orderBy('id', 'desc')->limit(1)->update(['tool_call_id' => $tr['functionResponse']['name']]);
             }
 
-            // Important: In-memory history for multi-turn reasoning MUST keep the data 
-            // so the model can see the result it just fetched.
+            // LEAN REASONING: Strip heavy 'data' from toolResults before adding to history.
+            // This ensures Gemini only sees the textual summary for its next turn.
+            $leanToolResults = array_map(function($tr) {
+                $copy = $tr;
+                if (isset($copy['functionResponse']['response']['data'])) {
+                    unset($copy['functionResponse']['response']['data']);
+                }
+                return $copy;
+            }, $toolResults);
+
             $history[] = $candidate; 
-            $history[] = ['role' => 'function', 'parts' => $toolResults];
+            $history[] = ['role' => 'function', 'parts' => $leanToolResults];
             $currentTurn++;
         }
 
@@ -290,11 +298,11 @@ class AiAgentController extends Controller
 
     private function getHistory($sessionId)
     {
-        // Get last 15 messages to keep context window small and responsive
+        // Get last 10 messages to keep context window tiny and efficient
         $messages = DB::table('ai_messages')
             ->where('session_id', $sessionId)
             ->orderBy('created_at', 'desc')
-            ->limit(15)
+            ->limit(10)
             ->get()
             ->reverse();
 
