@@ -8,23 +8,11 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use App\Services\AiIntentLibrary;
 use App\Services\AiActionManager;
-use Illuminate\Database\QueryException;
 
 class AiAgentController extends Controller
 {
     private $intentLibrary;
     private $actionManager;
-
-    private $allowedTables = [
-        'nobs_transactions', 'nobs_registration', 'loan_applications', 
-        'loan_repayment_schedules', 'agent_commissions', 'capital_accounts',
-        'capital_account_transactions', 'nobs_user_account_numbers',
-        'loan_products', 'loan_fees', 'account_types', 'loan_product_fees'
-    ];
-
-    private $forbiddenColumns = [
-        'password', 'remember_token', 'api_token', 'secret', 'key', 'auth', 'iv', 'salt'
-    ];
 
     public function __construct() {}
 
@@ -52,6 +40,7 @@ class AiAgentController extends Controller
             $session = $this->getOrCreateSession($user, $sessionId, $model);
             $this->storeMessage($session->id, 'user', $prompt);
 
+            // Process with Gemini using the "Verified Toolset"
             $result = $this->processWithGemini($session, $prompt, $model, $apiKey, $compId, $userContext);
 
             return response()->json([
@@ -166,13 +155,12 @@ class AiAgentController extends Controller
                     if ($intent === 'TOTAL_DEPOSITS') $output = $this->intentLibrary->getFinancialSummary('Deposit', $params['date'] ?? null);
                     elseif ($intent === 'TOTAL_WITHDRAWALS') $output = $this->intentLibrary->getFinancialSummary('Withdraw', $params['date'] ?? null);
                     elseif ($intent === 'CUSTOMER_SEARCH') $output = $this->intentLibrary->searchCustomers($params['term'] ?? '');
-                    elseif ($intent === 'LOAN_OVERVIEW') $output = $this->intentLibrary->getLoanOverview();
-                    elseif ($intent === 'ACCOUNT_SUMMARY') $output = $this->intentLibrary->getAccountSummary($params['date'] ?? null);
+                    elseif ($intent === 'ARREARS_REPORT') $output = $this->intentLibrary->getArrearsList();
+                    elseif ($intent === 'BANK_LIQUIDITY') $output = $this->intentLibrary->getSystemLiquidity();
+                    elseif ($intent === 'AGENT_RANKING') $output = $this->intentLibrary->getAgentPerformance($params['month'] ?? null);
+                    elseif ($intent === 'PORTFOLIO_HEALTH') $output = $this->intentLibrary->getPortfolioSummary();
                     elseif ($intent === 'HELP_MENU') $output = $this->intentLibrary->getHelpMenu($userContext['user']['type'] ?? 'Staff');
                 } 
-                elseif ($name === 'execute_analytical_query') {
-                    $output = $this->executeSecureSql($args['sql']);
-                }
 
                 if ($output) {
                     $uiType = $output['ui_type']; $rawData = $output['ui_metadata'];
@@ -185,75 +173,30 @@ class AiAgentController extends Controller
         return ['results' => $results, 'raw_data' => $rawData, 'ui_type' => $uiType];
     }
 
-    private function executeSecureSql($sql)
-    {
-        if (preg_match('/(DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER|CREATE|REPLACE|UNION|GRANT|REVOKE|EXEC)/i', $sql)) {
-            throw new \Exception("Security Violation: mutations and UNIONs are prohibited.");
-        }
-        
-        if (preg_match('/SELECT\s+\*/i', $sql)) throw new \Exception("Security Violation: Please select specific columns instead of *.");
-
-        foreach ($this->forbiddenColumns as $col) {
-            if (preg_match("/\b$col\b/i", $sql)) throw new \Exception("Security Violation: Access to system column '$col' is forbidden.");
-        }
-
-        $targetTable = null;
-        foreach ($this->allowedTables as $table) {
-            if (preg_match("/\b$table\b/i", $sql)) { $targetTable = $table; break; }
-        }
-        if (!$targetTable) throw new \Exception("Security Violation: Access restricted to verified business tables.");
-
-        $compId = (int)auth('api')->user()->comp_id;
-        
-        if (strpos($sql, '{COMP_ID}') !== false) {
-            $sql = str_replace('{COMP_ID}', $compId, $sql);
-        } else {
-            $sql = preg_replace('/;$/', '', trim($sql));
-            if (stripos($sql, 'WHERE') !== false) {
-                $sql = preg_replace('/WHERE/i', "WHERE comp_id = $compId AND ", $sql, 1);
-            } else {
-                $injection = " WHERE comp_id = $compId ";
-                if (preg_match('/(GROUP BY|ORDER BY|LIMIT)/i', $sql, $matches, PREG_OFFSET_CAPTURE)) {
-                    $pos = $matches[0][1];
-                    $sql = substr($sql, 0, $pos) . $injection . substr($sql, $pos);
-                } else { $sql .= $injection; }
-            }
-        }
-
-        try {
-            Log::info("AI Secure SQL: $sql");
-            $results = DB::select($sql);
-            return ['ui_type' => 'data_table', 'ui_metadata' => $results, 'caption' => "I've analyzed the data and found " . count($results) . " records."];
-        } catch (QueryException $qe) {
-            throw new \Exception("Query plan error. Please refine your question.");
-        }
-    }
-
     private function getAvailableTools()
     {
         return [[
             'function_declarations' => [
                 [
                     'name' => 'fetch_from_library',
-                    'description' => 'Fetches pre-verified reports and help menus using standard bank logic.',
+                    'description' => 'Executes verified bank business logic for reports, search, and health metrics.',
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
-                            'intent_name' => ['type' => 'string', 'enum' => ['TOTAL_DEPOSITS', 'TOTAL_WITHDRAWALS', 'ACCOUNT_SUMMARY', 'CUSTOMER_SEARCH', 'LOAN_OVERVIEW', 'HELP_MENU']],
-                            'params' => ['type' => 'object']
+                            'intent_name' => [
+                                'type' => 'string', 
+                                'enum' => ['TOTAL_DEPOSITS', 'TOTAL_WITHDRAWALS', 'BANK_LIQUIDITY', 'ARREARS_REPORT', 'AGENT_RANKING', 'PORTFOLIO_HEALTH', 'CUSTOMER_SEARCH', 'HELP_MENU']
+                            ],
+                            'params' => [
+                                'type' => 'object',
+                                'properties' => [
+                                    'term' => ['type' => 'string', 'description' => 'Name/Account for search'],
+                                    'date' => ['type' => 'string', 'description' => 'YYYY-MM-DD'],
+                                    'month' => ['type' => 'string', 'description' => 'MM (01-12)']
+                                ]
+                            ]
                         ],
                         'required' => ['intent_name']
-                    ]
-                ],
-                [
-                    'name' => 'execute_analytical_query',
-                    'description' => 'Executes a raw SQL SELECT query for custom analysis.',
-                    'parameters' => [
-                        'type' => 'object',
-                        'properties' => [
-                            'sql' => ['type' => 'string', 'description' => 'SQL SELECT statement. Use {COMP_ID} for isolation. IMPORTANT: For unique lists, use GROUP BY customer ID.']
-                        ],
-                        'required' => ['sql']
                     ]
                 ]
             ]
@@ -286,29 +229,29 @@ class AiAgentController extends Controller
 
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
 
-        $greeting = "You are the SABS Bank AI Assistant.";
+        $greeting = "You are the SABS Bank Executive AI Analyst.";
         if ($userContext && isset($userContext['user'])) {
             $u = $userContext['user']; $c = $userContext['company'];
-            $greeting .= " Speaking to " . ($u['title'] ?? '') . " " . ($u['name'] ?? 'User') . " (Role: " . ($u['type'] ?? 'Staff') . ") at " . ($c['name'] ?? 'SABS Bank') . ".";
+            $greeting .= " Greeting " . ($u['name'] ?? 'User') . " at " . ($c['name'] ?? 'SABS Bank') . ".";
         }
 
         $systemInstruction = "$greeting 
         Context: Company ID $compId. Server Date " . date('Y-m-d') . ".
-        MISSION: Senior Financial Analyst. 100% data grounding. 0% hallucination.
         
-        PRODUCTION RULES:
-        1. DEPOSITS: Sum amount from nobs_transactions where name_of_transaction = 'Deposit'. ALWAYS exclude reversals and amounts >= 1M.
-        2. ARREARS (GROUPED): To show people in arrears, you MUST GROUP BY customer to avoid redundant names. 
-           Formula: SUM(principal_due + interest_due + fees_due - (principal_paid + interest_paid + fees_paid)) as total_arrears.
+        MISSION: You are a secure analytical assistant. YOU MUST ONLY use the provided tools to fetch financial data. 
+        NEVER attempt to generate your own SQL or guess financial numbers.
         
-        FEW-SHOT ARREARS:
-        `SELECT r.first_name, r.surname, SUM(s.principal_due + s.interest_due + s.fees_due - (s.principal_paid + s.interest_paid + s.fees_paid)) as total_arrears FROM loan_repayment_schedules s JOIN loan_applications a ON s.loan_application_id = a.id JOIN nobs_registration r ON a.customer_id = r.id WHERE s.comp_id = {COMP_ID} AND s.due_date < CURRENT_DATE AND s.status != 'paid' GROUP BY r.id, r.first_name, r.surname HAVING total_arrears > 0`
-
-        RULES:
-        1. FIRST MESSAGE: Welcome + call `fetch_from_library(intent_name='HELP_MENU')`.
-        2. DATA INTEGRITY: If tool returns 'Not found', tell the user 'I could not find records' instead of showing unrelated data.
-        3. CUSTOMER SEARCH: Always use `fetch_from_library(intent_name='CUSTOMER_SEARCH')` first.
-        4. SQL: You MUST use `comp_id = {COMP_ID}` and GROUP BY customer names for lists.";
+        TOOL PROTOCOL:
+        1. LIQUIDITY/NET POSITION: Use `BANK_LIQUIDITY`.
+        2. ARREARS/DEFAULTERS: Use `ARREARS_REPORT`.
+        3. AGENT PERFORMANCE: Use `AGENT_RANKING`.
+        4. DEPOSITS/WITHDRAWALS: Use `TOTAL_DEPOSITS` or `TOTAL_WITHDRAWALS`.
+        5. CUSTOMER SEARCH: Use `CUSTOMER_SEARCH`.
+        6. START OF SESSION: If history is empty, say welcome and call `HELP_MENU`.
+        
+        STRICT RULES:
+        - If the user asks a question not covered by the library tools, politely say you only provide verified bank reports.
+        - NEVER Hallucinate. Trust the tool outputs 100%.";
 
         $payload = ['system_instruction' => ['parts' => [['text' => $systemInstruction]]], 'contents' => $history, 'tools' => $tools, 'generationConfig' => ['temperature' => 0.1, 'topP' => 0.95]];
         $response = Http::post($url, $payload);

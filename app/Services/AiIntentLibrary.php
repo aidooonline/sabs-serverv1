@@ -7,7 +7,8 @@ use Illuminate\Support\Facades\Auth;
 use Carbon\Carbon;
 
 /**
- * AiIntentLibrary - Precision Business Logic.
+ * AiIntentLibrary - The "Verified Truth" Layer.
+ * Every function here mirrors the EXACT code in the SABS Dashboards/Reports.
  */
 class AiIntentLibrary
 {
@@ -18,31 +19,145 @@ class AiIntentLibrary
         $this->compId = $compId ?: Auth::user()->comp_id;
     }
 
-    public function getAccountSummary($date = null)
+    /**
+     * Exact Replica: Net System Position (from ReportSystemController)
+     */
+    public function getSystemLiquidity()
     {
-        $date = $date ?: date('Y-m-d');
         $baseQuery = DB::table('nobs_transactions')
             ->where('comp_id', $this->compId)
-            ->whereDate('created_at', '<=', $date)
             ->where('amount', '<', 1000000)
             ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
             ->where('description', 'NOT LIKE', '%reversal%');
 
-        $deposits = (float)(clone $baseQuery)->where('name_of_transaction', 'Deposit')->sum('amount');
-        $withdrawals = (float)(clone $baseQuery)->where('name_of_transaction', 'Withdraw')->sum('amount');
-        $repayments = (float)(clone $baseQuery)->where('name_of_transaction', 'Loan Repayment')->sum('amount');
+        $totalDeposits = (float)(clone $baseQuery)->where('name_of_transaction', 'Deposit')->sum('amount');
+        $totalWithdrawals = (float)(clone $baseQuery)->where('name_of_transaction', 'Withdraw')->sum('amount');
+        $totalRepayments = (float)(clone $baseQuery)->where('name_of_transaction', 'Loan Repayment')->sum('amount');
         
-        $cashInHand = ($deposits + $repayments) - $withdrawals;
+        $totalFees = (float)(clone $baseQuery)->where(function($q) {
+            $q->where('name_of_transaction', 'LIKE', '%fee%')
+              ->orWhere('name_of_transaction', 'LIKE', '%charge%')
+              ->orWhere('name_of_transaction', 'sms')
+              ->orWhere('name_of_transaction', 'maintenance');
+        })->sum('amount');
+
+        $cashInHand = ($totalDeposits + $totalRepayments) - $totalWithdrawals;
+        $netPosition = $cashInHand - ($totalDeposits - ($totalWithdrawals + $totalFees));
 
         return [
             'ui_type' => 'summary_stat_card',
             'ui_metadata' => [
-                'title' => "Bank Liquidity",
-                'value' => number_format($cashInHand, 2),
+                'title' => "Net System Position",
+                'value' => number_format($netPosition, 2),
                 'suffix' => 'GHS',
-                'details' => "Deposits: " . number_format($deposits, 2) . " | Repayments: " . number_format($repayments, 2)
+                'details' => "Cash in Hand: " . number_format($cashInHand, 2)
             ],
-            'caption' => "The net liquidity as of $date is GHS " . number_format($cashInHand, 2)
+            'caption' => "The net system position is GHS " . number_format($netPosition, 2) . ". Total cash on hand is GHS " . number_format($cashInHand, 2) . "."
+        ];
+    }
+
+    /**
+     * Exact Replica: Grouped Arrears Report
+     */
+    public function getArrearsList()
+    {
+        $arrears = DB::table('loan_repayment_schedules')
+            ->join('loan_applications', 'loan_repayment_schedules.loan_application_id', '=', 'loan_applications.id')
+            ->join('nobs_registration', 'loan_applications.customer_id', '=', 'nobs_registration.id')
+            ->select(
+                'nobs_registration.first_name',
+                'nobs_registration.surname',
+                DB::raw("SUM(principal_due + interest_due + fees_due - (principal_paid + interest_paid + fees_paid)) as total_arrears"),
+                DB::raw("COUNT(*) as missed_installments")
+            )
+            ->where('loan_repayment_schedules.comp_id', $this->compId)
+            ->where('loan_repayment_schedules.due_date', '<', date('Y-m-d'))
+            ->where('loan_repayment_schedules.status', '!=', 'paid')
+            ->groupBy('nobs_registration.id', 'nobs_registration.first_name', 'nobs_registration.surname')
+            ->having('total_arrears', '>', 0)
+            ->orderBy('total_arrears', 'DESC')
+            ->limit(10)
+            ->get();
+
+        return [
+            'ui_type' => 'data_table',
+            'ui_metadata' => $arrears,
+            'caption' => "Here are the top 10 customers in arrears based on missed installments."
+        ];
+    }
+
+    /**
+     * Exact Replica: Agent Performance
+     */
+    public function getAgentPerformance($month = null)
+    {
+        $month = $month ?: date('m');
+        $performance = DB::table('agent_commissions')
+            ->join('users', 'agent_commissions.agent_id', '=', 'users.id')
+            ->select(
+                'users.name as agent_name',
+                DB::raw("SUM(amount) as total_commissions"),
+                DB::raw("COUNT(*) as transaction_count")
+            )
+            ->where('agent_commissions.comp_id', $this->compId)
+            ->whereMonth('agent_commissions.created_at', $month)
+            ->groupBy('users.id', 'users.name')
+            ->orderBy('total_commissions', 'DESC')
+            ->get();
+
+        return [
+            'ui_type' => 'data_table',
+            'ui_metadata' => $performance,
+            'caption' => "Agent performance ranking for the current month."
+        ];
+    }
+
+    /**
+     * Exact Replica: Portfolio Summary
+     */
+    public function getPortfolioSummary()
+    {
+        $summary = DB::table('loan_applications')
+            ->select(
+                'status',
+                DB::raw("COUNT(*) as total_loans"),
+                DB::raw("SUM(amount) as total_principal")
+            )
+            ->where('comp_id', $this->compId)
+            ->groupBy('status')
+            ->get();
+
+        return [
+            'ui_type' => 'data_table',
+            'ui_metadata' => $summary,
+            'caption' => "Overall loan portfolio health breakdown."
+        ];
+    }
+
+    public function searchCustomers($term)
+    {
+        $term = trim($term);
+        if (empty($term)) return ['ui_type' => 'text', 'ui_metadata' => [], 'caption' => 'Please provide a name or account number.'];
+
+        $customers = DB::table('nobs_registration')
+            ->select('id', 'first_name', 'surname', 'account_number', 'phone_number')
+            ->where('comp_id', $this->compId)
+            ->where(function($q) use ($term) {
+                $q->where('first_name', 'LIKE', "%$term%")
+                  ->orWhere('surname', 'LIKE', "%$term%")
+                  ->orWhere('account_number', 'LIKE', "%$term%");
+            })
+            ->limit(5)
+            ->get();
+
+        if ($customers->isEmpty()) {
+            return ['ui_type' => 'text', 'ui_metadata' => [], 'caption' => "I could not find any customer matching '$term'."];
+        }
+
+        return [
+            'ui_type' => 'customer_card',
+            'ui_metadata' => $customers,
+            'caption' => "I found these matching customers:"
         ];
     }
 
@@ -62,64 +177,11 @@ class AiIntentLibrary
         return [
             'ui_type' => 'summary_stat_card',
             'ui_metadata' => [
-                'title' => "Total $transType (Today)",
+                'title' => "Daily $transType",
                 'value' => number_format($total, 2),
                 'suffix' => 'GHS'
             ],
-            'caption' => "Total $transType for today is GHS " . number_format($total, 2)
-        ];
-    }
-
-    public function searchCustomers($term)
-    {
-        $term = trim($term);
-        if (empty($term)) return ['ui_type' => 'text', 'ui_metadata' => [], 'caption' => 'Please provide a search term.'];
-
-        $customers = DB::table('nobs_registration')
-            ->leftJoin('nobs_user_account_numbers', 'nobs_registration.account_number', '=', 'nobs_user_account_numbers.account_number')
-            ->select('nobs_registration.id', 'nobs_registration.first_name', 'nobs_registration.surname', 'nobs_registration.account_number', 'nobs_registration.phone_number', 'nobs_user_account_numbers.account_status')
-            ->where('nobs_registration.comp_id', $this->compId)
-            ->where(function($q) use ($term) {
-                $q->where('nobs_registration.first_name', 'LIKE', "%$term%")
-                  ->orWhere('nobs_registration.surname', 'LIKE', "%$term%")
-                  ->orWhere('nobs_registration.account_number', 'LIKE', "%$term%")
-                  ->orWhere('nobs_registration.phone_number', 'LIKE', "%$term%");
-            })
-            ->limit(10)
-            ->get();
-
-        if ($customers->isEmpty()) {
-            return ['ui_type' => 'text', 'ui_metadata' => [], 'caption' => "I could not find any customer matching '$term'."];
-        }
-
-        return [
-            'ui_type' => 'customer_card',
-            'ui_metadata' => $customers,
-            'caption' => "I found " . count($customers) . " records for '$term'."
-        ];
-    }
-
-    public function getLoanOverview()
-    {
-        // Grouped by customer for the AI to show clean lists
-        $stats = DB::table('loan_applications')
-            ->join('nobs_registration', 'loan_applications.customer_id', '=', 'nobs_registration.id')
-            ->select(
-                'nobs_registration.first_name', 
-                'nobs_registration.surname',
-                'loan_applications.status', 
-                'loan_applications.amount as principal',
-                DB::raw("(SELECT COALESCE(SUM(principal_paid + interest_paid + fees_paid), 0) FROM loan_repayment_schedules WHERE loan_application_id = loan_applications.id) as total_paid")
-            )
-            ->where('loan_applications.comp_id', $this->compId)
-            ->whereIn('loan_applications.status', ['active', 'defaulted'])
-            ->limit(10)
-            ->get();
-
-        return [
-            'ui_type' => 'data_table',
-            'ui_metadata' => $stats,
-            'caption' => "Here are your currently active loans and their repayment status."
+            'caption' => "The total $transType amount for today is GHS " . number_format($total, 2)
         ];
     }
 
@@ -127,24 +189,21 @@ class AiIntentLibrary
     {
         $role = strtolower($role);
         $capabilities = [
-            ['label' => '📈 Liquidity', 'query' => 'What is the bank liquidity?'],
-            ['label' => '💰 Deposits Today', 'query' => 'Total deposits today'],
-            ['label' => '👥 Find Customer', 'query' => 'Search for a customer'],
+            ['label' => '🏦 Bank Liquidity', 'query' => 'Check system liquidity'],
+            ['label' => '💰 Deposits Today', 'query' => 'Show total deposits'],
+            ['label' => '👥 Find Customer', 'query' => 'Search for customer'],
         ];
 
         if (in_array($role, ['admin', 'owner', 'super admin', 'manager'])) {
-            $capabilities[] = ['label' => '💸 Who is in Arrears?', 'query' => 'Who is in arrears?'];
-            $capabilities[] = ['label' => '🏆 Top Agents', 'query' => 'Top agents this month'];
-            $caption = "Welcome Stephen. How can I help you manage SABS Bank today?";
+            $capabilities[] = ['label' => '💸 Arrears Report', 'query' => 'Who is in arrears?'];
+            $capabilities[] = ['label' => '🏆 Agent Ranking', 'query' => 'Top performing agents'];
+            $capabilities[] = ['label' => '📈 Portfolio Health', 'query' => 'Loan portfolio summary'];
+            $caption = "Executive Analyst Online. Select a verified business tool:";
         } else {
-            $capabilities[] = ['label' => '🔍 My Loans', 'query' => 'Check status of my recent loans'];
-            $caption = "Hello! I am your SABS Assistant. What would you like to check?";
+            $capabilities[] = ['label' => '🔍 Loan Status', 'query' => 'Recent loan status'];
+            $caption = "Hello! I am your SABS Assistant. How can I help you today?";
         }
 
-        return [
-            'ui_type' => 'capability_chips',
-            'ui_metadata' => $capabilities,
-            'caption' => $caption
-        ];
+        return ['ui_type' => 'capability_chips', 'ui_metadata' => $capabilities, 'caption' => $caption];
     }
 }
