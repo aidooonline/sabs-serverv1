@@ -217,6 +217,7 @@ class AiAgentController extends Controller
                     $term = $params['term'] ?? ($args['term'] ?? '');
                     $date = $params['date'] ?? ($args['date'] ?? null);
                     $month = $params['month'] ?? ($args['month'] ?? null);
+                    $menu = $params['menu'] ?? ($args['menu'] ?? 'main');
                     
                     if ($intent === 'TOTAL_DEPOSITS') $output = $this->intentLibrary->getFinancialSummary('Deposit', $date);
                     elseif ($intent === 'TOTAL_WITHDRAWALS') $output = $this->intentLibrary->getFinancialSummary('Withdraw', $date);
@@ -352,9 +353,9 @@ class AiAgentController extends Controller
         4. DEPOSITS/WITHDRAWALS: Use `TOTAL_DEPOSITS` or `TOTAL_WITHDRAWALS`.
         5. CUSTOMER SEARCH: Use `CUSTOMER_SEARCH`.
         6. HELP/MENUS: Use `HELP_MENU`. 
-           - When the user asks for help or says "menu", call `HELP_MENU` with `menu="main"`.
-           - When the user asks for liquidity info, transactions, customers, loans, or performance specifically, you can also trigger the sub-menus via `HELP_MENU` with `menu` as "liquidity", "transactions", "customers", "loans", or "performance".
-        7. START OF SESSION: If history is empty, call `HELP_MENU` with `menu="main"`.
+           - When the user asks for help or says 'menu', call `HELP_MENU` with `menu='main'`.
+           - When the user asks for liquidity info, transactions, customers, loans, or performance specifically, you can also trigger the sub-menus via `HELP_MENU` with `menu` as 'liquidity', 'transactions', 'customers', 'loans', or 'performance'.
+        7. START OF SESSION: If history is empty, call `HELP_MENU` with `menu='main'`.
         
         STRICT RULES:
         - If the user asks a question not covered by the library tools, politely say you only provide verified bank reports.
