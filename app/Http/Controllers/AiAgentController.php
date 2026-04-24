@@ -68,6 +68,8 @@ class AiAgentController extends Controller
 
     private function createNewSession($user, $model)
     {
+        $this->pruneOldMessages(); // Run GC on new session
+
         $id = DB::table('ai_chat_sessions')->insertGetId([
             'user_id' => $user->id,
             'comp_id' => $user->comp_id,
@@ -78,9 +80,35 @@ class AiAgentController extends Controller
         return DB::table('ai_chat_sessions')->where('id', $id)->first();
     }
 
+    /**
+     * Garbage Collector: Removes AI messages older than 7 days 
+     * to prevent database bloat and performance degradation.
+     */
+    private function pruneOldMessages()
+    {
+        try {
+            DB::table('ai_messages')->where('created_at', '<', now()->subDays(7))->delete();
+            // Also prune sessions with no messages
+            DB::table('ai_chat_sessions')
+                ->whereNotExists(function ($query) {
+                    $query->select(DB::raw(1))
+                          ->from('ai_messages')
+                          ->whereRaw('ai_messages.session_id = ai_chat_sessions.id');
+                })
+                ->where('created_at', '<', now()->subDays(1))
+                ->delete();
+        } catch (\Throwable $e) {
+            Log::error("AI GC Error: " . $e->getMessage());
+        }
+    }
+
     private function storeMessage($sessionId, $role, $content, $toolCalls = null, $uiType = 'text', $uiMetadata = null)
     {
         $meta = $uiMetadata !== null ? (is_string($uiMetadata) ? $uiMetadata : json_encode($uiMetadata)) : null;
+        
+        // Ensure session updated_at is refreshed
+        DB::table('ai_chat_sessions')->where('id', $sessionId)->update(['updated_at' => now()]);
+
         return DB::table('ai_messages')->insertGetId([
             'session_id' => $sessionId,
             'role' => $role,
@@ -138,7 +166,10 @@ class AiAgentController extends Controller
                 DB::table('ai_messages')->where('session_id', $session->id)->orderBy('id', 'desc')->limit(1)->update(['tool_call_id' => $tr['functionResponse']['name']]);
             }
 
-            $history[] = $candidate; $history[] = ['role' => 'function', 'parts' => $toolResults];
+            // Important: In-memory history for multi-turn reasoning MUST keep the data 
+            // so the model can see the result it just fetched.
+            $history[] = $candidate; 
+            $history[] = ['role' => 'function', 'parts' => $toolResults];
             $currentTurn++;
         }
 
@@ -177,6 +208,7 @@ class AiAgentController extends Controller
 
                 if ($output) {
                     $uiType = $output['ui_type']; $rawData = $output['ui_metadata'];
+                    // We store both 'result' (text) and 'data' (raw json) in the database
                     $results[] = ['functionResponse' => ['name' => $name, 'response' => ['result' => $output['caption'], 'data' => $output['ui_metadata']]]];
                 }
             } catch (\Throwable $e) {
@@ -218,7 +250,14 @@ class AiAgentController extends Controller
 
     private function getHistory($sessionId)
     {
-        $messages = DB::table('ai_messages')->where('session_id', $sessionId)->orderBy('created_at', 'asc')->limit(20)->get();
+        // Get last 15 messages to keep context window small and responsive
+        $messages = DB::table('ai_messages')
+            ->where('session_id', $sessionId)
+            ->orderBy('created_at', 'desc')
+            ->limit(15)
+            ->get()
+            ->reverse();
+
         $history = [];
         foreach ($messages as $msg) {
             if ($msg->role === 'user' || $msg->role === 'model') {
@@ -229,7 +268,14 @@ class AiAgentController extends Controller
                 }
                 $history[] = ['role' => $msg->role, 'parts' => $parts];
             } else if ($msg->role === 'tool') {
-                $history[] = ['role' => 'function', 'parts' => [['functionResponse' => ['name' => $msg->tool_call_id, 'response' => json_decode($msg->content, true)]]]];
+                $fullResponse = json_decode($msg->content, true);
+                
+                // LEAN CONTEXT: Strip the heavy 'data' (UI Metadata) from historical tool responses.
+                // The AI model only needs the 'result' (text caption) to understand previous steps.
+                // This prevents crashes due to huge token payloads.
+                $leanResponse = ['result' => $fullResponse['result'] ?? 'Task completed.'];
+                
+                $history[] = ['role' => 'function', 'parts' => [['functionResponse' => ['name' => $msg->tool_call_id, 'response' => $leanResponse]]]];
             }
         }
         return $history;
