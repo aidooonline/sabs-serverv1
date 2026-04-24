@@ -185,6 +185,28 @@ class AiIntentLibrary
         ];
     }
 
+    /**
+     * Exact Replica: Account Balances by Type (from ApiUsersController)
+     */
+    public function getAccountBalancesByType()
+    {
+        $balances = DB::table('nobs_user_account_numbers')
+            ->select(
+                'account_type',
+                DB::raw('SUM(balance) as total_balance'),
+                DB::raw('COUNT(id) as account_count')
+            )
+            ->where('comp_id', $this->compId)
+            ->groupBy('account_type')
+            ->get();
+
+        return [
+            'ui_type' => 'data_table',
+            'ui_metadata' => $balances,
+            'caption' => "Here is the total balance breakdown by account type."
+        ];
+    }
+
     public function getHelpMenu($role = 'Staff')
     {
         $role = strtolower($role);
