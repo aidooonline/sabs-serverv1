@@ -370,8 +370,17 @@ class AiAgentController extends Controller
         - NEVER Hallucinate. Trust the tool outputs 100%.";
 
         $payload = ['system_instruction' => ['parts' => [['text' => $systemInstruction]]], 'contents' => $history, 'tools' => $tools, 'generationConfig' => ['temperature' => 0.1, 'topP' => 0.95]];
+        
         $response = Http::post($url, $payload);
-        if ($response->failed()) throw new \Exception("AI connection error.");
+        
+        if ($response->failed()) {
+            $status = $response->status();
+            $errorBody = $response->body();
+            $size = strlen(json_encode($payload));
+            Log::error("Gemini API Error [$status]: Size $size bytes. Response: $errorBody");
+            throw new \Exception("AI connection error (Status $status).");
+        }
+        
         return $response->json();
     }
 }
