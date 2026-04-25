@@ -134,7 +134,14 @@ class AiAgentController extends Controller
             $compId = $user->comp_id;
             $company = DB::table('accounts')->where('id', $compId)->first();
 
-            if (!(optional($company)->ai_risk_shield_enabled ?? 1)) {
+            // SQL Guard: If migration hasn't run, default to enabled
+            try {
+                $riskEnabled = optional($company)->ai_risk_shield_enabled ?? 1;
+            } catch (\Throwable $e) {
+                $riskEnabled = 1;
+            }
+
+            if (!$riskEnabled) {
                 return response()->json(['success' => false, 'message' => 'Risk shield is disabled.'], 403);
             }
 
@@ -390,6 +397,7 @@ class AiAgentController extends Controller
                     elseif ($intent === 'DAILY_DISBURSEMENTS') $output = $this->intentLibrary->getDailyDisbursements($startDate, $endDate);
                     elseif ($intent === 'PENDING_LOANS') $output = $this->intentLibrary->getPendingLoans();
                     elseif ($intent === 'AGENT_COLLECTIONS') $output = $this->intentLibrary->getAgentCollections($startDate, $endDate);
+                    elseif ($intent === 'EXECUTIVE_BRIEFING') $output = $this->intelligenceService->getExecutiveBriefing();
                 } 
 
                 if ($output) {
@@ -421,7 +429,7 @@ class AiAgentController extends Controller
                                     'AGENT_RANKING', 'PORTFOLIO_HEALTH', 'CUSTOMER_SEARCH', 'HELP_MENU',
                                     'ACCOUNT_BALANCES', 'CASH_POOL_BALANCE', 'DAILY_SUMMARY', 'RECENT_TRANSACTIONS',
                                     'NEW_REGISTRATIONS', 'RECENT_CUSTOMERS', 'EXPECTED_REPAYMENTS', 'DAILY_DISBURSEMENTS',
-                                    'PENDING_LOANS', 'AGENT_COLLECTIONS'
+                                    'PENDING_LOANS', 'AGENT_COLLECTIONS', 'EXECUTIVE_BRIEFING'
                                 ]
                             ],
                             'params' => [
@@ -517,7 +525,8 @@ class AiAgentController extends Controller
         8. HELP/MENUS: Use `HELP_MENU`. 
            - When the user asks for help or says 'menu', call `HELP_MENU` with `menu='main'`.
            - When the user asks for liquidity info, transactions, customers, loans, or performance specifically, you can also trigger the sub-menus via `HELP_MENU` with `menu` as 'liquidity', 'transactions', 'customers', 'loans', or 'performance'.
-        9. START OF SESSION: If history is empty, call `HELP_MENU` with `menu='main'`.
+        9. EXECUTIVE SUMMARY: Use `EXECUTIVE_BRIEFING` for a high-level strategic boardroom summary.
+        10. START OF SESSION: If history is empty, call `HELP_MENU` with `menu='main'`.
         
         STRICT RULES:
         - TIME RANGES: You can query for 'this month', 'last week', etc., by passing the correct `start_date` and `end_date` (calculate these based on the Server Date provided above).
