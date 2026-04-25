@@ -226,9 +226,11 @@ class AiAgentController extends Controller
                     $date = $params['date'] ?? ($args['date'] ?? null);
                     $month = $params['month'] ?? ($args['month'] ?? null);
                     $menu = $params['menu'] ?? ($args['menu'] ?? 'main');
+                    $startDate = $params['start_date'] ?? ($args['start_date'] ?? $date);
+                    $endDate = $params['end_date'] ?? ($args['end_date'] ?? null);
                     
-                    if ($intent === 'TOTAL_DEPOSITS') $output = $this->intentLibrary->getFinancialSummary('Deposit', $date);
-                    elseif ($intent === 'TOTAL_WITHDRAWALS') $output = $this->intentLibrary->getFinancialSummary('Withdraw', $date);
+                    if ($intent === 'TOTAL_DEPOSITS') $output = $this->intentLibrary->getFinancialSummary('Deposit', $startDate, $endDate);
+                    elseif ($intent === 'TOTAL_WITHDRAWALS') $output = $this->intentLibrary->getFinancialSummary('Withdraw', $startDate, $endDate);
                     elseif ($intent === 'CUSTOMER_SEARCH') $output = $this->intentLibrary->searchCustomers($term);
                     elseif ($intent === 'ARREARS_REPORT') $output = $this->intentLibrary->getArrearsList();
                     elseif ($intent === 'BANK_LIQUIDITY') $output = $this->intentLibrary->getSystemLiquidity();
@@ -237,14 +239,14 @@ class AiAgentController extends Controller
                     elseif ($intent === 'HELP_MENU') $output = $this->intentLibrary->getHelpMenu($userContext['user']['type_name'] ?? 'Staff', $menu);
                     elseif ($intent === 'ACCOUNT_BALANCES') $output = $this->intentLibrary->getAccountBalancesByType();
                     elseif ($intent === 'CASH_POOL_BALANCE') $output = $this->intentLibrary->getCashAndPool();
-                    elseif ($intent === 'DAILY_SUMMARY') $output = $this->intentLibrary->getDailySummary($date);
-                    elseif ($intent === 'RECENT_TRANSACTIONS') $output = $this->intentLibrary->getRecentTransactions();
-                    elseif ($intent === 'NEW_REGISTRATIONS') $output = $this->intentLibrary->getDailySummary($date);
-                    elseif ($intent === 'RECENT_CUSTOMERS') $output = $this->intentLibrary->getRecentRegistrations();
-                    elseif ($intent === 'EXPECTED_REPAYMENTS') $output = $this->intentLibrary->getExpectedRepayments($date);
-                    elseif ($intent === 'DAILY_DISBURSEMENTS') $output = $this->intentLibrary->getDailyDisbursements($date);
+                    elseif ($intent === 'DAILY_SUMMARY') $output = $this->intentLibrary->getDailySummary($startDate, $endDate);
+                    elseif ($intent === 'RECENT_TRANSACTIONS') $output = $this->intentLibrary->getRecentTransactions(5, $startDate, $endDate);
+                    elseif ($intent === 'NEW_REGISTRATIONS') $output = $this->intentLibrary->getDailySummary($startDate, $endDate);
+                    elseif ($intent === 'RECENT_CUSTOMERS') $output = $this->intentLibrary->getRecentRegistrations(10, $startDate, $endDate);
+                    elseif ($intent === 'EXPECTED_REPAYMENTS') $output = $this->intentLibrary->getExpectedRepayments($startDate, $endDate);
+                    elseif ($intent === 'DAILY_DISBURSEMENTS') $output = $this->intentLibrary->getDailyDisbursements($startDate, $endDate);
                     elseif ($intent === 'PENDING_LOANS') $output = $this->intentLibrary->getPendingLoans();
-                    elseif ($intent === 'AGENT_COLLECTIONS') $output = $this->intentLibrary->getAgentCollections($date);
+                    elseif ($intent === 'AGENT_COLLECTIONS') $output = $this->intentLibrary->getAgentCollections($startDate, $endDate);
                 } 
 
                 if ($output) {
@@ -283,7 +285,9 @@ class AiAgentController extends Controller
                                 'type' => 'object',
                                 'properties' => [
                                     'term' => ['type' => 'string', 'description' => 'Name/Account for search'],
-                                    'date' => ['type' => 'string', 'description' => 'YYYY-MM-DD'],
+                                    'date' => ['type' => 'string', 'description' => 'YYYY-MM-DD (Exact date)'],
+                                    'start_date' => ['type' => 'string', 'description' => 'YYYY-MM-DD (Start of range)'],
+                                    'end_date' => ['type' => 'string', 'description' => 'YYYY-MM-DD (End of range)'],
                                     'month' => ['type' => 'string', 'description' => 'MM (01-12)'],
                                     'menu' => ['type' => 'string', 'description' => 'liquidity|transactions|customers|loans|performance|main']
                                 ]
@@ -363,14 +367,17 @@ class AiAgentController extends Controller
         1. LIQUIDITY/NET POSITION: Use `BANK_LIQUIDITY`.
         2. ARREARS/DEFAULTERS: Use `ARREARS_REPORT`.
         3. AGENT PERFORMANCE: Use `AGENT_RANKING`.
-        4. DEPOSITS/WITHDRAWALS: Use `TOTAL_DEPOSITS` or `TOTAL_WITHDRAWALS`.
+        4. DEPOSITS/WITHDRAWALS: Use `TOTAL_DEPOSITS` or `TOTAL_WITHDRAWALS` (Supports range).
         5. CUSTOMER SEARCH: Use `CUSTOMER_SEARCH`.
-        6. HELP/MENUS: Use `HELP_MENU`. 
+        6. RECENT ACTIVITY: Use `RECENT_TRANSACTIONS` or `RECENT_CUSTOMERS` (Supports range).
+        7. LOAN ACTIVITY: Use `DAILY_DISBURSEMENTS` or `EXPECTED_REPAYMENTS` (Supports range).
+        8. HELP/MENUS: Use `HELP_MENU`. 
            - When the user asks for help or says 'menu', call `HELP_MENU` with `menu='main'`.
            - When the user asks for liquidity info, transactions, customers, loans, or performance specifically, you can also trigger the sub-menus via `HELP_MENU` with `menu` as 'liquidity', 'transactions', 'customers', 'loans', or 'performance'.
-        7. START OF SESSION: If history is empty, call `HELP_MENU` with `menu='main'`.
+        9. START OF SESSION: If history is empty, call `HELP_MENU` with `menu='main'`.
         
         STRICT RULES:
+        - TIME RANGES: You can query for 'this month', 'last week', etc., by passing the correct `start_date` and `end_date` (calculate these based on the Server Date provided above).
         - If the user asks a question not covered by the library tools, politely say you only provide verified bank reports.
         - NEVER Hallucinate. Trust the tool outputs 100%.";
 

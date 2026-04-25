@@ -20,6 +20,27 @@ class AiIntentLibrary
     }
 
     /**
+     * Helper: Normalizes single date or range into [start, end]
+     */
+    private function applyDateRange($query, $startDate = null, $endDate = null, $column = 'created_at')
+    {
+        $start = $startDate ?: date('Y-m-d');
+        $end = $endDate ?: $start;
+
+        if ($start === $end) {
+            return $query->whereDate($column, $start);
+        }
+        return $query->whereBetween($column, [$start . ' 00:00:00', $end . ' 23:59:59']);
+    }
+
+    private function getLabel($startDate, $endDate)
+    {
+        $start = $startDate ?: date('Y-m-d');
+        $end = $endDate ?: $start;
+        return ($start === $end) ? "on $start" : "from $start to $end";
+    }
+
+    /**
      * Exact Replica: Net System Position (from ReportSystemController)
      */
     public function getSystemLiquidity()
@@ -75,13 +96,11 @@ class AiIntentLibrary
     }
 
     /**
-     * Exact Replica: Daily Transaction Summary
+     * Exact Replica: Transaction Summary (supports range)
      */
-    public function getDailySummary($date = null)
+    public function getDailySummary($startDate = null, $endDate = null)
     {
-        $date = $date ?: date('Y-m-d');
-        
-        $metrics = DB::table('nobs_transactions')
+        $metricsQuery = DB::table('nobs_transactions')
             ->select(
                 DB::raw('SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) AS deposits'),
                 DB::raw('SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) AS withdrawals'),
@@ -89,15 +108,15 @@ class AiIntentLibrary
                 DB::raw('COUNT(CASE WHEN name_of_transaction = "Deposit" THEN 1 END) as deposit_count'),
                 DB::raw('COUNT(CASE WHEN name_of_transaction = "Withdraw" THEN 1 END) as withdrawal_count')
             )
-            ->whereDate('created_at', $date)
             ->where('comp_id', $this->compId)
-            ->where('is_shown', 1)
-            ->first();
+            ->where('is_shown', 1);
+        
+        $metrics = $this->applyDateRange($metricsQuery, $startDate, $endDate)->first();
 
-        $registered = DB::table('nobs_registration')
-            ->where('comp_id', $this->compId)
-            ->whereDate('created_at', $date)
-            ->count();
+        $registeredQuery = DB::table('nobs_registration')->where('comp_id', $this->compId);
+        $registered = $this->applyDateRange($registeredQuery, $startDate, $endDate)->count();
+
+        $label = $this->getLabel($startDate, $endDate);
 
         return [
             'ui_type' => 'mobile_optimized_list',
@@ -107,95 +126,101 @@ class AiIntentLibrary
                 ['Metric' => 'Repayments', 'Value' => number_format($metrics->repayments ?? 0, 2)],
                 ['Metric' => 'New Customers', 'Value' => $registered]
             ],
-            'caption' => "Daily Activity Summary ($date):"
+            'caption' => "Activity Summary $label:"
         ];
     }
 
     /**
-     * Exact Replica: Recent Transactions
+     * Recent Transactions (filtered by date if provided)
      */
-    public function getRecentTransactions($limit = 5)
+    public function getRecentTransactions($limit = 5, $startDate = null, $endDate = null)
     {
-        $tx = DB::table('nobs_transactions')
+        $query = DB::table('nobs_transactions')
             ->select('created_at', 'name_of_transaction as type', 'amount', 'det_rep_name_of_transaction as customer')
-            ->where('comp_id', $this->compId)
-            ->orderBy('id', 'DESC')
-            ->limit($limit)
-            ->get();
+            ->where('comp_id', $this->compId);
+
+        if ($startDate) {
+            $query = $this->applyDateRange($query, $startDate, $endDate);
+        }
+
+        $tx = $query->orderBy('id', 'DESC')->limit($limit)->get();
+        $label = $startDate ? $this->getLabel($startDate, $endDate) : "most recent";
 
         return [
             'ui_type' => 'mobile_optimized_list',
             'ui_metadata' => $tx,
-            'caption' => "Last $limit transactions:"
+            'caption' => "Transactions ($label):"
         ];
     }
 
     /**
-     * Exact Replica: New Registrations
+     * New Registrations (supports range)
      */
-    public function getRecentRegistrations($limit = 5)
+    public function getRecentRegistrations($limit = 10, $startDate = null, $endDate = null)
     {
-        $regs = DB::table('nobs_registration')
+        $query = DB::table('nobs_registration')
             ->select('created_at', 'first_name', 'surname', 'account_number', 'phone_number')
-            ->where('comp_id', $this->compId)
-            ->orderBy('id', 'DESC')
-            ->limit($limit)
-            ->get();
+            ->where('comp_id', $this->compId);
+
+        if ($startDate) {
+            $query = $this->applyDateRange($query, $startDate, $endDate);
+        }
+
+        $regs = $query->orderBy('id', 'DESC')->limit($limit)->get();
+        $label = $startDate ? $this->getLabel($startDate, $endDate) : "most recent";
 
         return [
             'ui_type' => 'mobile_optimized_list',
             'ui_metadata' => $regs,
-            'caption' => "Recent registrations:"
+            'caption' => "Registrations ($label):"
         ];
     }
 
     /**
-     * Exact Replica: Customers due for repayment today
+     * Repayments Due (supports range)
      */
-    public function getExpectedRepayments($date = null)
+    public function getExpectedRepayments($startDate = null, $endDate = null)
     {
-        $date = $date ?: date('Y-m-d');
-        
-        $list = DB::table('loan_repayment_schedules')
+        $query = DB::table('loan_repayment_schedules')
             ->join('loan_applications', 'loan_repayment_schedules.loan_application_id', '=', 'loan_applications.id')
             ->join('nobs_registration', 'loan_applications.customer_id', '=', 'nobs_registration.id')
             ->select(
                 'nobs_registration.first_name',
                 'nobs_registration.surname',
-                'nobs_registration.phone_number',
+                'loan_repayment_schedules.due_date',
                 DB::raw("(principal_due + interest_due + fees_due) - (principal_paid + interest_paid + fees_paid) as balance_due")
             )
             ->where('loan_repayment_schedules.comp_id', $this->compId)
-            ->whereDate('loan_repayment_schedules.due_date', $date)
-            ->where('loan_repayment_schedules.status', '!=', 'paid')
-            ->get();
+            ->where('loan_repayment_schedules.status', '!=', 'paid');
+        
+        $list = $this->applyDateRange($query, $startDate, $endDate, 'loan_repayment_schedules.due_date')->get();
+        $label = $this->getLabel($startDate, $endDate);
 
         return [
             'ui_type' => 'mobile_optimized_list',
             'ui_metadata' => $list,
-            'caption' => "Collections Due Today ($date):"
+            'caption' => "Expected Repayments $label:"
         ];
     }
 
     /**
-     * Exact Replica: Loan Disbursement Today
+     * Loan Disbursements (supports range)
      */
-    public function getDailyDisbursements($date = null)
+    public function getDailyDisbursements($startDate = null, $endDate = null)
     {
-        $date = $date ?: date('Y-m-d');
-        
-        $loans = DB::table('loan_applications')
+        $query = DB::table('loan_applications')
             ->join('nobs_registration', 'loan_applications.customer_id', '=', 'nobs_registration.id')
             ->select('nobs_registration.first_name', 'nobs_registration.surname', 'amount', 'loan_applications.updated_at as time')
             ->where('loan_applications.comp_id', $this->compId)
-            ->whereIn('loan_applications.status', ['active', 'disbursed'])
-            ->whereDate('loan_applications.updated_at', $date)
-            ->get();
+            ->whereIn('loan_applications.status', ['active', 'disbursed']);
+        
+        $loans = $this->applyDateRange($query, $startDate, $endDate, 'loan_applications.updated_at')->get();
+        $label = $this->getLabel($startDate, $endDate);
 
         return [
             'ui_type' => 'mobile_optimized_list',
             'ui_metadata' => $loans,
-            'caption' => "Disbursements Today ($date):"
+            'caption' => "Disbursements $label:"
         ];
     }
 
@@ -219,25 +244,23 @@ class AiIntentLibrary
     }
 
     /**
-     * Exact Replica: Collection Mobilization by Agent
+     * Collection Mobilization (supports range)
      */
-    public function getAgentCollections($date = null)
+    public function getAgentCollections($startDate = null, $endDate = null)
     {
-        $date = $date ?: date('Y-m-d');
-        
-        $collections = DB::table('nobs_transactions')
+        $query = DB::table('nobs_transactions')
             ->select('agentname', DB::raw('SUM(amount) as total_collected'), DB::raw('COUNT(*) as count'))
             ->where('comp_id', $this->compId)
             ->where('name_of_transaction', 'Deposit')
-            ->whereDate('created_at', $date)
-            ->groupBy('users', 'agentname')
-            ->orderBy('total_collected', 'DESC')
-            ->get();
+            ->groupBy('users', 'agentname');
+        
+        $collections = $this->applyDateRange($query, $startDate, $endDate)->orderBy('total_collected', 'DESC')->get();
+        $label = $this->getLabel($startDate, $endDate);
 
         return [
             'ui_type' => 'mobile_optimized_list',
             'ui_metadata' => $collections,
-            'caption' => "Agent Collections ($date):"
+            'caption' => "Agent Collections $label:"
         ];
     }
 
@@ -293,7 +316,7 @@ class AiIntentLibrary
         return [
             'ui_type' => 'mobile_optimized_list',
             'ui_metadata' => $performance,
-            'caption' => "Agent Rankings:"
+            'caption' => "Agent Rankings (Month $month):"
         ];
     }
 
@@ -363,27 +386,27 @@ class AiIntentLibrary
         ];
     }
 
-    public function getFinancialSummary($type = 'Deposit', $date = null)
+    public function getFinancialSummary($type = 'Deposit', $startDate = null, $endDate = null)
     {
-        $date = $date ?: date('Y-m-d');
         $transType = ($type === 'Withdraw') ? 'Withdraw' : 'Deposit';
 
-        $total = DB::table('nobs_transactions')
+        $query = DB::table('nobs_transactions')
             ->where('comp_id', $this->compId)
             ->where('name_of_transaction', $transType)
-            ->whereDate('created_at', $date)
             ->where('amount', '<', 1000000)
-            ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
-            ->sum('amount');
+            ->where('name_of_transaction', 'NOT LIKE', '%reversal%');
+        
+        $total = $this->applyDateRange($query, $startDate, $endDate)->sum('amount');
+        $label = $this->getLabel($startDate, $endDate);
 
         return [
             'ui_type' => 'summary_stat_card',
             'ui_metadata' => [
-                'title' => "Daily $transType",
+                'title' => "Total $transType",
                 'value' => number_format($total, 2),
                 'suffix' => 'GHS'
             ],
-            'caption' => "The total $transType amount for today is GHS " . number_format($total, 2)
+            'caption' => "The total $transType amount $label is GHS " . number_format($total, 2)
         ];
     }
 
