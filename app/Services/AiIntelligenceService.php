@@ -26,25 +26,31 @@ class AiIntelligenceService
         $customer = DB::table('nobs_registration')->where('id', $customerId)->first();
         if (!$customer) return ['error' => 'Customer not found'];
 
-        // Gather 6 months of transaction history
+        // Optimize: Use DB Aggregates instead of fetching all rows (Prevents Memory Bloat)
         $sixMonthsAgo = Carbon::now()->subMonths(6)->toDateTimeString();
-        $txs = DB::table('nobs_transactions')
+        
+        $stats = DB::table('nobs_transactions')
             ->where('comp_id', $this->compId)
             ->where('account_number', $customer->account_number)
             ->where('created_at', '>=', $sixMonthsAgo)
-            ->select('name_of_transaction', 'amount', 'created_at')
-            ->get();
+            ->select(
+                DB::raw("SUM(CASE WHEN name_of_transaction = 'Deposit' THEN amount ELSE 0 END) as total_deposits"),
+                DB::raw("COUNT(CASE WHEN name_of_transaction = 'Deposit' THEN 1 END) as deposit_count"),
+                DB::raw("SUM(CASE WHEN name_of_transaction = 'Withdraw' THEN amount ELSE 0 END) as total_withdrawals"),
+                DB::raw("AVG(CASE WHEN name_of_transaction = 'Deposit' THEN amount ELSE NULL END) as avg_deposit")
+            )
+            ->first();
 
-        $stats = [
-            'total_deposits' => $txs->where('name_of_transaction', 'Deposit')->sum('amount'),
-            'deposit_count' => $txs->where('name_of_transaction', 'Deposit')->count(),
-            'total_withdrawals' => $txs->where('name_of_transaction', 'Withdraw')->sum('amount'),
-            'avg_deposit' => $txs->where('name_of_transaction', 'Deposit')->avg('amount') ?: 0,
+        $dataForAi = [
+            'total_deposits' => (float)$stats->total_deposits,
+            'deposit_count' => (int)$stats->deposit_count,
+            'total_withdrawals' => (float)$stats->total_withdrawals,
+            'avg_deposit' => (float)($stats->avg_deposit ?? 0),
             'loan_amount_requested' => $loanAmount
         ];
 
-        $prompt = "Act as a Senior Risk Officer. Analyze this customer data for a loan request of GHS $loanAmount: " . json_encode($stats) . ". 
-        Provide a JSON response with: 'score' (0-100), 'color' (green, yellow, red), and 'rationale' (max 2 sentences).";
+        $prompt = "Act as a Senior Risk Officer. Analyze this customer transaction data (Last 6 Months) for a loan request of GHS $loanAmount: " . json_encode($dataForAi) . ". 
+        Provide a JSON response with: 'score' (0-100), 'color' (green, yellow, red), and 'rationale' (max 2 sentences explaining the decision).";
 
         return $this->callGeminiBasic($prompt);
     }
@@ -56,21 +62,25 @@ class AiIntelligenceService
     {
         $agent = DB::table('users')->where('id', $agentId)->first();
         
-        // Performance this month vs last
+        // Performance this month vs last (Fixed: Added Year Check to avoid picking old years)
         $thisMonth = Carbon::now()->month;
-        $lastMonth = Carbon::now()->subMonth()->month;
+        $thisYear = Carbon::now()->year;
+        $lastMonthDate = Carbon::now()->subMonth();
+        $lastMonth = $lastMonthDate->month;
+        $lastMonthYear = $lastMonthDate->year;
 
         $stats = DB::table('agent_commissions')
             ->where('agent_id', $agentId)
             ->select(
-                DB::raw("SUM(CASE WHEN MONTH(created_at) = $thisMonth THEN amount ELSE 0 END) as this_month_earnings"),
-                DB::raw("SUM(CASE WHEN MONTH(created_at) = $lastMonth THEN amount ELSE 0 END) as last_month_earnings"),
-                DB::raw("COUNT(CASE WHEN MONTH(created_at) = $thisMonth THEN 1 END) as this_month_count")
+                DB::raw("SUM(CASE WHEN MONTH(created_at) = $thisMonth AND YEAR(created_at) = $thisYear THEN amount ELSE 0 END) as this_month_earnings"),
+                DB::raw("SUM(CASE WHEN MONTH(created_at) = $lastMonth AND YEAR(created_at) = $lastMonthYear THEN amount ELSE 0 END) as last_month_earnings"),
+                DB::raw("COUNT(CASE WHEN MONTH(created_at) = $thisMonth AND YEAR(created_at) = $thisYear THEN 1 END) as this_month_count")
             )
             ->first();
 
         $prompt = "Act as a Motivational Sales Coach for field agent " . ($agent->name ?? 'Agent') . ". 
-        Monthly Stats: " . json_encode($stats) . ". 
+        Earnings this month: GHS " . number_format($stats->this_month_earnings, 2) . " (Count: $stats->this_month_count). 
+        Earnings last month: GHS " . number_format($stats->last_month_earnings, 2) . ".
         Provide a warm, highly motivating 2-sentence briefing on how they can earn more today. No markdown.";
 
         $result = $this->callGeminiBasic($prompt);
@@ -80,9 +90,9 @@ class AiIntelligenceService
                 'title' => 'Growth Coach',
                 'value' => number_format($stats->this_month_earnings, 2),
                 'suffix' => 'GHS Earned',
-                'details' => $result['rationale'] ?? $result['content'] ?? 'Keep pushing!'
+                'details' => $result['rationale'] ?? $result['content'] ?? 'Keep pushing! Every deposit counts toward your bonus.'
             ],
-            'caption' => 'Your Personalized Performance Brief:'
+            'caption' => 'Your Performance Brief:'
         ];
     }
 

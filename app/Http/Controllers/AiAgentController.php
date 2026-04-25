@@ -79,23 +79,28 @@ class AiAgentController extends Controller
     {
         try {
             $user = auth('api')->user();
+            if (!$user) return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+
             $compId = $user->comp_id;
             $company = DB::table('accounts')->where('id', $compId)->first();
             
             $this->initServices($compId);
-            $role = strtolower($user->type_name ?? 'Staff');
-            $isAdmin = in_array($role, ['admin', 'owner', 'super admin', 'manager']);
+            
+            // Normalized Role Check
+            $role = strtolower($user->type_name ?? $user->type ?? 'Staff');
+            $isAdmin = in_array($role, ['admin', 'owner', 'super admin', 'manager', 'god admin']);
 
             if ($isAdmin && ($company->ai_exec_briefing_enabled ?? 1)) {
                 return response()->json(['success' => true, 'data' => $this->intelligenceService->getExecutiveBriefing()]);
             } 
             
-            if ($role === 'agent' && ($company->ai_growth_coach_enabled ?? 1)) {
+            if (($role === 'agent' || $role === 'staff') && ($company->ai_growth_coach_enabled ?? 1)) {
                 return response()->json(['success' => true, 'data' => $this->intelligenceService->getAgentCoaching($user->id)]);
             }
 
-            return response()->json(['success' => false, 'message' => 'No briefing available.']);
+            return response()->json(['success' => false, 'message' => 'No briefing available or disabled.']);
         } catch (\Throwable $e) {
+            Log::error("AI Briefing Error: " . $e->getMessage());
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
@@ -107,6 +112,8 @@ class AiAgentController extends Controller
     {
         try {
             $user = auth('api')->user();
+            if (!$user) return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+
             $compId = $user->comp_id;
             $company = DB::table('accounts')->where('id', $compId)->first();
 
@@ -117,11 +124,14 @@ class AiAgentController extends Controller
             $customerId = $request->input('customer_id');
             $loanAmount = $request->input('amount');
             
+            if (!$customerId) return response()->json(['success' => false, 'message' => 'Customer ID required'], 400);
+
             $this->initServices($compId);
             $analysis = $this->intelligenceService->getRiskAnalysis($customerId, $loanAmount);
 
             return response()->json(['success' => true, 'data' => $analysis]);
         } catch (\Throwable $e) {
+            Log::error("AI Risk Shield Error: " . $e->getMessage());
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
