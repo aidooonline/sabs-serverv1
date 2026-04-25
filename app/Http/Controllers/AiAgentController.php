@@ -33,9 +33,15 @@ class AiAgentController extends Controller
 
             $compId = $user->comp_id;
             
-            // Check if AI Chat is enabled for this company
-            $company = DB::table('accounts')->where('id', $compId)->first();
-            if ($company && !$company->ai_chat_enabled) {
+            // Check if AI Chat is enabled for this company (Defensive Guard)
+            try {
+                $company = DB::table('accounts')->where('id', $compId)->first();
+                $chatEnabled = optional($company)->ai_chat_enabled ?? 1;
+            } catch (\Throwable $e) {
+                $chatEnabled = 1; // Default to enabled if column missing
+            }
+
+            if (!$chatEnabled) {
                 return response()->json(['success' => false, 'message' => 'AI Assistant is disabled by administrator.'], 403);
             }
 
@@ -151,11 +157,29 @@ class AiAgentController extends Controller
 
     public function getAiSettings()
     {
-        $user = auth('api')->user();
-        $settings = DB::table('accounts')->where('id', $user->comp_id)->first([
-            'ai_chat_enabled', 'ai_risk_shield_enabled', 'ai_growth_coach_enabled', 'ai_exec_briefing_enabled'
-        ]);
-        return response()->json(['success' => true, 'settings' => $settings]);
+        try {
+            $user = auth('api')->user();
+            $settings = DB::table('accounts')->where('id', $user->comp_id)->first();
+            
+            // SQL Guard: If migration hasn't run, default to enabled for all
+            return response()->json([
+                'success' => true, 
+                'settings' => [
+                    'ai_chat_enabled' => optional($settings)->ai_chat_enabled ?? 1,
+                    'ai_risk_shield_enabled' => optional($settings)->ai_risk_shield_enabled ?? 1,
+                    'ai_growth_coach_enabled' => optional($settings)->ai_growth_coach_enabled ?? 1,
+                    'ai_exec_briefing_enabled' => optional($settings)->ai_exec_briefing_enabled ?? 1,
+                ]
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => true, 
+                'settings' => [
+                    'ai_chat_enabled' => 1, 'ai_risk_shield_enabled' => 1, 
+                    'ai_growth_coach_enabled' => 1, 'ai_exec_briefing_enabled' => 1
+                ]
+            ]);
+        }
     }
 
     public function updateAiSettings(Request $request)
