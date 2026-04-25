@@ -448,7 +448,7 @@ class AiIntentLibrary
         if ($menuType === 'liquidity') {
             $capabilities = [
                 ['label' => '🏦 Net Position', 'query' => 'Check system liquidity'],
-                ['label' => '🏧 Account Balances', 'query' => 'Show account balance breakdown'],
+                ['label' => '🏧 Account Types', 'query' => 'Show account balance breakdown'],
                 ['label' => '🏊 Cash & Pool', 'query' => 'Show company cash and pool balances'],
                 ['label' => '⬅️ Back', 'query' => 'help']
             ];
@@ -484,30 +484,50 @@ class AiIntentLibrary
             $capabilities = [
                 ['label' => '🔍 Find Customer', 'query' => 'Search for customer'],
                 ['label' => '🆕 New Today', 'query' => 'New registrations today'],
+                ['label' => '🗓️ New This Week', 'query' => 'New registrations this week'],
+                ['label' => '📊 New This Month', 'query' => 'New registrations this month'],
                 ['label' => '👥 Recent 5', 'query' => 'Show last 5 customers'],
                 ['label' => '⬅️ Back', 'query' => 'help']
             ];
             $caption = "Customer & CRM Intelligence:";
-        } elseif ($menuType === 'loans' && $isAdmin) {
+        } elseif ($menuType === 'loans') {
             $capabilities = [
                 ['label' => '📈 Portfolio Health', 'query' => 'Loan portfolio summary'],
-                ['label' => '💸 Arrears List', 'query' => 'Who is in arrears?'],
+                ['label' => '🏗️ Disbursements...', 'query' => 'menu loan_disbursements'],
+                ['label' => '💸 Arrears...', 'query' => 'menu loan_arrears'],
                 ['label' => '📅 Expected Today', 'query' => 'Repayments due today'],
-                ['label' => '⏳ Pending Loans', 'query' => 'Loans awaiting approval'],
-                ['label' => '🏗️ Disbursed Today', 'query' => 'Loans paid today'],
+                ['label' => '⏳ Pending', 'query' => 'Loans awaiting approval'],
                 ['label' => '⬅️ Back', 'query' => 'help']
             ];
             $caption = "Loan Portfolio Intelligence:";
-        } elseif ($menuType === 'performance' && $isAdmin) {
+        } elseif ($menuType === 'loan_disbursements') {
+            $capabilities = [
+                ['label' => '🏗️ Today', 'query' => 'Loans disbursed today'],
+                ['label' => '🗓️ This Week', 'query' => 'Loans disbursed this week'],
+                ['label' => '📊 This Month', 'query' => 'Loans disbursed this month'],
+                ['label' => '⬅️ Back', 'query' => 'menu loans']
+            ];
+            $caption = "Loan Disbursement Analytics:";
+        } elseif ($menuType === 'loan_arrears') {
+            $capabilities = [
+                ['label' => '💸 Top 10 List', 'query' => 'Who is in arrears?'],
+                ['label' => '🗓️ Due This Week', 'query' => 'Repayments due this week'],
+                ['label' => '📊 Due This Month', 'query' => 'Repayments due this month'],
+                ['label' => '⬅️ Back', 'query' => 'menu loans']
+            ];
+            $caption = "Arrears & Risk Analytics:";
+        } elseif ($menuType === 'performance') {
             $capabilities = [
                 ['label' => '🏆 Agent Ranking', 'query' => 'Top performing agents'],
-                ['label' => '🤝 Agent Collections', 'query' => 'Today agent collections'],
+                ['label' => '🤝 Agent Mobilization', 'query' => 'Today agent collections'],
+                ['label' => '📈 Growth Trends', 'query' => 'Show monthly growth'],
                 ['label' => '⬅️ Back', 'query' => 'help']
             ];
             $caption = "Growth & Performance Intelligence:";
         } else {
             // Main Menu
             $capabilities = [
+                ['label' => '⚡ AI Briefing', 'query' => 'Get executive briefing'],
                 ['label' => '🏦 Liquidity', 'query' => 'menu liquidity'],
                 ['label' => '💰 Transactions', 'query' => 'menu transactions'],
                 ['label' => '👥 Customers', 'query' => 'menu customers'],
@@ -518,7 +538,7 @@ class AiIntentLibrary
                 $capabilities[] = ['label' => '📈 Performance', 'query' => 'menu performance'];
             }
             
-            $caption = "I am your SABS Intelligence Assistant. How can I help you today?";
+            $caption = "I am your SABS Intelligence Assistant. Select a category to explore:";
         }
 
         return ['ui_type' => 'capability_chips', 'ui_metadata' => $capabilities, 'caption' => $caption];
