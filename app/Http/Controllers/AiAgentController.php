@@ -207,6 +207,7 @@ class AiAgentController extends Controller
 
         return response()->json(['success' => true, 'message' => 'AI Configuration saved.']);
     }
+
     public function clearChat(Request $request)
     {
         try {
@@ -252,15 +253,10 @@ class AiAgentController extends Controller
         return DB::table('ai_chat_sessions')->where('id', $id)->first();
     }
 
-    /**
-     * Garbage Collector: Removes AI messages older than 7 days 
-     * to prevent database bloat and performance degradation.
-     */
     private function pruneOldMessages()
     {
         try {
             DB::table('ai_messages')->where('created_at', '<', now()->subDays(7))->delete();
-            // Also prune sessions with no messages
             DB::table('ai_chat_sessions')
                 ->whereNotExists(function ($query) {
                     $query->select(DB::raw(1))
@@ -274,11 +270,9 @@ class AiAgentController extends Controller
         }
     }
 
-    private function storeMessage($sessionId, $role, $content, $toolCalls = null, $uiType = 'text', $uiMetadata = null)
+    private function storeMessage($sessionId, $role, $content, $toolCalls = null, $uiType = 'text', $uiMetadata = null, $toolCallId = null)
     {
         $meta = $uiMetadata !== null ? (is_string($uiMetadata) ? $uiMetadata : json_encode($uiMetadata)) : null;
-        
-        // Ensure session updated_at is refreshed
         DB::table('ai_chat_sessions')->where('id', $sessionId)->update(['updated_at' => now()]);
 
         return DB::table('ai_messages')->insertGetId([
@@ -286,6 +280,7 @@ class AiAgentController extends Controller
             'role' => $role,
             'content' => $content,
             'tool_calls' => $toolCalls ? (is_string($toolCalls) ? $toolCalls : json_encode($toolCalls)) : null,
+            'tool_call_id' => $toolCallId,
             'ui_type' => $uiType,
             'ui_metadata' => $meta,
             'created_at' => now(),
@@ -318,13 +313,12 @@ class AiAgentController extends Controller
             }
 
             if (empty($toolCalls)) {
-                if ($modelText) {
+                if ($modelText !== null && $modelText !== '') {
                     $this->storeMessage($session->id, 'model', $modelText, null, $activeUiType, $lastToolOutput);
                 }
                 break;
             }
 
-            // Store the model's function call so history is preserved for next turns/requests
             $this->storeMessage($session->id, 'model', $modelText, $toolCalls, $activeUiType, null);
 
             $execution = $this->handleToolCalls($session, $toolCalls, $userContext);
@@ -334,12 +328,17 @@ class AiAgentController extends Controller
             if ($execution['ui_type'] !== 'text') $activeUiType = $execution['ui_type'];
             
             foreach ($toolResults as $tr) {
-                $this->storeMessage($session->id, 'tool', json_encode($tr['functionResponse']['response']), null, $activeUiType, null);
-                DB::table('ai_messages')->where('session_id', $session->id)->orderBy('id', 'desc')->limit(1)->update(['tool_call_id' => $tr['functionResponse']['name']]);
+                $this->storeMessage(
+                    $session->id, 
+                    'tool', 
+                    json_encode($tr['functionResponse']['response']), 
+                    null, 
+                    $activeUiType, 
+                    null, 
+                    $tr['functionResponse']['name']
+                );
             }
 
-            // LEAN REASONING: Strip heavy 'data' from toolResults before adding to history.
-            // This ensures Gemini only sees the textual summary for its next turn.
             $leanToolResults = array_map(function($tr) {
                 $copy = $tr;
                 if (isset($copy['functionResponse']['response']['data'])) {
@@ -370,14 +369,11 @@ class AiAgentController extends Controller
                 if ($name === 'fetch_from_library') {
                     $intent = $args['intent_name'];
                     $params = $args['params'] ?? [];
-                    
-                    // Resilience: Check both nested params and top-level args
-                    $term = $params['term'] ?? ($args['term'] ?? '');
-                    $date = $params['date'] ?? ($args['date'] ?? null);
+                    $startDate = $params['start_date'] ?? ($args['start_date'] ?? ($params['date'] ?? ($args['date'] ?? null)));
+                    $endDate = $params['end_date'] ?? ($args['end_date'] ?? null);
                     $month = $params['month'] ?? ($args['month'] ?? null);
                     $menu = $params['menu'] ?? ($args['menu'] ?? 'main');
-                    $startDate = $params['start_date'] ?? ($args['start_date'] ?? $date);
-                    $endDate = $params['end_date'] ?? ($args['end_date'] ?? null);
+                    $term = $params['term'] ?? ($args['term'] ?? '');
                     
                     if ($intent === 'TOTAL_DEPOSITS') $output = $this->intentLibrary->getFinancialSummary('Deposit', $startDate, $endDate);
                     elseif ($intent === 'TOTAL_WITHDRAWALS') $output = $this->intentLibrary->getFinancialSummary('Withdraw', $startDate, $endDate);
@@ -402,7 +398,6 @@ class AiAgentController extends Controller
 
                 if ($output) {
                     $uiType = $output['ui_type']; $rawData = $output['ui_metadata'];
-                    // We store both 'result' (text) and 'data' (raw json) in the database
                     $results[] = ['functionResponse' => ['name' => $name, 'response' => ['result' => $output['caption'], 'data' => $output['ui_metadata']]]];
                 }
             } catch (\Throwable $e) {
@@ -453,21 +448,22 @@ class AiAgentController extends Controller
 
     private function getHistory($sessionId)
     {
-        // Deterministic Sort: Use ID to ensure messages saved in the same second stay in order.
         $messages = DB::table('ai_messages')
             ->where('session_id', $sessionId)
             ->orderBy('id', 'desc')
             ->limit(15)
-            ->get()
-            ->reverse();
+            ->get();
 
+        $ordered = $messages->reverse();
         $rawMessages = [];
-        foreach ($messages as $msg) {
+        foreach ($ordered as $msg) {
             $role = ($msg->role === 'tool') ? 'function' : $msg->role;
             $parts = [];
 
             if ($msg->role === 'user' || $msg->role === 'model') {
-                if ($msg->content) $parts[] = ['text' => $msg->content];
+                if ($msg->content !== null && $msg->content !== '') {
+                    $parts[] = ['text' => $msg->content];
+                }
                 if ($msg->tool_calls) {
                     $calls = json_decode($msg->tool_calls, true);
                     if (is_array($calls)) {
@@ -480,7 +476,8 @@ class AiAgentController extends Controller
                 $parts[] = ['functionResponse' => ['name' => $msg->tool_call_id ?? 'fetch_from_library', 'response' => $leanResponse]];
             }
 
-            // MERGE CONSECUTIVE ROLES: Gemini requires alternating roles.
+            if (empty($parts)) continue;
+
             $lastIndex = count($rawMessages) - 1;
             if ($lastIndex >= 0 && $rawMessages[$lastIndex]['role'] === $role) {
                 $rawMessages[$lastIndex]['parts'] = array_merge($rawMessages[$lastIndex]['parts'], $parts);
@@ -489,7 +486,6 @@ class AiAgentController extends Controller
             }
         }
 
-        // SEQUENCE GUARD: History MUST start with 'user' role.
         while (!empty($rawMessages) && $rawMessages[0]['role'] !== 'user') {
             array_shift($rawMessages);
         }
@@ -512,16 +508,10 @@ class AiAgentController extends Controller
 
         $systemInstruction = "$greeting 
         Context: Company ID $compId. Server Date " . date('Y-m-d') . ".
-        
         MISSION: You are a secure analytical assistant. YOU MUST ONLY use the provided tools to fetch financial data. 
-        NEVER attempt to generate your own SQL or guess financial numbers.
-        
         COMMUNICATION STYLE:
-        - BE CONCISE. Use the shortest possible explanation for results.
-        - NO MARKDOWN. Do not use bold (**), italics (*), or markdown tables in your text response.
-        - Use simple, plain text for explanations.
-        - If the tool returns a list or table, just say 'Here is the report:' or 'I found these results:' and let the UI handle the data.
-        
+        - BE CONCISE. Use simple, plain text for explanations. NO MARKDOWN.
+        - If the tool returns a list or table, just say 'Here is the report:' and let the UI handle the data.
         TOOL PROTOCOL:
         1. LIQUIDITY/NET POSITION: Use `BANK_LIQUIDITY`.
         2. ARREARS/DEFAULTERS: Use `ARREARS_REPORT`.
@@ -531,20 +521,13 @@ class AiAgentController extends Controller
         6. RECENT ACTIVITY: Use `RECENT_TRANSACTIONS` or `RECENT_CUSTOMERS` (Supports range).
         7. LOAN ACTIVITY: Use `DAILY_DISBURSEMENTS` or `EXPECTED_REPAYMENTS` (Supports range).
         8. HELP/MENUS: Use `HELP_MENU`. 
-           - When the user asks for help or says 'menu', call `HELP_MENU` with `menu='main'`.
-           - When the user asks for liquidity info, transactions, customers, loans, or performance specifically, you can also trigger the sub-menus via `HELP_MENU` with `menu` as 'liquidity', 'transactions', 'customers', 'loans', or 'performance'.
-        9. EXECUTIVE SUMMARY: Use `EXECUTIVE_BRIEFING` for a high-level strategic boardroom summary.
-        10. START OF SESSION: If history is empty, call `HELP_MENU` with `menu='main'`.
-        
+        9. EXECUTIVE SUMMARY: Use `EXECUTIVE_BRIEFING`.
         STRICT RULES:
-        - TIME RANGES: You can query for 'this month', 'last week', etc., by passing the correct `start_date` and `end_date` (calculate these based on the Server Date provided above).
-        - If the user asks a question not covered by the library tools, politely say you only provide verified bank reports.
+        - TIME RANGES: You can query for 'this month', 'last week', etc., by passing the correct `start_date` and `end_date`.
         - NEVER Hallucinate. Trust the tool outputs 100%.";
 
         $payload = ['system_instruction' => ['parts' => [['text' => $systemInstruction]]], 'contents' => $history, 'tools' => $tools, 'generationConfig' => ['temperature' => 0.1, 'topP' => 0.95]];
-        
         $response = Http::post($url, $payload);
-        
         if ($response->failed()) {
             $status = $response->status();
             $errorBody = $response->body();
@@ -552,7 +535,6 @@ class AiAgentController extends Controller
             Log::error("Gemini API Error [$status]: Size $size bytes. Response: $errorBody");
             throw new \Exception("AI connection error (Status $status).");
         }
-        
         return $response->json();
     }
 }
