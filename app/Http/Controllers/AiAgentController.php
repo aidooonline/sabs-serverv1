@@ -8,13 +8,22 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use App\Services\AiIntentLibrary;
 use App\Services\AiActionManager;
+use App\Services\AiIntelligenceService;
 
 class AiAgentController extends Controller
 {
     private $intentLibrary;
     private $actionManager;
+    private $intelligenceService;
 
     public function __construct() {}
+
+    private function initServices($compId)
+    {
+        $this->intentLibrary = new AiIntentLibrary($compId);
+        $this->actionManager = new AiActionManager();
+        $this->intelligenceService = new AiIntelligenceService($compId);
+    }
 
     public function chat(Request $request)
     {
@@ -23,9 +32,15 @@ class AiAgentController extends Controller
             if (!$user) return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
 
             $compId = $user->comp_id;
-            $this->intentLibrary = new AiIntentLibrary($compId);
-            $this->actionManager = new AiActionManager();
+            
+            // Check if AI Chat is enabled for this company
+            $company = DB::table('accounts')->where('id', $compId)->first();
+            if ($company && !$company->ai_chat_enabled) {
+                return response()->json(['success' => false, 'message' => 'AI Assistant is disabled by administrator.'], 403);
+            }
 
+            $this->initServices($compId);
+            
             $prompt = $request->input('message');
             $sessionId = $request->input('session_id');
             $model = $request->input('model', 'gemini-3-flash-preview');
@@ -57,6 +72,87 @@ class AiAgentController extends Controller
         }
     }
 
+    /**
+     * Proactive: Fetches briefing on login/startup
+     */
+    public function getOnboardingBrief()
+    {
+        try {
+            $user = auth('api')->user();
+            $compId = $user->comp_id;
+            $company = DB::table('accounts')->where('id', $compId)->first();
+            
+            $this->initServices($compId);
+            $role = strtolower($user->type_name ?? 'Staff');
+            $isAdmin = in_array($role, ['admin', 'owner', 'super admin', 'manager']);
+
+            if ($isAdmin && ($company->ai_exec_briefing_enabled ?? 1)) {
+                return response()->json(['success' => true, 'data' => $this->intelligenceService->getExecutiveBriefing()]);
+            } 
+            
+            if ($role === 'agent' && ($company->ai_growth_coach_enabled ?? 1)) {
+                return response()->json(['success' => true, 'data' => $this->intelligenceService->getAgentCoaching($user->id)]);
+            }
+
+            return response()->json(['success' => false, 'message' => 'No briefing available.']);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Proactive: Fetches risk assessment for a loan
+     */
+    public function getRiskShield(Request $request)
+    {
+        try {
+            $user = auth('api')->user();
+            $compId = $user->comp_id;
+            $company = DB::table('accounts')->where('id', $compId)->first();
+
+            if (!($company->ai_risk_shield_enabled ?? 1)) {
+                return response()->json(['success' => false, 'message' => 'Risk shield is disabled.'], 403);
+            }
+
+            $customerId = $request->input('customer_id');
+            $loanAmount = $request->input('amount');
+            
+            $this->initServices($compId);
+            $analysis = $this->intelligenceService->getRiskAnalysis($customerId, $loanAmount);
+
+            return response()->json(['success' => true, 'data' => $analysis]);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    public function getAiSettings()
+    {
+        $user = auth('api')->user();
+        $settings = DB::table('accounts')->where('id', $user->comp_id)->first([
+            'ai_chat_enabled', 'ai_risk_shield_enabled', 'ai_growth_coach_enabled', 'ai_exec_briefing_enabled'
+        ]);
+        return response()->json(['success' => true, 'settings' => $settings]);
+    }
+
+    public function updateAiSettings(Request $request)
+    {
+        $user = auth('api')->user();
+        // Simple permission check: only managers/admins
+        if (!in_array(strtolower($user->type_name), ['admin', 'owner', 'manager'])) {
+            return response()->json(['success' => false, 'message' => 'Only administrators can change AI settings.'], 403);
+        }
+
+        DB::table('accounts')->where('id', $user->comp_id)->update([
+            'ai_chat_enabled' => $request->input('ai_chat_enabled', 1),
+            'ai_risk_shield_enabled' => $request->input('ai_risk_shield_enabled', 1),
+            'ai_growth_coach_enabled' => $request->input('ai_growth_coach_enabled', 1),
+            'ai_exec_briefing_enabled' => $request->input('ai_exec_briefing_enabled', 1),
+            'updated_at' => now()
+        ]);
+
+        return response()->json(['success' => true, 'message' => 'AI Configuration saved.']);
+    }
     public function clearChat(Request $request)
     {
         try {

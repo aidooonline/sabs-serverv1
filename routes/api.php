@@ -19,6 +19,10 @@ Route::middleware(['auth:api'])->group(function () {
     Route::post('/ai/chat', 'AiAgentController@chat');
     Route::post('/ai/clear-chat', 'AiAgentController@clearChat');
     Route::post('/ai/execute-action', 'AiAgentController@executeAction');
+    Route::get('/ai/onboarding-brief', 'AiAgentController@getOnboardingBrief');
+    Route::get('/ai/risk-shield', 'AiAgentController@getRiskShield');
+    Route::get('/ai/settings', 'AiAgentController@getAiSettings');
+    Route::post('/ai/settings', 'AiAgentController@updateAiSettings');
 
     Route::get('/user', function (Request $request) {
         return $request->user();

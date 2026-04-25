@@ -43,7 +43,11 @@ class CompanyInfo extends Model
         'message_after_deposit',
         'message_after_withdrawal',
         'app_home_url',
-        'app_resource_url'
+        'app_resource_url',
+        'ai_chat_enabled',
+        'ai_risk_shield_enabled',
+        'ai_growth_coach_enabled',
+        'ai_exec_briefing_enabled'
     ];
 }
 
