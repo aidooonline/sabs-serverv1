@@ -453,18 +453,20 @@ class AiAgentController extends Controller
 
     private function getHistory($sessionId)
     {
-        // Fetch enough history to allow for pruning to a valid sequence start
+        // Deterministic Sort: Use ID to ensure messages saved in the same second stay in order.
         $messages = DB::table('ai_messages')
             ->where('session_id', $sessionId)
-            ->orderBy('created_at', 'desc')
+            ->orderBy('id', 'desc')
             ->limit(15)
             ->get()
             ->reverse();
 
         $rawMessages = [];
         foreach ($messages as $msg) {
+            $role = ($msg->role === 'tool') ? 'function' : $msg->role;
+            $parts = [];
+
             if ($msg->role === 'user' || $msg->role === 'model') {
-                $parts = [];
                 if ($msg->content) $parts[] = ['text' => $msg->content];
                 if ($msg->tool_calls) {
                     $calls = json_decode($msg->tool_calls, true);
@@ -472,17 +474,23 @@ class AiAgentController extends Controller
                         foreach ($calls as $call) $parts[] = $call;
                     }
                 }
-                $rawMessages[] = ['role' => $msg->role, 'parts' => $parts];
             } else if ($msg->role === 'tool') {
                 $fullResponse = json_decode($msg->content, true);
                 $leanResponse = ['result' => $fullResponse['result'] ?? 'Task completed.'];
-                $rawMessages[] = ['role' => 'function', 'parts' => [['functionResponse' => ['name' => $msg->tool_call_id ?? 'fetch_from_library', 'response' => $leanResponse]]]];
+                $parts[] = ['functionResponse' => ['name' => $msg->tool_call_id ?? 'fetch_from_library', 'response' => $leanResponse]];
+            }
+
+            // MERGE CONSECUTIVE ROLES: Gemini requires alternating roles.
+            $lastIndex = count($rawMessages) - 1;
+            if ($lastIndex >= 0 && $rawMessages[$lastIndex]['role'] === $role) {
+                $rawMessages[$lastIndex]['parts'] = array_merge($rawMessages[$lastIndex]['parts'], $parts);
+            } else {
+                $rawMessages[] = ['role' => $role, 'parts' => $parts];
             }
         }
 
-        // SEQUENCE GUARD: Gemini crashes if the first message in history is a 'function' role.
-        // We must discard all leading function responses until we hit a valid 'user' or 'model' turn.
-        while (!empty($rawMessages) && $rawMessages[0]['role'] === 'function') {
+        // SEQUENCE GUARD: History MUST start with 'user' role.
+        while (!empty($rawMessages) && $rawMessages[0]['role'] !== 'user') {
             array_shift($rawMessages);
         }
 
