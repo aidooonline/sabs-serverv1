@@ -11,11 +11,13 @@ class AiIntelligenceService
 {
     private $compId;
     private $intentLibrary;
+    private $apiKey;
 
-    public function __construct($compId)
+    public function __construct($compId, $apiKey = null)
     {
         $this->compId = $compId;
         $this->intentLibrary = new AiIntentLibrary($compId);
+        $this->apiKey = $apiKey ?: env('GOOGLE_AI_API_KEY');
     }
 
     /**
@@ -24,7 +26,7 @@ class AiIntelligenceService
     public function getRiskAnalysis($customerId, $loanAmount)
     {
         $customer = DB::table('nobs_registration')->where('id', $customerId)->first();
-        if (!$customer) return ['error' => 'Customer not found'];
+        if (!$customer) return ['content' => 'Customer not found'];
 
         // Optimize: Use DB Aggregates instead of fetching all rows (Prevents Memory Bloat)
         $sixMonthsAgo = Carbon::now()->subMonths(6)->toDateTimeString();
@@ -129,9 +131,12 @@ class AiIntelligenceService
 
     private function callGeminiBasic($prompt)
     {
-        $apiKey = env('GOOGLE_AI_API_KEY');
+        if (!$this->apiKey) {
+            return ['content' => 'AI API Key is missing. Please check settings.'];
+        }
+
         $model = 'gemini-1.5-flash';
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$this->apiKey}";
 
         $payload = [
             'contents' => [['parts' => [['text' => $prompt]]]],
@@ -140,6 +145,15 @@ class AiIntelligenceService
 
         try {
             $response = Http::post($url, $payload);
+            
+            if ($response->failed()) {
+                $status = $response->status();
+                $errorBody = $response->body();
+                $size = strlen(json_encode($payload));
+                Log::error("Intelligence Gemini API Error [$status]: Size $size bytes. Response: $errorBody");
+                return ['content' => "Intelligence service unavailable (Status $status)."];
+            }
+
             $json = $response->json();
             $text = $json['candidates'][0]['content']['parts'][0]['text'] ?? '';
             

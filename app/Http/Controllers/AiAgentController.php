@@ -18,11 +18,11 @@ class AiAgentController extends Controller
 
     public function __construct() {}
 
-    private function initServices($compId)
+    private function initServices($compId, $apiKey = null)
     {
         $this->intentLibrary = new AiIntentLibrary($compId);
         $this->actionManager = new AiActionManager();
-        $this->intelligenceService = new AiIntelligenceService($compId);
+        $this->intelligenceService = new AiIntelligenceService($compId, $apiKey);
     }
 
     public function chat(Request $request)
@@ -39,17 +39,18 @@ class AiAgentController extends Controller
                 return response()->json(['success' => false, 'message' => 'AI Assistant is disabled by administrator.'], 403);
             }
 
-            $this->initServices($compId);
+            $requestApiKey = $request->input('api_key');
+            $apiKey = $requestApiKey ?: env('GOOGLE_AI_API_KEY');
+            
+            $this->initServices($compId, $apiKey);
             
             $prompt = $request->input('message');
             $sessionId = $request->input('session_id');
             $model = $request->input('model', 'gemini-3-flash-preview');
-            $requestApiKey = $request->input('api_key');
             $userContext = $request->input('user_context') ?: [];
 
             if (empty($prompt)) return response()->json(['success' => false, 'message' => 'Message is required'], 400);
 
-            $apiKey = $requestApiKey ?: env('GOOGLE_AI_API_KEY');
             if (!$apiKey) return response()->json(['success' => false, 'message' => 'AI API Key is missing.'], 400);
 
             $session = $this->getOrCreateSession($user, $sessionId, $model);
@@ -75,7 +76,7 @@ class AiAgentController extends Controller
     /**
      * Proactive: Fetches briefing on login/startup
      */
-    public function getOnboardingBrief()
+    public function getOnboardingBrief(Request $request)
     {
         try {
             $user = auth('api')->user();
@@ -84,7 +85,8 @@ class AiAgentController extends Controller
             $compId = $user->comp_id;
             $company = DB::table('accounts')->where('id', $compId)->first();
             
-            $this->initServices($compId);
+            $apiKey = $request->input('api_key') ?: env('GOOGLE_AI_API_KEY');
+            $this->initServices($compId, $apiKey);
             
             // Normalized Role Check
             $role = strtolower($user->type_name ?? $user->type ?? 'Staff');
@@ -123,10 +125,11 @@ class AiAgentController extends Controller
 
             $customerId = $request->input('customer_id');
             $loanAmount = $request->input('amount');
+            $apiKey = $request->input('api_key') ?: env('GOOGLE_AI_API_KEY');
             
             if (!$customerId) return response()->json(['success' => false, 'message' => 'Customer ID required'], 400);
 
-            $this->initServices($compId);
+            $this->initServices($compId, $apiKey);
             $analysis = $this->intelligenceService->getRiskAnalysis($customerId, $loanAmount);
 
             return response()->json(['success' => true, 'data' => $analysis]);
