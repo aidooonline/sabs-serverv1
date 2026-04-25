@@ -145,31 +145,38 @@ class AiIntelligenceService
             ]
         ];
 
-        $prompt = "Act as a CFO. Summarize this bank health data: " . json_encode($data) . ". 
-        Provide a JSON response with a single key 'strategy' containing a strategic 3-sentence summary for the CEO. Mention if deposits are growing vs yesterday and assess the arrears risk (GHS " . number_format($data['arrears']['amount'], 2) . "). No markdown.";
+        $prompt = "Act as a CFO. Analyze this data: " . json_encode($data) . ". 
+        MANDATORY: Return a JSON object with one key 'strategy'. 
+        The value must be a 3-sentence strategic advice for the CEO. 
+        Focus on liquidity vs arrears risk (GHS " . number_format($data['arrears']['amount'], 2) . "). 
+        DO NOT return any other text, only the JSON object.";
 
         $brief = $this->callGeminiBasic($prompt);
-        $strategyText = $brief['strategy'] ?? ($brief['content'] ?? 'Liquidity is stable. Monitor arrears daily for risk mitigation.');
+        
+        // Final fallback if AI still fails to provide a strategy key
+        $strategyText = 'Review required.';
+        if (isset($brief['strategy']) && !empty($brief['strategy'])) {
+            $strategyText = $brief['strategy'];
+        } elseif (isset($brief['content']) && !empty($brief['content'])) {
+            $strategyText = $brief['content'];
+        } elseif (is_string($brief) && !empty($brief)) {
+            $strategyText = $brief;
+        }
 
-        // Build filtered metadata
-        $rawMetadata = [
-            ['Net Liquidity' => number_format((float)str_replace(',', '', $liquidity['ui_metadata']['value']), 2) . ' GHS'],
+        // Build metadata - CORE METRICS ALWAYS SHOWN
+        $metadata = [
+            ['Net Liquidity' => number_format((float)str_replace(',', '', $liquidity['ui_metadata']['value'] ?? 0), 2) . ' GHS'],
             ['Deposits Today' => number_format($data['deposits']['today'], 2) . ' GHS'],
+            ['Deposits Yesterday' => number_format($data['deposits']['yesterday'], 2) . ' GHS'],
             ['Deposits Month' => number_format($data['deposits']['this_month'], 2) . ' GHS'],
             ['Unpaid Loans Balance' => number_format($data['arrears']['amount'], 2) . ' GHS'],
             ['Unpaid Cases' => $data['arrears']['count']],
             ['Strategic Advice' => $strategyText]
         ];
 
-        // Filter out zero/empty values completely to prevent empty cards
-        $filteredMetadata = array_values(array_filter($rawMetadata, function($item) {
-            $val = array_values($item)[0];
-            return !($val === '0.00 GHS' || $val === 0 || $val === null || $val === '');
-        }));
-
         return [
             'ui_type' => 'mobile_optimized_list',
-            'ui_metadata' => $filteredMetadata,
+            'ui_metadata' => $metadata,
             'caption' => 'Executive Briefing Summary:'
         ];
     }
