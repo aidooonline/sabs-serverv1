@@ -18,11 +18,11 @@ class AiAgentController extends Controller
 
     public function __construct() {}
 
-    private function initServices($compId, $apiKey = null)
+    private function initServices($compId, $apiKey = null, $model = null)
     {
         $this->intentLibrary = new AiIntentLibrary($compId);
         $this->actionManager = new AiActionManager();
-        $this->intelligenceService = new AiIntelligenceService($compId, $apiKey);
+        $this->intelligenceService = new AiIntelligenceService($compId, $apiKey, $model);
     }
 
     public function chat(Request $request)
@@ -41,12 +41,12 @@ class AiAgentController extends Controller
 
             $requestApiKey = $request->input('api_key');
             $apiKey = $requestApiKey ?: env('GOOGLE_AI_API_KEY');
+            $model = $request->input('model', 'gemini-3-flash-preview');
             
-            $this->initServices($compId, $apiKey);
+            $this->initServices($compId, $apiKey, $model);
             
             $prompt = $request->input('message');
             $sessionId = $request->input('session_id');
-            $model = $request->input('model', 'gemini-3-flash-preview');
             $userContext = $request->input('user_context') ?: [];
 
             if (empty($prompt)) return response()->json(['success' => false, 'message' => 'Message is required'], 400);
@@ -86,7 +86,8 @@ class AiAgentController extends Controller
             $company = DB::table('accounts')->where('id', $compId)->first();
             
             $apiKey = $request->input('api_key') ?: env('GOOGLE_AI_API_KEY');
-            $this->initServices($compId, $apiKey);
+            $model = $request->input('model', 'gemini-3-flash-preview');
+            $this->initServices($compId, $apiKey, $model);
             
             // Normalized Role Check
             $role = strtolower($user->type_name ?? $user->type ?? 'Staff');
@@ -126,10 +127,11 @@ class AiAgentController extends Controller
             $customerId = $request->input('customer_id');
             $loanAmount = $request->input('amount');
             $apiKey = $request->input('api_key') ?: env('GOOGLE_AI_API_KEY');
+            $model = $request->input('model', 'gemini-3-flash-preview');
             
             if (!$customerId) return response()->json(['success' => false, 'message' => 'Customer ID required'], 400);
 
-            $this->initServices($compId, $apiKey);
+            $this->initServices($compId, $apiKey, $model);
             $analysis = $this->intelligenceService->getRiskAnalysis($customerId, $loanAmount);
 
             return response()->json(['success' => true, 'data' => $analysis]);

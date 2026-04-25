@@ -12,12 +12,14 @@ class AiIntelligenceService
     private $compId;
     private $intentLibrary;
     private $apiKey;
+    private $model;
 
-    public function __construct($compId, $apiKey = null)
+    public function __construct($compId, $apiKey = null, $model = 'gemini-1.5-flash')
     {
         $this->compId = $compId;
         $this->intentLibrary = new AiIntentLibrary($compId);
         $this->apiKey = $apiKey ?: env('GOOGLE_AI_API_KEY');
+        $this->model = $model ?: 'gemini-1.5-flash';
     }
 
     /**
@@ -135,8 +137,7 @@ class AiIntelligenceService
             return ['content' => 'AI API Key is missing. Please check settings.'];
         }
 
-        $model = 'gemini-1.5-flash';
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$this->apiKey}";
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/{$this->model}:generateContent?key={$this->apiKey}";
 
         $payload = [
             'contents' => [['parts' => [['text' => $prompt]]]],
