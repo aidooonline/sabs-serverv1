@@ -193,7 +193,9 @@ class AiIntentLibrary
             ->where('loan_repayment_schedules.comp_id', $this->compId)
             ->where('loan_repayment_schedules.status', '!=', 'paid');
         
-        $list = $this->applyDateRange($query, $startDate, $endDate, 'loan_repayment_schedules.due_date')->get();
+        $list = $this->applyDateRange($query, $startDate, $endDate, 'loan_repayment_schedules.due_date')
+            ->limit(20) // SCALE PROTECTION
+            ->get();
         $label = $this->getLabel($startDate, $endDate);
 
         return [
@@ -214,7 +216,9 @@ class AiIntentLibrary
             ->where('loan_applications.comp_id', $this->compId)
             ->whereIn('loan_applications.status', ['active', 'disbursed']);
         
-        $loans = $this->applyDateRange($query, $startDate, $endDate, 'loan_applications.updated_at')->get();
+        $loans = $this->applyDateRange($query, $startDate, $endDate, 'loan_applications.updated_at')
+            ->limit(20) // SCALE PROTECTION
+            ->get();
         $label = $this->getLabel($startDate, $endDate);
 
         return [
@@ -234,6 +238,7 @@ class AiIntentLibrary
             ->select('nobs_registration.first_name', 'nobs_registration.surname', 'amount', 'loan_applications.status')
             ->where('loan_applications.comp_id', $this->compId)
             ->whereIn('loan_applications.status', ['pending', 'pending_approval'])
+            ->limit(20) // SCALE PROTECTION
             ->get();
 
         return [
@@ -254,7 +259,10 @@ class AiIntentLibrary
             ->where('name_of_transaction', 'Deposit')
             ->groupBy('users', 'agentname');
         
-        $collections = $this->applyDateRange($query, $startDate, $endDate)->orderBy('total_collected', 'DESC')->get();
+        $collections = $this->applyDateRange($query, $startDate, $endDate)
+            ->orderBy('total_collected', 'DESC')
+            ->limit(20) // SCALE PROTECTION
+            ->get();
         $label = $this->getLabel($startDate, $endDate);
 
         return [

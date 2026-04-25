@@ -85,6 +85,14 @@ class AiAgentController extends Controller
             $compId = $user->comp_id;
             $company = DB::table('accounts')->where('id', $compId)->first();
             
+            // SQL Guard: If migration hasn't run, default to enabled
+            try {
+                $execEnabled = optional($company)->ai_exec_briefing_enabled ?? 1;
+                $coachEnabled = optional($company)->ai_growth_coach_enabled ?? 1;
+            } catch (\Throwable $e) {
+                $execEnabled = 1; $coachEnabled = 1;
+            }
+
             $apiKey = $request->input('api_key') ?: env('GOOGLE_AI_API_KEY');
             $model = $request->input('model', 'gemini-3-flash-preview');
             $this->initServices($compId, $apiKey, $model);
@@ -93,11 +101,11 @@ class AiAgentController extends Controller
             $role = strtolower($user->type_name ?? $user->type ?? 'Staff');
             $isAdmin = in_array($role, ['admin', 'manager', 'super admin', 'owner', 'god admin']);
 
-            if ($isAdmin && (optional($company)->ai_exec_briefing_enabled ?? 1)) {
+            if ($isAdmin && $execEnabled) {
                 return response()->json(['success' => true, 'data' => $this->intelligenceService->getExecutiveBriefing()]);
             } 
             
-            if (($role === 'agent' || $role === 'staff') && (optional($company)->ai_growth_coach_enabled ?? 1)) {
+            if (($role === 'agent' || $role === 'staff') && $coachEnabled) {
                 return response()->json(['success' => true, 'data' => $this->intelligenceService->getAgentCoaching($user->id)]);
             }
 
