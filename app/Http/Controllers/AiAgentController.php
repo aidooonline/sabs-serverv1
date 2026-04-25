@@ -298,35 +298,40 @@ class AiAgentController extends Controller
 
     private function getHistory($sessionId)
     {
-        // Get last 10 messages to keep context window tiny and efficient
+        // Fetch enough history to allow for pruning to a valid sequence start
         $messages = DB::table('ai_messages')
             ->where('session_id', $sessionId)
             ->orderBy('created_at', 'desc')
-            ->limit(10)
+            ->limit(15)
             ->get()
             ->reverse();
 
-        $history = [];
+        $rawMessages = [];
         foreach ($messages as $msg) {
             if ($msg->role === 'user' || $msg->role === 'model') {
                 $parts = [];
                 if ($msg->content) $parts[] = ['text' => $msg->content];
                 if ($msg->tool_calls) {
-                    foreach (json_decode($msg->tool_calls, true) as $call) $parts[] = $call;
+                    $calls = json_decode($msg->tool_calls, true);
+                    if (is_array($calls)) {
+                        foreach ($calls as $call) $parts[] = $call;
+                    }
                 }
-                $history[] = ['role' => $msg->role, 'parts' => $parts];
+                $rawMessages[] = ['role' => $msg->role, 'parts' => $parts];
             } else if ($msg->role === 'tool') {
                 $fullResponse = json_decode($msg->content, true);
-                
-                // LEAN CONTEXT: Strip the heavy 'data' (UI Metadata) from historical tool responses.
-                // The AI model only needs the 'result' (text caption) to understand previous steps.
-                // This prevents crashes due to huge token payloads.
                 $leanResponse = ['result' => $fullResponse['result'] ?? 'Task completed.'];
-                
-                $history[] = ['role' => 'function', 'parts' => [['functionResponse' => ['name' => $msg->tool_call_id, 'response' => $leanResponse]]]];
+                $rawMessages[] = ['role' => 'function', 'parts' => [['functionResponse' => ['name' => $msg->tool_call_id ?? 'fetch_from_library', 'response' => $leanResponse]]]];
             }
         }
-        return $history;
+
+        // SEQUENCE GUARD: Gemini crashes if the first message in history is a 'function' role.
+        // We must discard all leading function responses until we hit a valid 'user' or 'model' turn.
+        while (!empty($rawMessages) && $rawMessages[0]['role'] === 'function') {
+            array_shift($rawMessages);
+        }
+
+        return $rawMessages;
     }
 
     private function callGeminiApi($model, $apiKey, $history, $tools, $compId, $userContext = null)
