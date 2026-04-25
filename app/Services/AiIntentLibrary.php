@@ -456,12 +456,30 @@ class AiIntentLibrary
         } elseif ($menuType === 'transactions') {
             $capabilities = [
                 ['label' => '📊 Daily Summary', 'query' => 'Today summary'],
-                ['label' => '💰 Deposits Today', 'query' => 'Show total deposits'],
-                ['label' => '💸 Withdrawals Today', 'query' => 'Show total withdrawals'],
-                ['label' => '🧾 Recent Tx', 'query' => 'Show last 5 transactions'],
+                ['label' => '💰 Deposits...', 'query' => 'menu deposits'],
+                ['label' => '💸 Withdrawals...', 'query' => 'menu withdrawals'],
+                ['label' => '🧾 Recent 5', 'query' => 'Show last 5 transactions'],
                 ['label' => '⬅️ Back', 'query' => 'help']
             ];
-            $caption = "Daily Transaction Intelligence:";
+            $caption = "Transaction Intelligence:";
+        } elseif ($menuType === 'deposits') {
+            $capabilities = [
+                ['label' => '💰 Today', 'query' => 'Total deposits today'],
+                ['label' => '📅 Yesterday', 'query' => 'Total deposits yesterday'],
+                ['label' => '🗓️ This Week', 'query' => 'Total deposits this week'],
+                ['label' => '📊 This Month', 'query' => 'Total deposits this month'],
+                ['label' => '⬅️ Back', 'query' => 'menu transactions']
+            ];
+            $caption = "Deposit Analytics:";
+        } elseif ($menuType === 'withdrawals') {
+            $capabilities = [
+                ['label' => '💸 Today', 'query' => 'Total withdrawals today'],
+                ['label' => '📅 Yesterday', 'query' => 'Total withdrawals yesterday'],
+                ['label' => '🗓️ This Week', 'query' => 'Total withdrawals this week'],
+                ['label' => '📊 This Month', 'query' => 'Total withdrawals this month'],
+                ['label' => '⬅️ Back', 'query' => 'menu transactions']
+            ];
+            $caption = "Withdrawal Analytics:";
         } elseif ($menuType === 'customers') {
             $capabilities = [
                 ['label' => '🔍 Find Customer', 'query' => 'Search for customer'],
