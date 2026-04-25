@@ -157,10 +157,17 @@ class AiIntelligenceService
             $json = $response->json();
             $text = $json['candidates'][0]['content']['parts'][0]['text'] ?? '';
             
-            // Try to parse as JSON if it looks like it
-            if (strpos($text, '{') !== false) {
-                $cleanJson = substr($text, strpos($text, '{'), strrpos($text, '}') - strpos($text, '{') + 1);
-                $decoded = json_decode($cleanJson, true);
+            // SUPER ROBUST JSON EXTRACTOR
+            // 1. Remove markdown code blocks if present
+            $cleanText = preg_replace('/^```json\s*|```\s*$/m', '', trim($text));
+            
+            // 2. Find the first '{' and last '}' to isolate the JSON object
+            $firstBrace = strpos($cleanText, '{');
+            $lastBrace = strrpos($cleanText, '}');
+
+            if ($firstBrace !== false && $lastBrace !== false) {
+                $potentialJson = substr($cleanText, $firstBrace, $lastBrace - $firstBrace + 1);
+                $decoded = json_decode($potentialJson, true);
                 if ($decoded) return $decoded;
             }
             
