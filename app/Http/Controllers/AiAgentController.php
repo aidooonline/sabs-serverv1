@@ -91,13 +91,13 @@ class AiAgentController extends Controller
             
             // Normalized Role Check
             $role = strtolower($user->type_name ?? $user->type ?? 'Staff');
-            $isAdmin = in_array($role, ['admin', 'owner', 'super admin', 'manager', 'god admin']);
+            $isAdmin = in_array($role, ['admin', 'manager', 'super admin', 'owner', 'god admin']);
 
-            if ($isAdmin && ($company->ai_exec_briefing_enabled ?? 1)) {
+            if ($isAdmin && (optional($company)->ai_exec_briefing_enabled ?? 1)) {
                 return response()->json(['success' => true, 'data' => $this->intelligenceService->getExecutiveBriefing()]);
             } 
             
-            if (($role === 'agent' || $role === 'staff') && ($company->ai_growth_coach_enabled ?? 1)) {
+            if (($role === 'agent' || $role === 'staff') && (optional($company)->ai_growth_coach_enabled ?? 1)) {
                 return response()->json(['success' => true, 'data' => $this->intelligenceService->getAgentCoaching($user->id)]);
             }
 
@@ -120,7 +120,7 @@ class AiAgentController extends Controller
             $compId = $user->comp_id;
             $company = DB::table('accounts')->where('id', $compId)->first();
 
-            if (!($company->ai_risk_shield_enabled ?? 1)) {
+            if (!(optional($company)->ai_risk_shield_enabled ?? 1)) {
                 return response()->json(['success' => false, 'message' => 'Risk shield is disabled.'], 403);
             }
 

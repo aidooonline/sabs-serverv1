@@ -28,7 +28,7 @@ class AiIntelligenceService
     public function getRiskAnalysis($customerId, $loanAmount)
     {
         $customer = DB::table('nobs_registration')->where('id', $customerId)->first();
-        if (!$customer) return ['content' => 'Customer not found'];
+        if (!$customer) return ['score' => 'N/A', 'color' => 'grey', 'rationale' => 'Customer profile not found.'];
 
         // Optimize: Use DB Aggregates instead of fetching all rows (Prevents Memory Bloat)
         $sixMonthsAgo = Carbon::now()->subMonths(6)->toDateTimeString();
@@ -56,7 +56,14 @@ class AiIntelligenceService
         $prompt = "Act as a Senior Risk Officer. Analyze this customer transaction data (Last 6 Months) for a loan request of GHS $loanAmount: " . json_encode($dataForAi) . ". 
         Provide a JSON response with: 'score' (0-100), 'color' (green, yellow, red), and 'rationale' (max 2 sentences explaining the decision).";
 
-        return $this->callGeminiBasic($prompt);
+        $result = $this->callGeminiBasic($prompt);
+        
+        // Ensure keys exist for frontend
+        return [
+            'score' => $result['score'] ?? 'N/A',
+            'color' => $result['color'] ?? 'grey',
+            'rationale' => $result['rationale'] ?? ($result['content'] ?? 'Risk analysis partially unavailable.')
+        ];
     }
 
     /**
