@@ -146,20 +146,21 @@ class AiIntelligenceService
         ];
 
         $prompt = "Act as a CFO. Summarize this bank health data: " . json_encode($data) . ". 
-        Provide a strategic 3-sentence summary. Mention if deposits are growing vs yesterday and assess the arrears risk (GHS " . number_format($data['arrears']['amount'], 2) . "). No markdown.";
+        Provide a JSON response with a single key 'strategy' containing a strategic 3-sentence summary for the CEO. Mention if deposits are growing vs yesterday and assess the arrears risk (GHS " . number_format($data['arrears']['amount'], 2) . "). No markdown.";
 
         $brief = $this->callGeminiBasic($prompt);
         
         return [
             'ui_type' => 'mobile_optimized_list',
             'ui_metadata' => [
-                ['Metric' => 'Net Liquidity', 'Value' => $liquidity['ui_metadata']['value'] . ' GHS'],
-                ['Metric' => 'Deposits Today', 'Value' => number_format($data['deposits']['today'], 2) . ' GHS'],
-                ['Metric' => 'Deposits Month', 'Value' => number_format($data['deposits']['this_month'], 2) . ' GHS'],
-                ['Metric' => 'Total Arrears', 'Value' => number_format($data['arrears']['amount'], 2) . ' GHS (' . $data['arrears']['count'] . ' cases)'],
-                ['Metric' => 'AI Strategy', 'Value' => $brief['rationale'] ?? ($brief['content'] ?? 'Maintain liquidity focus.')]
+                ['Net Liquidity' => $liquidity['ui_metadata']['value'] . ' GHS'],
+                ['Deposits Today' => number_format($data['deposits']['today'], 2) . ' GHS'],
+                ['Deposits Month' => number_format($data['deposits']['this_month'], 2) . ' GHS'],
+                ['Unpaid Loans Balance' => number_format($data['arrears']['amount'], 2) . ' GHS'],
+                ['Unpaid Cases' => $data['arrears']['count']],
+                ['Strategic Advice' => $brief['strategy'] ?? ($brief['content'] ?? 'Continue monitoring daily liquidity and arrears.')]
             ],
-            'caption' => 'Comprehensive Executive Intelligence:'
+            'caption' => 'Executive Briefing Summary:'
         ];
     }
 
