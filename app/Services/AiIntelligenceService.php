@@ -113,28 +113,53 @@ class AiIntelligenceService
     public function getExecutiveBriefing()
     {
         $liquidity = $this->intentLibrary->getSystemLiquidity();
-        $summary = $this->intentLibrary->getDailySummary(date('Y-m-d'));
-        $arrears = $this->intentLibrary->getArrearsList();
+        $today = date('Y-m-d');
+        $yesterday = date('Y-m-d', strtotime('-1 day'));
+        $monthStart = date('Y-m-01');
+
+        // Detailed Deposit Metrics
+        $depositsToday = DB::table('nobs_transactions')->where('comp_id', $this->compId)->where('name_of_transaction', 'Deposit')->whereDate('created_at', $today)->sum('amount');
+        $depositsYesterday = DB::table('nobs_transactions')->where('comp_id', $this->compId)->where('name_of_transaction', 'Deposit')->whereDate('created_at', $yesterday)->sum('amount');
+        $depositsMonth = DB::table('nobs_transactions')->where('comp_id', $this->compId)->where('name_of_transaction', 'Deposit')->where('created_at', '>=', $monthStart)->sum('amount');
+
+        // Granular Arrears Data
+        $arrears = DB::table('loan_repayment_schedules')
+            ->where('comp_id', $this->compId)
+            ->where('due_date', '<', $today)
+            ->where('status', '!=', 'paid')
+            ->select(
+                DB::raw("COUNT(*) as count"),
+                DB::raw("SUM(principal_due + interest_due + fees_due - (principal_paid + interest_paid + fees_paid)) as total_amount")
+            )->first();
 
         $data = [
             'liquidity' => $liquidity['ui_metadata'],
-            'today_activity' => $summary['ui_metadata'],
-            'top_arrears' => count($arrears['ui_metadata'])
+            'deposits' => [
+                'today' => (float)$depositsToday,
+                'yesterday' => (float)$depositsYesterday,
+                'this_month' => (float)$depositsMonth
+            ],
+            'arrears' => [
+                'count' => (int)$arrears->count,
+                'amount' => (float)$arrears->total_amount
+            ]
         ];
 
         $prompt = "Act as a CFO. Summarize this bank health data: " . json_encode($data) . ". 
-        Provide a strategic 3-sentence summary for the CEO. Focus on liquidity and risk. No markdown.";
+        Provide a strategic 3-sentence summary. Mention if deposits are growing vs yesterday and assess the arrears risk (GHS " . number_format($data['arrears']['amount'], 2) . "). No markdown.";
 
         $brief = $this->callGeminiBasic($prompt);
         
         return [
             'ui_type' => 'mobile_optimized_list',
             'ui_metadata' => [
-                ['Metric' => 'Net Position', 'Value' => $liquidity['ui_metadata']['value'] . ' GHS'],
-                ['Metric' => 'Arrears Count', 'Value' => $data['top_arrears']],
-                ['Metric' => 'Strategy', 'Value' => $brief['rationale'] ?? $brief['content'] ?? 'Monitor arrears.']
+                ['Metric' => 'Net Liquidity', 'Value' => $liquidity['ui_metadata']['value'] . ' GHS'],
+                ['Metric' => 'Deposits Today', 'Value' => number_format($data['deposits']['today'], 2) . ' GHS'],
+                ['Metric' => 'Deposits Month', 'Value' => number_format($data['deposits']['this_month'], 2) . ' GHS'],
+                ['Metric' => 'Total Arrears', 'Value' => number_format($data['arrears']['amount'], 2) . ' GHS (' . $data['arrears']['count'] . ' cases)'],
+                ['Metric' => 'AI Strategy', 'Value' => $brief['rationale'] ?? ($brief['content'] ?? 'Maintain liquidity focus.')]
             ],
-            'caption' => 'Strategic Executive Briefing:'
+            'caption' => 'Comprehensive Executive Intelligence:'
         ];
     }
 
