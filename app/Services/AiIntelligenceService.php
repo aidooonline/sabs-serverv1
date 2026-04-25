@@ -149,17 +149,27 @@ class AiIntelligenceService
         Provide a JSON response with a single key 'strategy' containing a strategic 3-sentence summary for the CEO. Mention if deposits are growing vs yesterday and assess the arrears risk (GHS " . number_format($data['arrears']['amount'], 2) . "). No markdown.";
 
         $brief = $this->callGeminiBasic($prompt);
-        
+        $strategyText = $brief['strategy'] ?? ($brief['content'] ?? 'Liquidity is stable. Monitor arrears daily for risk mitigation.');
+
+        // Build filtered metadata
+        $rawMetadata = [
+            ['Net Liquidity' => number_format((float)str_replace(',', '', $liquidity['ui_metadata']['value']), 2) . ' GHS'],
+            ['Deposits Today' => number_format($data['deposits']['today'], 2) . ' GHS'],
+            ['Deposits Month' => number_format($data['deposits']['this_month'], 2) . ' GHS'],
+            ['Unpaid Loans Balance' => number_format($data['arrears']['amount'], 2) . ' GHS'],
+            ['Unpaid Cases' => $data['arrears']['count']],
+            ['Strategic Advice' => $strategyText]
+        ];
+
+        // Filter out zero/empty values completely to prevent empty cards
+        $filteredMetadata = array_values(array_filter($rawMetadata, function($item) {
+            $val = array_values($item)[0];
+            return !($val === '0.00 GHS' || $val === 0 || $val === null || $val === '');
+        }));
+
         return [
             'ui_type' => 'mobile_optimized_list',
-            'ui_metadata' => [
-                ['Net Liquidity' => $liquidity['ui_metadata']['value'] . ' GHS'],
-                ['Deposits Today' => number_format($data['deposits']['today'], 2) . ' GHS'],
-                ['Deposits Month' => number_format($data['deposits']['this_month'], 2) . ' GHS'],
-                ['Unpaid Loans Balance' => number_format($data['arrears']['amount'], 2) . ' GHS'],
-                ['Unpaid Cases' => $data['arrears']['count']],
-                ['Strategic Advice' => $brief['strategy'] ?? ($brief['content'] ?? 'Continue monitoring daily liquidity and arrears.')]
-            ],
+            'ui_metadata' => $filteredMetadata,
             'caption' => 'Executive Briefing Summary:'
         ];
     }
