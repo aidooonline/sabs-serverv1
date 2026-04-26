@@ -371,6 +371,22 @@ class LoanApplicationController extends Controller
             ], 422);
         }
 
+        // --- DORMANCY CHECK ---
+        $customer = \App\Accounts::find($request->customer_id);
+        if ($customer) {
+            $account = \App\UserAccountNumbers::where('account_number', $customer->account_number)
+                ->where('comp_id', \Auth::user()->comp_id)
+                ->first();
+                
+            if ($account && $account->account_status == 'dormant') {
+                return response()->json([
+                    'success' => false, 
+                    'message' => 'Account is dormant. Please contact management for re-activation before applying for a loan.'
+                ], 403);
+            }
+        }
+        // --- END DORMANCY CHECK ---
+
         // Re-run calculation logic (simplified for storage)
         $amount = $request->amount;
         $product = LoanProduct::with('fees')->find($request->loan_product_id);

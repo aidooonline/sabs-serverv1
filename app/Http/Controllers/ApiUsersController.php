@@ -1670,7 +1670,7 @@ class ApiUsersController extends Controller
                 ->where('comp_id', \Auth::user()->comp_id)
                 ->first();
 
-            if ($account && $account->account_status == 'dormant' && !$this->isManagement()) {
+            if ($account && $account->account_status == 'dormant') {
                 return response()->json(['success' => false, 'message' => 'Account is dormant. Please contact management for re-activation.'], 403);
             }
 
@@ -1742,7 +1742,7 @@ class ApiUsersController extends Controller
                 ->where('comp_id', \Auth::user()->comp_id)
                 ->first();
 
-            if ($account && $account->account_status == 'dormant' && !$this->isManagement()) {
+            if ($account && $account->account_status == 'dormant') {
                 return response()->json(['success' => false, 'message' => 'Account is dormant. Please contact management for re-activation.'], 403);
             }
 
@@ -2576,7 +2576,7 @@ class ApiUsersController extends Controller
                     ->where('comp_id', \Auth::user()->comp_id)
                     ->first();
     
-                if ($account && $account->account_status == 'dormant' && !$this->isManagement()) {
+                if ($account && $account->account_status == 'dormant') {
                     return response()->json(['success' => false, 'message' => 'Account is dormant. Please contact management for re-activation.'], 403);
                 }
     
@@ -2709,7 +2709,7 @@ class ApiUsersController extends Controller
                 ->where('comp_id', \Auth::user()->comp_id)
                 ->first();
 
-            if ($account && $account->account_status == 'dormant' && !$this->isManagement()) {
+            if ($account && $account->account_status == 'dormant') {
                 return response()->json(['success' => false, 'message' => 'Account is dormant. Please contact management for re-activation.'], 403);
             }
 
