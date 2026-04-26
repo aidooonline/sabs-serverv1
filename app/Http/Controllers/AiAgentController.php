@@ -65,10 +65,17 @@ class AiAgentController extends Controller
             // Process with Gemini using the "Verified Toolset"
             $result = $this->processWithGemini($session, $prompt, $model, $apiKey, $compId, $userContext);
 
+            // ENFORCE CONVERSATIONAL TEXT: If Gemini provided no text, use the library's caption
+            $finalText = $result['response']['candidates'][0]['content']['parts'][0]['text'] ?? '';
+            if (empty(trim($finalText)) && isset($result['ui_metadata']['caption'])) {
+                $finalText = $result['ui_metadata']['caption'];
+            }
+
             return response()->json([
                 'success' => true,
                 'session_id' => $session->id,
                 'response' => $result['response'],
+                'final_text' => $finalText, // Explicitly pass the resolved text
                 'ui_type' => $result['ui_type'],
                 'ui_metadata' => $result['ui_metadata']
             ]);
@@ -533,10 +540,11 @@ class AiAgentController extends Controller
         6. RECENT ACTIVITY: Use `RECENT_TRANSACTIONS` or `RECENT_CUSTOMERS` (Supports range).
         7. LOAN ACTIVITY: Use `DAILY_DISBURSEMENTS` or `EXPECTED_REPAYMENTS` (Supports range).
         8. HELP/MENUS: Use `HELP_MENU`. 
-        9. EXECUTIVE SUMMARY: Use `EXECUTIVE_BRIEFING`.
+        9. EXECUTIVE SUMMARY: Use `EXECUTIVE_BRIEFING` (Pass 'period' as daily|weekly|monthly|yearly|alltime).
         10. DORMANT ACCOUNTS: Use `DORMANT_ACCOUNTS`.
         STRICT RULES:
         - TIME RANGES: You can query for 'this month', 'last week', etc., by passing the correct `start_date` and `end_date`.
+        - Use the `period` parameter specifically for `EXECUTIVE_BRIEFING`.
         - NEVER Hallucinate. Trust the tool outputs 100%.";
 
         $payload = ['system_instruction' => ['parts' => [['text' => $systemInstruction]]], 'contents' => $history, 'tools' => $tools, 'generationConfig' => ['temperature' => 0.1, 'topP' => 0.95]];

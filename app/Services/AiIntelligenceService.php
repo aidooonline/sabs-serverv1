@@ -139,6 +139,7 @@ class AiIntelligenceService
         // --- 1. SYSTEM LIQUIDITY & POSITION (Improved Matching) ---
         $baseQuery = DB::table('nobs_transactions')
             ->where('comp_id', $this->compId)
+            // Removed amount limit to ensure all large transactions are captured
             ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
             ->where('description', 'NOT LIKE', '%reversal%');
 
@@ -153,6 +154,7 @@ class AiIntelligenceService
               ->orWhere('name_of_transaction', 'LIKE', '%maintenance%');
         })->sum('amount');
 
+        // Verified Formulas
         $actualCashInHand = ($totalPoolDeposits + $totalLoanRepayments) - $totalPoolWithdrawals;
         $totalSavingsLiability = $totalPoolDeposits - ($totalPoolWithdrawals + $totalFeesCharged);
         $netSystemPosition = $actualCashInHand - $totalSavingsLiability;
