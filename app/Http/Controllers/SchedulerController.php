@@ -457,10 +457,14 @@ class SchedulerController extends Controller
         // 1. Run Loan Process (Safe Mode)
         try {
             $loanResult = $this->loanCronService->runDailyProcess($companyId);
-            $log['loan_process'] = $loanResult['message'];
+            if (!$loanResult['success']) {
+                $log['loan_process'] = "Error: " . $loanResult['message'];
+            } else {
+                $log['loan_process'] = $loanResult['message'];
+            }
         } catch (\Exception $e) {
             Log::error("Loan Process Failed: " . $e->getMessage());
-            $log['loan_process'] = "Failed: " . $e->getMessage();
+            $log['loan_process'] = "Exception: " . $e->getMessage();
         }
 
         // 2. Run Dormancy Check (Safe Mode)
@@ -469,7 +473,7 @@ class SchedulerController extends Controller
             $log['dormancy_flagged'] = $dormancyCount;
         } catch (\Exception $e) {
             Log::error("Dormancy Process Failed: " . $e->getMessage());
-            $log['dormancy_flagged'] = "Failed: " . $e->getMessage();
+            $log['dormancy_flagged'] = "Exception: " . $e->getMessage();
         }
 
         // Update last run date

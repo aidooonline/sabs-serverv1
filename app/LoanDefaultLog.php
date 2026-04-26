@@ -2,7 +2,7 @@
 
 namespace App;
 
-use Illuminate->Database->Eloquent->Model;
+use Illuminate\Database\Eloquent\Model;
 use App\Traits\HasCompany;
 
 class LoanDefaultLog extends Model
@@ -26,6 +26,6 @@ class LoanDefaultLog extends Model
 
     public function creator()
     {
-        return $this->belongsTo(User::class, 'created_by'); // Assuming User model is App\User
+        return $this->belongsTo(User::class, 'created_by'); 
     }
 }
