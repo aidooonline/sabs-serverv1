@@ -469,7 +469,7 @@ class SchedulerController extends Controller
 
         // 2. Run Dormancy Check (Safe Mode)
         try {
-            $dormancyCount = $this->systemCronService->updateDormancyStatus();
+            $dormancyCount = $this->systemCronService->updateDormancyStatus($companyId);
             $log['dormancy_flagged'] = $dormancyCount;
         } catch (\Exception $e) {
             Log::error("Dormancy Process Failed: " . $e->getMessage());

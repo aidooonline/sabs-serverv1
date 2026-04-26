@@ -153,19 +153,20 @@ class LoanCronService
         }
         return $sent;
     }
+private function sendDefaultAlerts($companyId)
+{
+    $companyInfo = CompanyInfo::find($companyId);
+    // Check if automatic SMS is enabled
+    if (!$companyInfo || !$companyInfo->auto_sms_enabled) {
+        return 0;
+    }
 
-    private function sendDefaultAlerts($companyId)
-    {
-        $companyInfo = CompanyInfo::find($companyId);
-        // Check if automatic SMS is enabled
-        if (!$companyInfo || !$companyInfo->auto_sms_enabled) {
-            return 0;
-        }
-
-        $logs = LoanDefaultLog::whereDate('created_at', Carbon::today())
-            ->where('action_type', 'auto_default')
-            ->with(['loan_application.customer'])
-            ->get();
+    // Find loans marked defaulted TODAY for THIS company
+    $logs = LoanDefaultLog::where('comp_id', $companyId)
+        ->whereDate('created_at', Carbon::today())
+        ->where('action_type', 'auto_default')
+        ->with(['loan_application.customer'])
+        ->get();
 
         $sent = 0;
         $smsController = new ApiUsersController();
