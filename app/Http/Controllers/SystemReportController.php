@@ -34,6 +34,7 @@ class SystemReportController extends Controller
 
     /**
      * Get detailed list of dormant accounts for UI rendering.
+     * SPEED OPTIMIZED: Uses stored balance and indexed joins.
      */
     public function getDormantList()
     {
@@ -46,31 +47,21 @@ class SystemReportController extends Controller
             $isAgent = $this->isAgentOnly();
             $userId = auth()->id();
 
-            // --- DEEP INTEGRITY QUERY ---
-            // Using Subqueries for Names and Balances to prevent row multiplication and ensure 100% uniqueness.
-            // We strictly link by primary_account_number for customer names.
+            // --- PERFORMANCE OPTIMIZED QUERY ---
+            // Using JOIN instead of subqueries for names. Ensure MIN(id) to avoid duplicate customer rows.
             $query = DB::table('nobs_user_account_numbers as ua')
+                ->leftJoin('nobs_registration as reg', function($join) {
+                    $join->on('ua.primary_account_number', '=', 'reg.account_number')
+                         ->whereRaw('reg.id = (SELECT MIN(id) FROM nobs_registration as r2 WHERE r2.account_number = reg.account_number)');
+                })
                 ->select(
                     'ua.id', 
                     'ua.account_number',
                     'ua.account_type',
-                    // Fallback Name Matching: Try primary_account_number link to registration
-                    DB::raw("(SELECT COALESCE(first_name, 'Unknown') FROM nobs_registration 
-                              WHERE account_number = ua.primary_account_number AND comp_id = $compId LIMIT 1) as first_name"),
-                    DB::raw("(SELECT COALESCE(surname, 'Customer') FROM nobs_registration 
-                              WHERE account_number = ua.primary_account_number AND comp_id = $compId LIMIT 1) as surname"),
-                    DB::raw("(SELECT phone_number FROM nobs_registration 
-                              WHERE account_number = ua.primary_account_number AND comp_id = $compId LIMIT 1) as phone_number"),
-                    // RECALCULATED BALANCE (Legacy Formula Sync)
-                    DB::raw("(SELECT COALESCE(SUM(CASE 
-                                WHEN name_of_transaction LIKE 'Deposit%' OR name_of_transaction = 'Loan Repayment' THEN amount 
-                                WHEN name_of_transaction LIKE 'Withdraw%' OR name_of_transaction = 'Refund' OR name_of_transaction LIKE 'Commission%' THEN -amount 
-                                ELSE 0 END), 0) 
-                              FROM nobs_transactions 
-                              WHERE TRIM(account_number) = TRIM(ua.account_number) 
-                              AND TRIM(account_type) = TRIM(ua.account_type)
-                              AND comp_id = $compId AND is_shown = 1 AND row_version = 2) as recalculated_balance"),
-                    'ua.balance as stored_balance',
+                    DB::raw("COALESCE(reg.first_name, 'Unknown') as first_name"),
+                    DB::raw("COALESCE(reg.surname, 'Customer') as surname"),
+                    'reg.phone_number',
+                    'ua.balance', // Instant loading from account table
                     DB::raw("COALESCE(ua.last_transaction_date, ua.created_at) as last_active_date"),
                     DB::raw("DATEDIFF(NOW(), COALESCE(ua.last_transaction_date, ua.created_at)) as days_inactive")
                 )
@@ -78,18 +69,13 @@ class SystemReportController extends Controller
                 ->where('ua.account_status', 'dormant');
 
             if ($isAgent) {
-                // If agent, filter by registration link
-                $query->whereExists(function($q) use ($userId) {
-                    $q->select(DB::raw(1))
-                      ->from('nobs_registration')
-                      ->whereColumn('account_number', 'ua.primary_account_number')
-                      ->where('user', $userId);
-                });
+                $query->where('reg.user', $userId);
             }
 
+            // PAGINATION: Critical for 3,700+ rows
             $list = $query->orderBy('ua.last_transaction_date', 'DESC')
                           ->orderBy('ua.created_at', 'DESC')
-                          ->get();
+                          ->paginate(50);
 
             return response()->json(['success' => true, 'data' => $list]);
         } catch (\Exception $e) {
