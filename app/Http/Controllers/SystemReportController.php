@@ -34,7 +34,7 @@ class SystemReportController extends Controller
 
     /**
      * Get detailed list of dormant accounts for UI rendering.
-     * SPEED OPTIMIZED: Uses stored balance and indexed joins.
+     * ACCURACY OPTIMIZED: Synchronized with history running balance.
      */
     public function getDormantList()
     {
@@ -46,42 +46,54 @@ class SystemReportController extends Controller
             $compId = auth()->user()->comp_id;
             $isAgent = $this->isAgentOnly();
             $userId = auth()->id();
-// --- HIGH INTEGRITY QUERY ---
-// Fix: Balance must match on account_type column in nobs_transactions
-$query = DB::table('nobs_user_account_numbers as ua')
-    ->select(
-        'ua.id', 
-        'ua.account_number',
-        'ua.account_type',
-        // Robust Name Lookup
-        DB::raw("(SELECT COALESCE(first_name, 'Unknown') FROM nobs_registration 
-                  WHERE account_number = ua.primary_account_number AND comp_id = $compId LIMIT 1) as first_name"),
-        DB::raw("(SELECT COALESCE(surname, 'Customer') FROM nobs_registration 
-                  WHERE account_number = ua.primary_account_number AND comp_id = $compId LIMIT 1) as surname"),
-        'ua.balance as stored_balance',
-        // RECALCULATED BALANCE (The absolute truth)
-        DB::raw("(SELECT COALESCE(SUM(CASE 
-                    WHEN name_of_transaction LIKE 'Deposit%' OR name_of_transaction = 'Loan Repayment' THEN amount 
-                    WHEN name_of_transaction LIKE 'Withdraw%' OR name_of_transaction = 'Refund' OR name_of_transaction LIKE 'Commission%' THEN -amount 
-                    ELSE 0 END), 0) 
-                  FROM nobs_transactions 
-                  WHERE account_number = ua.account_number 
-                  AND account_type = ua.account_type -- CRITICAL FIX: Match on account_type column
-                  AND comp_id = $compId AND is_shown = 1 AND row_version = 2) as recalculated_balance"),
-        DB::raw("COALESCE(ua.last_transaction_date, ua.created_at) as last_active_date"),
-        DB::raw("DATEDIFF(NOW(), COALESCE(ua.last_transaction_date, ua.created_at)) as days_inactive")
-    )
-    ->where('ua.comp_id', $compId)
-    ->where('ua.account_status', 'dormant');
+
+            // --- HIGH-PRECISION INTEGRITY QUERY ---
+            // We use subqueries for everything related to external tables to ensure 'ua' remains the anchor.
+            // This prevents duplicate rows from registration joins and matches history popup balances.
+            $query = DB::table('nobs_user_account_numbers as ua')
+                ->select(
+                    'ua.id', 
+                    'ua.account_number',
+                    'ua.account_type',
+                    // Name Lookup via Subquery (prevents join duplicates)
+                    DB::raw("(SELECT COALESCE(first_name, 'Unknown') FROM nobs_registration 
+                              WHERE account_number = ua.primary_account_number AND comp_id = $compId LIMIT 1) as first_name"),
+                    DB::raw("(SELECT COALESCE(surname, 'Customer') FROM nobs_registration 
+                              WHERE account_number = ua.primary_account_number AND comp_id = $compId LIMIT 1) as surname"),
+                    DB::raw("(SELECT phone_number FROM nobs_registration 
+                              WHERE account_number = ua.primary_account_number AND comp_id = $compId LIMIT 1) as phone_number"),
+                    // THE SOURCE OF TRUTH: Get balance from the most recent transaction entry
+                    DB::raw("(SELECT balance FROM nobs_transactions 
+                              WHERE account_number = ua.account_number 
+                              AND account_type = ua.account_type 
+                              AND comp_id = $compId AND is_shown = 1 AND row_version = 2 
+                              ORDER BY id DESC LIMIT 1) as last_transaction_balance"),
+                    'ua.balance as stored_balance',
+                    DB::raw("COALESCE(ua.last_transaction_date, ua.created_at) as last_active_date"),
+                    DB::raw("DATEDIFF(NOW(), COALESCE(ua.last_transaction_date, ua.created_at)) as days_inactive")
+                )
+                ->where('ua.comp_id', $compId)
+                ->where('ua.account_status', 'dormant');
 
             if ($isAgent) {
-                $query->where('reg.user', $userId);
+                // If agent, filter by registration link
+                $query->whereExists(function($q) use ($userId) {
+                    $q->select(DB::raw(1))
+                      ->from('nobs_registration')
+                      ->whereColumn('account_number', 'ua.primary_account_number')
+                      ->where('user', $userId);
+                });
             }
 
-            // PAGINATION: Critical for 3,700+ rows
             $list = $query->orderBy('ua.last_transaction_date', 'DESC')
                           ->orderBy('ua.created_at', 'DESC')
                           ->paginate(50);
+
+            // Sync virtual column for UI
+            $list->getCollection()->transform(function($item) {
+                $item->recalculated_balance = $item->last_transaction_balance ?? $item->stored_balance ?? 0;
+                return $item;
+            });
 
             return response()->json(['success' => true, 'data' => $list]);
         } catch (\Exception $e) {
