@@ -6,6 +6,7 @@ use App\LoanApplication;
 use App\LoanRepaymentSchedule;
 use App\LoanDefaultLog;
 use App\CompanyInfo;
+use App\SmsLog;
 use App\User;
 use App\Http\Controllers\ApiUsersController; // Reuse existing SMS logic
 use Carbon\Carbon;
@@ -60,42 +61,12 @@ class LoanCronService
 
     private function markOverdueSchedules($companyId)
     {
-        // Find schedules that are pending, due date is past, and not yet marked overdue
-        // Note: The system currently uses 'pending' status. We might not have an 'overdue' status col in schedule table.
-        // If not, we just rely on date check. 
-        // However, let's assume we want to explicitly mark them if possible, or just skip this if 'status' enum doesn't support 'overdue'.
-        // Based on sprint plan, we want to mark them.
-        
-        // Let's check if we can update them.
-        // Assuming LoanRepaymentSchedule has 'status'.
-        
-        /* 
-           QUERY: 
-           Update loan_repayment_schedules 
-           SET status = 'overdue'
-           WHERE due_date < NOW() AND status = 'pending'
-           AND loan_application_id IN (Active Loans for Company)
-        */
-
-        // For safety, let's stick to identifying them for the "Default" check rather than changing schedule status 
-        // unless we know the enum supports 'overdue'. 
-        // Let's assume standard status is 'pending', 'paid', 'partial'. 
-        // If we change to 'overdue', it might break other logic expecting 'pending'.
-        // SAFE APPROACH: Just use date comparison for logic, don't change DB status of schedule yet unless explicitly required.
-        // BUT Sprint plan says "Mark them as overdue". I will attempt update.
-        
-        return 0; // Skipping explicit DB status change for Schedule to avoid breaking legacy queries looking for 'pending'.
+        return 0; // Skipping explicit DB status change for Schedule to avoid breaking legacy queries.
     }
 
     private function updateLoanDefaults($companyId)
     {
-        // Find Active Loans
-        // Where they have at least 1 schedule that is Overdue (pending & date < now)
-        // And status is not yet 'defaulted'
-        
         $activeLoans = LoanApplication::where('status', 'active')
-            // Add company check if LoanApplication has comp_id or via customer relationship
-             // Assuming LoanApplication doesn't have comp_id directly, we check via customer
             ->whereHas('customer', function($q) use ($companyId) {
                 $q->where('comp_id', $companyId);
             })
@@ -104,23 +75,21 @@ class LoanCronService
         $count = 0;
 
         foreach ($activeLoans as $loan) {
-            // Check for overdue schedules
             $overdueSchedules = $loan->repaymentSchedules()
-                ->where('status', 'pending') // or 'partial'
-                ->where('due_date', '<', Carbon::now()->subDays(1)) // 1 Day Grace Period
+                ->where('status', 'pending') 
+                ->where('due_date', '<', Carbon::now()->subDays(1)) 
                 ->count();
 
-            if ($overdueSchedules >= 1) { // Threshold: 1 missed payment
+            if ($overdueSchedules >= 1) {
                 $loan->status = 'defaulted';
                 $loan->save();
 
-                // Log it (Fixed columns to match schema)
                 LoanDefaultLog::create([
                     'comp_id' => $companyId,
                     'loan_application_id' => $loan->id,
                     'action_type' => 'auto_default',
                     'description' => "System marked as defaulted. Overdue schedules: $overdueSchedules",
-                    'created_by' => 1 // System user
+                    'created_by' => 1 
                 ]);
 
                 $count++;
@@ -132,7 +101,12 @@ class LoanCronService
 
     private function sendPrePaymentReminders($companyId)
     {
-        // Find schedules due in 3 days
+        $companyInfo = CompanyInfo::find($companyId);
+        // Check if automatic SMS is enabled
+        if (!$companyInfo || !$companyInfo->auto_sms_enabled) {
+            return 0;
+        }
+
         $targetDate = Carbon::today()->addDays(3);
 
         $schedules = LoanRepaymentSchedule::whereDate('due_date', $targetDate)
@@ -150,15 +124,9 @@ class LoanCronService
             $customer = $schedule->application->customer;
             if ($customer && $customer->comp_id == $companyId) {
                 
-                $msg = "Reminder: Your loan payment of {$schedule->total_due} is due on {$schedule->due_date->format('d-M-Y')}. Please ensure your account is funded.";
+                $msg = "Reminder: Your loan payment of {$schedule->total_due} is due on " . Carbon::parse($schedule->due_date)->format('d-M-Y') . ". Please ensure your account is funded.";
                 
-                // Use the existing SMS logic (mocking request/auth might be tricky here, so we call sendFrogMessage directly if possible or replicate logic)
-                // Since sendFrogMessage is public in ApiUsersController, we can instantiate it.
-                // However, sendFrogMessage needs specific params including senderID from DB.
-                
-                // Fetch Company Info for SMS Creds
-                $companyInfo = CompanyInfo::find($companyId);
-                if ($companyInfo && $companyInfo->sms_active && $companyInfo->sms_credit > 0) {
+                if ($companyInfo->sms_active && $companyInfo->sms_credit > 0) {
                     $res = $smsController->sendFrogMessage(
                         $companyInfo->sms_username,
                         $companyInfo->sms_password,
@@ -167,7 +135,17 @@ class LoanCronService
                         $customer->phone_number
                     );
                     
-                    // Deduct Credit (Simple decrement)
+                    // Log the SMS
+                    SmsLog::create([
+                        'comp_id' => $companyId,
+                        'customer_id' => $customer->id,
+                        'phone_number' => $customer->phone_number,
+                        'message' => $msg,
+                        'status' => 'sent',
+                        'type' => 'reminder',
+                        'api_response' => is_string($res) ? $res : json_encode($res)
+                    ]);
+
                     $companyInfo->decrement('sms_credit');
                     $sent++;
                 }
@@ -178,9 +156,12 @@ class LoanCronService
 
     private function sendDefaultAlerts($companyId)
     {
-        // Find loans marked defaulted TODAY
-        // We can check LoanDefaultLog for entries created today
-        
+        $companyInfo = CompanyInfo::find($companyId);
+        // Check if automatic SMS is enabled
+        if (!$companyInfo || !$companyInfo->auto_sms_enabled) {
+            return 0;
+        }
+
         $logs = LoanDefaultLog::whereDate('created_at', Carbon::today())
             ->where('action_type', 'auto_default')
             ->with(['loan_application.customer'])
@@ -195,17 +176,28 @@ class LoanCronService
 
             $customer = $loan->customer;
             if ($customer && $customer->comp_id == $companyId) {
-                 $companyInfo = CompanyInfo::find($companyId);
-                 if ($companyInfo && $companyInfo->sms_active && $companyInfo->sms_credit > 0) {
+                 if ($companyInfo->sms_active && $companyInfo->sms_credit > 0) {
                      $msg = "Alert: You missed your loan payment. Your loan is now in DEFAULT. Please pay immediately to avoid penalties.";
                      
-                     $smsController->sendFrogMessage(
-                        'NYB', 
-                        'Populaire123^', 
+                     $res = $smsController->sendFrogMessage(
+                        $companyInfo->sms_username,
+                        $companyInfo->sms_password,
                         $companyInfo->sms_sender_id,
                         $msg,
                         $customer->phone_number
                     );
+
+                    // Log the SMS
+                    SmsLog::create([
+                        'comp_id' => $companyId,
+                        'customer_id' => $customer->id,
+                        'phone_number' => $customer->phone_number,
+                        'message' => $msg,
+                        'status' => 'sent',
+                        'type' => 'alert',
+                        'api_response' => is_string($res) ? $res : json_encode($res)
+                    ]);
+
                     $companyInfo->decrement('sms_credit');
                     $sent++;
                  }

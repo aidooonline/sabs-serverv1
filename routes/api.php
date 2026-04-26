@@ -108,6 +108,7 @@ Route::middleware(['auth:api'])->group(function () {
         Route::get('executive-summary', [App\Http\Controllers\SystemReportController::class, 'getExecutiveSummary']);
         Route::get('dormancy-stats', [App\Http\Controllers\SystemReportController::class, 'getDormancyStats']);
         Route::get('dormant-list', [App\Http\Controllers\SystemReportController::class, 'getDormantList']);
+        Route::get('sms-history', [App\Http\Controllers\SystemReportController::class, 'getSmsLogs']);
         Route::get('integrity-check', [App\Http\Controllers\SystemReportController::class, 'getIntegrityReport']);
         Route::get('top-customers', [App\Http\Controllers\SystemReportController::class, 'getTopCustomers']);
         Route::get('top-withdrawals', [App\Http\Controllers\SystemReportController::class, 'getTopWithdrawals']);

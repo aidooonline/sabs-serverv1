@@ -47,7 +47,8 @@ class CompanyInfo extends Model
         'ai_chat_enabled',
         'ai_risk_shield_enabled',
         'ai_growth_coach_enabled',
-        'ai_exec_briefing_enabled'
+        'ai_exec_briefing_enabled',
+        'auto_sms_enabled'
     ];
 }
 

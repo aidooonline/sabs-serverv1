@@ -425,6 +425,7 @@ class SchedulerController extends Controller
             'success' => true,
             'data' => [
                 'enabled' => (bool)$company->loan_cron_enabled,
+                'auto_sms_enabled' => (bool)$company->auto_sms_enabled,
                 'last_run' => $lastRun,
                 'is_up_to_date' => $isRunToday,
                 'server_time' => now()->toDateTimeString()
@@ -492,7 +493,15 @@ class SchedulerController extends Controller
         }
 
         $company = CompanyInfo::find(auth('api')->user()->comp_id);
-        $company->loan_cron_enabled = $request->input('enabled');
+        
+        if ($request->has('enabled')) {
+            $company->loan_cron_enabled = $request->input('enabled');
+        }
+        
+        if ($request->has('auto_sms_enabled')) {
+            $company->auto_sms_enabled = $request->input('auto_sms_enabled');
+        }
+        
         $company->save();
 
         return response()->json(['success' => true, 'message' => 'Settings updated.']);

@@ -279,36 +279,32 @@ class SystemReportController extends Controller
      */
     public function getDormantList()
     {
+        // ... (existing getDormantList logic)
+    }
+
+    /**
+     * Get history of automated SMS logs.
+     */
+    public function getSmsLogs()
+    {
         if (!$this->isManagement()) {
             return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
 
         try {
             $compId = auth()->user()->comp_id;
-            $isAgent = $this->isAgentOnly();
-            $userId = auth()->id();
-
-            $query = DB::table('nobs_user_account_numbers')
-                ->join('nobs_registration', 'nobs_user_account_numbers.account_number', '=', 'nobs_registration.account_number')
+            $logs = DB::table('sms_logs')
+                ->leftJoin('nobs_registration', 'sms_logs.customer_id', '=', 'nobs_registration.id')
+                ->where('sms_logs.comp_id', $compId)
                 ->select(
+                    'sms_logs.*',
                     'nobs_registration.first_name',
-                    'nobs_registration.surname',
-                    'nobs_registration.phone_number',
-                    'nobs_user_account_numbers.account_number',
-                    'nobs_user_account_numbers.account_type',
-                    'nobs_user_account_numbers.balance',
-                    'nobs_user_account_numbers.last_transaction_date'
+                    'nobs_registration.surname'
                 )
-                ->where('nobs_user_account_numbers.comp_id', $compId)
-                ->where('nobs_user_account_numbers.account_status', 'dormant');
+                ->orderBy('sms_logs.created_at', 'DESC')
+                ->paginate(30);
 
-            if ($isAgent) {
-                $query->where('nobs_registration.user', $userId);
-            }
-
-            $list = $query->orderBy('nobs_user_account_numbers.last_transaction_date', 'DESC')->get();
-
-            return response()->json(['success' => true, 'data' => $list]);
+            return response()->json(['success' => true, 'data' => $logs]);
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
