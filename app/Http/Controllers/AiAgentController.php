@@ -108,7 +108,7 @@ class AiAgentController extends Controller
             $isAdmin = in_array($role, ['admin', 'owner', 'super admin', 'manager', 'god admin']);
 
             if ($isAdmin && $execEnabled) {
-                return response()->json(['success' => true, 'data' => $this->intelligenceService->getExecutiveBriefing()]);
+                return response()->json(['success' => true, 'data' => $this->intelligenceService->getExecutiveBriefing('monthly')]);
             } 
             
             if (($role === 'agent' || $role === 'staff') && $coachEnabled) {
@@ -374,6 +374,7 @@ class AiAgentController extends Controller
                     $month = $params['month'] ?? ($args['month'] ?? null);
                     $menu = $params['menu'] ?? ($args['menu'] ?? 'main');
                     $term = $params['term'] ?? ($args['term'] ?? '');
+                    $period = $params['period'] ?? ($args['period'] ?? 'monthly');
                     
                     if ($intent === 'TOTAL_DEPOSITS') $output = $this->intentLibrary->getFinancialSummary('Deposit', $startDate, $endDate);
                     elseif ($intent === 'TOTAL_WITHDRAWALS') $output = $this->intentLibrary->getFinancialSummary('Withdraw', $startDate, $endDate);
@@ -393,12 +394,12 @@ class AiAgentController extends Controller
                     elseif ($intent === 'DAILY_DISBURSEMENTS') $output = $this->intentLibrary->getDailyDisbursements($startDate, $endDate);
                     elseif ($intent === 'PENDING_LOANS') $output = $this->intentLibrary->getPendingLoans();
                     elseif ($intent === 'AGENT_COLLECTIONS') $output = $this->intentLibrary->getAgentCollections($startDate, $endDate);
-                    elseif ($intent === 'EXECUTIVE_BRIEFING') $output = $this->intelligenceService->getExecutiveBriefing();
+                    elseif ($intent === 'EXECUTIVE_BRIEFING') $output = $this->intelligenceService->getExecutiveBriefing($period);
                     elseif ($intent === 'DORMANT_ACCOUNTS') {
-                        if ($isAdmin) {
+                        if (in_array(strtolower($userContext['user']['type_name'] ?? ''), ['admin', 'manager', 'owner', 'super admin', 'god admin'])) {
                             $output = $this->intentLibrary->getDormantAccounts();
                         } else {
-                            $output = ['ui_type' => 'text', 'ui_metadata' => [], 'caption' => 'I am sorry, but only administrators can access dormancy reports.'];
+                            $output = ['ui_type' => 'text', 'ui_metadata' => [], 'caption' => 'Unauthorized: Management only.'];
                         }
                     }
                 } 
@@ -442,7 +443,8 @@ class AiAgentController extends Controller
                                     'start_date' => ['type' => 'string', 'description' => 'YYYY-MM-DD (Start of range)'],
                                     'end_date' => ['type' => 'string', 'description' => 'YYYY-MM-DD (End of range)'],
                                     'month' => ['type' => 'string', 'description' => 'MM (01-12)'],
-                                    'menu' => ['type' => 'string', 'description' => 'liquidity|transactions|customers|loans|performance|main']
+                                    'menu' => ['type' => 'string', 'description' => 'liquidity|transactions|customers|loans|performance|main'],
+                                    'period' => ['type' => 'string', 'description' => 'daily|weekly|monthly|yearly|alltime']
                                 ]
                             ]
                         ],
@@ -527,9 +529,9 @@ class AiAgentController extends Controller
         5. CUSTOMER SEARCH: Use `CUSTOMER_SEARCH`.
         6. RECENT ACTIVITY: Use `RECENT_TRANSACTIONS` or `RECENT_CUSTOMERS` (Supports range).
         7. LOAN ACTIVITY: Use `DAILY_DISBURSEMENTS` or `EXPECTED_REPAYMENTS` (Supports range).
-        8. DORMANT ACCOUNTS: Use `DORMANT_ACCOUNTS` to find accounts with no activity for 90+ days.
-        9. HELP/MENUS: Use `HELP_MENU`. 
-        10. EXECUTIVE SUMMARY: Use `EXECUTIVE_BRIEFING`.
+        8. HELP/MENUS: Use `HELP_MENU`. 
+        9. EXECUTIVE SUMMARY: Use `EXECUTIVE_BRIEFING`.
+        10. DORMANT ACCOUNTS: Use `DORMANT_ACCOUNTS`.
         STRICT RULES:
         - TIME RANGES: You can query for 'this month', 'last week', etc., by passing the correct `start_date` and `end_date`.
         - NEVER Hallucinate. Trust the tool outputs 100%.";

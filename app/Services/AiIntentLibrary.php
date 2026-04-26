@@ -47,33 +47,33 @@ class AiIntentLibrary
     {
         $baseQuery = DB::table('nobs_transactions')
             ->where('comp_id', $this->compId)
-            ->where('amount', '<', 1000000)
             ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
             ->where('description', 'NOT LIKE', '%reversal%');
 
-        $totalDeposits = (float)(clone $baseQuery)->where('name_of_transaction', 'Deposit')->sum('amount');
-        $totalWithdrawals = (float)(clone $baseQuery)->where('name_of_transaction', 'Withdraw')->sum('amount');
-        $totalRepayments = (float)(clone $baseQuery)->where('name_of_transaction', 'Loan Repayment')->sum('amount');
+        $totalPoolDeposits = (float)(clone $baseQuery)->where('name_of_transaction', 'LIKE', 'Deposit%')->sum('amount');
+        $totalPoolWithdrawals = (float)(clone $baseQuery)->where('name_of_transaction', 'LIKE', 'Withdraw%')->sum('amount');
+        $totalLoanRepayments = (float)(clone $baseQuery)->where('name_of_transaction', 'LIKE', 'Loan Repayment%')->sum('amount');
         
-        $totalFees = (float)(clone $baseQuery)->where(function($q) {
+        $totalFeesCharged = (float)(clone $baseQuery)->where(function($q) {
             $q->where('name_of_transaction', 'LIKE', '%fee%')
               ->orWhere('name_of_transaction', 'LIKE', '%charge%')
-              ->orWhere('name_of_transaction', 'sms')
-              ->orWhere('name_of_transaction', 'maintenance');
+              ->orWhere('name_of_transaction', 'LIKE', '%sms%')
+              ->orWhere('name_of_transaction', 'LIKE', '%maintenance%');
         })->sum('amount');
 
-        $cashInHand = ($totalDeposits + $totalRepayments) - $totalWithdrawals;
-        $netPosition = $cashInHand - ($totalDeposits - ($totalWithdrawals + $totalFees));
+        $actualCashInHand = ($totalPoolDeposits + $totalLoanRepayments) - $totalPoolWithdrawals;
+        $totalSavingsLiability = $totalPoolDeposits - ($totalPoolWithdrawals + $totalFeesCharged);
+        $netSystemPosition = $actualCashInHand - $totalSavingsLiability;
 
         return [
             'ui_type' => 'summary_stat_card',
             'ui_metadata' => [
                 'title' => "Net System Position",
-                'value' => number_format($netPosition, 2),
+                'value' => number_format($netSystemPosition, 2),
                 'suffix' => 'GHS',
-                'details' => "Cash in Hand: " . number_format($cashInHand, 2)
+                'details' => "Cash in Pool: " . number_format($actualCashInHand, 2)
             ],
-            'caption' => "The net position is GHS " . number_format($netPosition, 2) . ". Cash in hand: GHS " . number_format($cashInHand, 2)
+            'caption' => "Your net system position is GHS " . number_format($netSystemPosition, 2) . "."
         ];
     }
 
@@ -83,13 +83,13 @@ class AiIntentLibrary
     public function getCashAndPool()
     {
         $companyCash = DB::table('company_info')->where('id', $this->compId)->value('amount_in_cash') ?? 0;
-        $poolBalance = DB::table('nobs_loans_central_account')->where('comp_id', $this->compId)->sum('balance') ?? 0;
+        $poolBalance = DB::table('central_loan_accounts')->where('comp_id', $this->compId)->sum('balance') ?? 0;
 
         return [
             'ui_type' => 'mobile_optimized_list',
             'ui_metadata' => [
-                ['Account' => 'Company Cash', 'Amount' => number_format($companyCash, 2)],
-                ['Account' => 'Loan Pool', 'Amount' => number_format($poolBalance, 2)]
+                ['Company Cash' => number_format($companyCash, 2) . ' GHS'],
+                ['Loan Pool' => number_format($poolBalance, 2) . ' GHS']
             ],
             'caption' => "Current Cash & Pool Balances:"
         ];
@@ -102,11 +102,11 @@ class AiIntentLibrary
     {
         $metricsQuery = DB::table('nobs_transactions')
             ->select(
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Deposit" THEN amount ELSE 0 END) AS deposits'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Withdraw" THEN amount ELSE 0 END) AS withdrawals'),
-                DB::raw('SUM(CASE WHEN name_of_transaction = "Loan Repayment" THEN amount ELSE 0 END) AS repayments'),
-                DB::raw('COUNT(CASE WHEN name_of_transaction = "Deposit" THEN 1 END) as deposit_count'),
-                DB::raw('COUNT(CASE WHEN name_of_transaction = "Withdraw" THEN 1 END) as withdrawal_count')
+                DB::raw('SUM(CASE WHEN name_of_transaction LIKE "Deposit%" THEN amount ELSE 0 END) AS deposits'),
+                DB::raw('SUM(CASE WHEN name_of_transaction LIKE "Withdraw%" THEN amount ELSE 0 END) AS withdrawals'),
+                DB::raw('SUM(CASE WHEN name_of_transaction LIKE "Loan Repayment%" THEN amount ELSE 0 END) AS repayments'),
+                DB::raw('COUNT(CASE WHEN name_of_transaction LIKE "Deposit%" THEN 1 END) as deposit_count'),
+                DB::raw('COUNT(CASE WHEN name_of_transaction LIKE "Withdraw%" THEN 1 END) as withdrawal_count')
             )
             ->where('comp_id', $this->compId)
             ->where('is_shown', 1);
@@ -121,17 +121,17 @@ class AiIntentLibrary
         return [
             'ui_type' => 'mobile_optimized_list',
             'ui_metadata' => [
-                ['Metric' => 'Deposits', 'Value' => number_format($metrics->deposits ?? 0, 2), 'Count' => $metrics->deposit_count ?? 0],
-                ['Metric' => 'Withdrawals', 'Value' => number_format($metrics->withdrawals ?? 0, 2), 'Count' => $metrics->withdrawal_count ?? 0],
-                ['Metric' => 'Repayments', 'Value' => number_format($metrics->repayments ?? 0, 2)],
-                ['Metric' => 'New Customers', 'Value' => $registered]
+                ['Deposits' => number_format($metrics->deposits ?? 0, 2), 'Count' => $metrics->deposit_count ?? 0],
+                ['Withdrawals' => number_format($metrics->withdrawals ?? 0, 2), 'Count' => $metrics->withdrawal_count ?? 0],
+                ['Repayments' => number_format($metrics->repayments ?? 0, 2)],
+                ['New Customers' => $registered]
             ],
             'caption' => "Activity Summary $label:"
         ];
     }
 
     /**
-     * Recent Transactions (filtered by date if provided)
+     * Recent Transactions
      */
     public function getRecentTransactions($limit = 5, $startDate = null, $endDate = null)
     {
@@ -154,7 +154,7 @@ class AiIntentLibrary
     }
 
     /**
-     * New Registrations (supports range)
+     * New Registrations
      */
     public function getRecentRegistrations($limit = 10, $startDate = null, $endDate = null)
     {
@@ -177,7 +177,7 @@ class AiIntentLibrary
     }
 
     /**
-     * Repayments Due (supports range)
+     * Repayments Due
      */
     public function getExpectedRepayments($startDate = null, $endDate = null)
     {
@@ -194,7 +194,7 @@ class AiIntentLibrary
             ->where('loan_repayment_schedules.status', '!=', 'paid');
         
         $list = $this->applyDateRange($query, $startDate, $endDate, 'loan_repayment_schedules.due_date')
-            ->limit(20) // SCALE PROTECTION
+            ->limit(20)
             ->get();
         $label = $this->getLabel($startDate, $endDate);
 
@@ -206,7 +206,7 @@ class AiIntentLibrary
     }
 
     /**
-     * Loan Disbursements (supports range)
+     * Loan Disbursements
      */
     public function getDailyDisbursements($startDate = null, $endDate = null)
     {
@@ -217,7 +217,7 @@ class AiIntentLibrary
             ->whereIn('loan_applications.status', ['active', 'disbursed']);
         
         $loans = $this->applyDateRange($query, $startDate, $endDate, 'loan_applications.updated_at')
-            ->limit(20) // SCALE PROTECTION
+            ->limit(20)
             ->get();
         $label = $this->getLabel($startDate, $endDate);
 
@@ -229,7 +229,7 @@ class AiIntentLibrary
     }
 
     /**
-     * Exact Replica: Pending Loan Requests
+     * Pending Loan Requests
      */
     public function getPendingLoans()
     {
@@ -238,7 +238,7 @@ class AiIntentLibrary
             ->select('nobs_registration.first_name', 'nobs_registration.surname', 'amount', 'loan_applications.status')
             ->where('loan_applications.comp_id', $this->compId)
             ->whereIn('loan_applications.status', ['pending', 'pending_approval'])
-            ->limit(20) // SCALE PROTECTION
+            ->limit(20)
             ->get();
 
         return [
@@ -249,19 +249,19 @@ class AiIntentLibrary
     }
 
     /**
-     * Collection Mobilization (supports range)
+     * Collection Mobilization
      */
     public function getAgentCollections($startDate = null, $endDate = null)
     {
         $query = DB::table('nobs_transactions')
             ->select('agentname', DB::raw('SUM(amount) as total_collected'), DB::raw('COUNT(*) as count'))
             ->where('comp_id', $this->compId)
-            ->where('name_of_transaction', 'Deposit')
+            ->where('name_of_transaction', 'LIKE', 'Deposit%')
             ->groupBy('users', 'agentname');
         
         $collections = $this->applyDateRange($query, $startDate, $endDate)
             ->orderBy('total_collected', 'DESC')
-            ->limit(20) // SCALE PROTECTION
+            ->limit(20)
             ->get();
         $label = $this->getLabel($startDate, $endDate);
 
@@ -303,7 +303,7 @@ class AiIntentLibrary
     }
 
     /**
-     * Exact Replica: Agent Performance
+     * Agent Performance
      */
     public function getAgentPerformance($month = null)
     {
@@ -329,7 +329,7 @@ class AiIntentLibrary
     }
 
     /**
-     * Exact Replica: Portfolio Summary
+     * Portfolio Summary
      */
     public function getPortfolioSummary()
     {
@@ -350,6 +350,9 @@ class AiIntentLibrary
         ];
     }
 
+    /**
+     * Dormant Accounts
+     */
     public function getDormantAccounts()
     {
         $dormant = DB::table('nobs_user_account_numbers')
@@ -370,7 +373,7 @@ class AiIntentLibrary
         return [
             'ui_type' => 'mobile_optimized_list',
             'ui_metadata' => $dormant,
-            'caption' => "I found " . count($dormant) . " dormant account(s) (No activity for 90+ days):"
+            'caption' => "I found " . count($dormant) . " dormant account(s):"
         ];
     }
 
@@ -386,7 +389,6 @@ class AiIntentLibrary
         $parts = explode(' ', $term);
         if (count($parts) > 1) {
             $query->where(function($q) use ($parts, $term) {
-                // All parts must match either first_name or surname
                 $q->where(function($sq) use ($parts) {
                     foreach ($parts as $p) {
                         $sq->where(function($ssq) use ($p) {
@@ -424,7 +426,7 @@ class AiIntentLibrary
 
         $query = DB::table('nobs_transactions')
             ->where('comp_id', $this->compId)
-            ->where('name_of_transaction', $transType)
+            ->where('name_of_transaction', 'LIKE', "{$transType}%")
             ->where('amount', '<', 1000000)
             ->where('name_of_transaction', 'NOT LIKE', '%reversal%');
         
@@ -442,9 +444,6 @@ class AiIntentLibrary
         ];
     }
 
-    /**
-     * Exact Replica: Account Balances by Type (from ApiUsersController)
-     */
     public function getAccountBalancesByType()
     {
         $balances = DB::table('nobs_user_account_numbers')
@@ -467,7 +466,7 @@ class AiIntentLibrary
     public function getHelpMenu($role = 'Staff', $menuType = 'main')
     {
         $role = strtolower($role);
-        $isAdmin = in_array($role, ['admin', 'owner', 'super admin', 'manager']);
+        $isAdmin = in_array($role, ['admin', 'owner', 'super admin', 'manager', 'god admin']);
 
         if ($menuType === 'liquidity') {
             $capabilities = [
@@ -541,7 +540,7 @@ class AiIntentLibrary
                 ['label' => '⬅️ Back', 'query' => 'menu loans']
             ];
             $caption = "Arrears & Risk Analytics:";
-        } elseif ($menuType === 'performance') {
+        } elseif ($menuType === 'performance' && $isAdmin) {
             $capabilities = [
                 ['label' => '🏆 Agent Ranking', 'query' => 'Top performing agents'],
                 ['label' => '🤝 Agent Mobilization', 'query' => 'Today agent collections'],
@@ -549,10 +548,20 @@ class AiIntentLibrary
                 ['label' => '⬅️ Back', 'query' => 'help']
             ];
             $caption = "Growth & Performance Intelligence:";
+        } elseif ($menuType === 'briefings' && $isAdmin) {
+            $capabilities = [
+                ['label' => '☀️ Daily Brief', 'query' => 'Get daily executive briefing'],
+                ['label' => '📅 Weekly Brief', 'query' => 'Get weekly executive briefing'],
+                ['label' => '📊 Monthly Brief', 'query' => 'Get monthly executive briefing'],
+                ['label' => '🗓️ Yearly Brief', 'query' => 'Get yearly executive briefing'],
+                ['label' => '♾️ All-Time Brief', 'query' => 'Get all-time executive briefing'],
+                ['label' => '⬅️ Back', 'query' => 'help']
+            ];
+            $caption = "Granular Executive Intelligence:";
         } else {
             // Main Menu
             $capabilities = [
-                ['label' => '⚡ AI Briefing', 'query' => 'Get executive briefing'],
+                ['label' => '⚡ AI Briefings...', 'query' => 'menu briefings'],
                 ['label' => '🏦 Liquidity', 'query' => 'menu liquidity'],
                 ['label' => '💰 Transactions', 'query' => 'menu transactions'],
                 ['label' => '👥 Customers', 'query' => 'menu customers'],

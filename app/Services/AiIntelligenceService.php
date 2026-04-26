@@ -101,11 +101,40 @@ class AiIntelligenceService
 
     /**
      * Feature 5: Executive Briefing - Strategic Boardroom View
+     * Supports granular periods: daily, weekly, monthly, yearly, alltime
      */
-    public function getExecutiveBriefing()
+    public function getExecutiveBriefing($period = 'monthly')
     {
-        $today = date('Y-m-d');
-        $monthStart = date('Y-m-01');
+        $today = Carbon::now()->endOfDay();
+        $startDate = null;
+        $label = "";
+
+        switch($period) {
+            case 'daily':
+                $startDate = Carbon::today()->startOfDay();
+                $label = "Today (" . date('d M') . ")";
+                break;
+            case 'weekly':
+                $startDate = Carbon::now()->startOfWeek();
+                $label = "This Week";
+                break;
+            case 'yearly':
+                $startDate = Carbon::now()->startOfYear();
+                $label = "This Year (" . date('Y') . ")";
+                break;
+            case 'alltime':
+                $startDate = Carbon::parse('2000-01-01'); // Beginning of time
+                $label = "All Time";
+                break;
+            case 'monthly':
+            default:
+                $startDate = Carbon::now()->startOfMonth();
+                $label = "This Month (" . date('M Y') . ")";
+                break;
+        }
+
+        $startStr = $startDate->toDateTimeString();
+        $endStr = $today->toDateTimeString();
 
         // --- 1. SYSTEM LIQUIDITY & POSITION (Improved Matching) ---
         $baseQuery = DB::table('nobs_transactions')
@@ -128,21 +157,25 @@ class AiIntelligenceService
         $totalSavingsLiability = $totalPoolDeposits - ($totalPoolWithdrawals + $totalFeesCharged);
         $netSystemPosition = $actualCashInHand - $totalSavingsLiability;
 
-        // --- MTD PERFORMANCE ---
-        $monthlyDeposits = DB::table('nobs_transactions')->where('comp_id', $this->compId)->where('name_of_transaction', 'LIKE', 'Deposit%')->where('created_at', '>=', $monthStart)->sum('amount');
-        $monthlyWithdrawals = DB::table('nobs_transactions')->where('comp_id', $this->compId)->where('name_of_transaction', 'LIKE', 'Withdraw%')->where('created_at', '>=', $monthStart)->sum('amount');
-        $monthlyRepayments = DB::table('nobs_transactions')->where('comp_id', $this->compId)->where('name_of_transaction', 'LIKE', 'Loan Repayment%')->where('created_at', '>=', $monthStart)->sum('amount');
+        // --- 2. PERIOD PERFORMANCE ---
+        $periodDeposits = (float)(clone $baseQuery)->where('name_of_transaction', 'LIKE', 'Deposit%')->whereBetween('created_at', [$startStr, $endStr])->sum('amount');
+        $periodWithdrawals = (float)(clone $baseQuery)->where('name_of_transaction', 'LIKE', 'Withdraw%')->whereBetween('created_at', [$startStr, $endStr])->sum('amount');
+        $periodRepayments = (float)(clone $baseQuery)->where('name_of_transaction', 'LIKE', 'Loan Repayment%')->whereBetween('created_at', [$startStr, $endStr])->sum('amount');
         
-        $monthlyDisbursed = DB::table('loan_applications')
+        $periodDisbursed = (float)DB::table('loan_applications')
             ->where('comp_id', $this->compId)
             ->whereIn('status', ['active', 'disbursed', 'repaid'])
-            ->where('updated_at', '>=', $monthStart)
+            ->whereBetween('updated_at', [$startStr, $endStr])
             ->sum('amount');
 
-        // --- RISK ---
+        // --- 3. TOTAL PORTFOLIO & CUSTOMERS ---
+        $totalCustomers = DB::table('nobs_registration')->where('comp_id', $this->compId)->count();
+        $totalPortfolioValue = DB::table('loan_applications')->where('comp_id', $this->compId)->whereIn('status', ['active', 'disbursed'])->sum('amount');
+
+        // --- 4. RISK ---
         $arrears = DB::table('loan_repayment_schedules')
             ->where('comp_id', $this->compId)
-            ->where('due_date', '<', $today)
+            ->where('due_date', '<', date('Y-m-d'))
             ->where('status', '!=', 'paid')
             ->select(
                 DB::raw("COUNT(*) as count"),
@@ -152,16 +185,21 @@ class AiIntelligenceService
         $dormantCount = DB::table('nobs_user_account_numbers')->where('comp_id', $this->compId)->where('account_status', 'dormant')->count();
 
         $fullSystemData = [
+            'period_label' => $label,
             'liquidity' => [
                 'net_system_position' => $netSystemPosition,
                 'actual_cash_on_hand' => $actualCashInHand,
                 'savings_liability' => $totalSavingsLiability
             ],
-            'performance_mtd' => [
-                'deposits' => $monthlyDeposits,
-                'withdrawals' => $monthlyWithdrawals,
-                'repayments' => $monthlyRepayments,
-                'disbursed' => $monthlyDisbursed
+            'period_activity' => [
+                'deposits' => $periodDeposits,
+                'withdrawals' => $periodWithdrawals,
+                'repayments' => $periodRepayments,
+                'disbursed' => $periodDisbursed
+            ],
+            'portfolio' => [
+                'total_customers' => $totalCustomers,
+                'portfolio_value' => $totalPortfolioValue
             ],
             'risk' => [
                 'unpaid_balance' => $arrears->total_amount,
@@ -170,33 +208,34 @@ class AiIntelligenceService
             ]
         ];
 
-        $prompt = "Act as a CFO. Analyze this data: " . json_encode($fullSystemData) . ". 
-        1. Compare Net Position vs Arrears. 2. Comment on monthly cash flow.
+        $prompt = "Act as a CFO. Analyze this bank data: " . json_encode($fullSystemData) . ". 
+        Analyze the period $label. Compare performance and risk.
         MANDATORY: Return a JSON object with: 
         'strategy': 3-sentence executive advice.
         'caption': A warm conversational intro. No markdown.";
 
         $brief = $this->callGeminiBasic($prompt);
-        $strategyText = $brief['strategy'] ?? ($brief['content'] ?? 'Strategic review based on monthly cash flow.');
-        $caption = $brief['caption'] ?? 'Executive Financial Intelligence Briefing:';
+        $strategyText = $brief['strategy'] ?? ($brief['content'] ?? 'Strategic review pending data synchronization.');
+        $caption = $brief['caption'] ?? "Executive Financial Intelligence Briefing for $label:";
 
         $metadata = [
             ['Net System Position' => number_format($netSystemPosition, 2) . ' GHS'],
             ['Actual Cash Pool' => number_format($actualCashInHand, 2) . ' GHS'],
-            ['Monthly Deposits' => number_format($monthlyDeposits, 2) . ' GHS'],
-            ['Monthly Withdrawals' => number_format($monthlyWithdrawals, 2) . ' GHS'],
-            ['Monthly Repayments' => number_format($monthlyRepayments, 2) . ' GHS'],
-            ['MTD Disbursed' => number_format($monthlyDisbursed, 2) . ' GHS'],
+            ['Total Customers' => (int)$totalCustomers],
+            ['Portfolio Value' => number_format($totalPortfolioValue, 2) . ' GHS'],
+            ["Deposits ($period)" => number_format($periodDeposits, 2) . ' GHS'],
+            ["Withdrawals ($period)" => number_format($periodWithdrawals, 2) . ' GHS'],
+            ["Disbursed ($period)" => number_format($periodDisbursed, 2) . ' GHS'],
             ['Unpaid Loans' => number_format($arrears->total_amount, 2) . ' GHS'],
             ['Dormant Accounts' => (int)$dormantCount],
             ['Strategic Review' => $strategyText]
         ];
 
-        // Keep core liquidity always, filter other zeros
+        // Keep core liquidity and customers always, filter other zeros
         $filteredMetadata = array_values(array_filter($metadata, function($item) {
             $key = array_keys($item)[0];
             $val = array_values($item)[0];
-            if ($key === 'Net System Position' || $key === 'Actual Cash Pool') return true;
+            if ($key === 'Net System Position' || $key === 'Actual Cash Pool' || $key === 'Total Customers') return true;
             return !($val === '0.00 GHS' || $val === 0 || $val === '0' || empty($val));
         }));
 
@@ -214,7 +253,7 @@ class AiIntelligenceService
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$this->model}:generateContent?key={$this->apiKey}";
         $payload = [
             'contents' => [['parts' => [['text' => $prompt]]]],
-            'generationConfig' => ['temperature' => 0.7, 'topP' => 0.95, 'maxOutputTokens' => 300]
+            'generationConfig' => ['temperature' => 0.7, 'topP' => 0.95, 'maxOutputTokens' => 400]
         ];
 
         try {
@@ -228,7 +267,6 @@ class AiIntelligenceService
             $json = $response->json();
             $text = $json['candidates'][0]['content']['parts'][0]['text'] ?? '';
             
-            // Clean markdown and isolate JSON
             $cleanText = preg_replace('/^```json\s*|```\s*$/m', '', trim($text));
             $firstBrace = strpos($cleanText, '{');
             $lastBrace = strrpos($cleanText, '}');
