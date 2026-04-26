@@ -2634,19 +2634,15 @@ class ApiUsersController extends Controller
     
                         if ($transaction->save()) {
     
-                            $account                       = new UserAccountNumbers();
-                            $accountnumberbalance =  $totalbalance + $request->customerdeposit;
-    
-                            $account::where('account_number', $request->accountnumber)
+                            UserAccountNumbers::where('account_number', $request->accountnumber)
                                 ->where('comp_id', \Auth::user()->comp_id)
                                 ->update([
-                                    'balance' => $accountnumberbalance,
-                                    'last_transaction_date' => now() // Update last activity date
+                                    'balance' => $totalbalance,
+                                    'last_transaction_date' => now() // DORMANCY INTEGRITY
                                 ]);      
     
                             $susucycle  = new SusuCycles;
-    
-                            $susucycle::where('account_number', $request->accountnumber)->where('comp_id', \Auth::user()->comp_id)->update(['balance' => $accountnumberbalance, 'total_paid' => $accountnumberbalance]);
+                            $susucycle::where('account_number', $request->accountnumber)->where('comp_id', \Auth::user()->comp_id)->update(['balance' => $totalbalance, 'total_paid' => $totalbalance]);
                         $company_name = Companyinfo::where('id', \Auth::user()->comp_id)->value('name');
                         $company_phone = Companyinfo::where('id', \Auth::user()->comp_id)->value('phone');
 
