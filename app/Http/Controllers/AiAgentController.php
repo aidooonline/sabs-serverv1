@@ -358,6 +358,9 @@ class AiAgentController extends Controller
     private function handleToolCalls($session, $toolCalls, $userContext = null)
     {
         $results = []; $rawData = null; $uiType = 'text';
+        $user = auth('api')->user();
+        $role = strtolower($user->type_name ?? $user->type ?? 'Staff');
+        $isAdmin = in_array($role, ['admin', 'manager', 'owner', 'super admin', 'god admin']);
 
         foreach ($toolCalls as $call) {
             $func = $call['functionCall'];
@@ -383,7 +386,7 @@ class AiAgentController extends Controller
                     elseif ($intent === 'BANK_LIQUIDITY') $output = $this->intentLibrary->getSystemLiquidity();
                     elseif ($intent === 'AGENT_RANKING') $output = $this->intentLibrary->getAgentPerformance($month);
                     elseif ($intent === 'PORTFOLIO_HEALTH') $output = $this->intentLibrary->getPortfolioSummary();
-                    elseif ($intent === 'HELP_MENU') $output = $this->intentLibrary->getHelpMenu($userContext['user']['type_name'] ?? 'Staff', $menu);
+                    elseif ($intent === 'HELP_MENU') $output = $this->intentLibrary->getHelpMenu($role, $menu);
                     elseif ($intent === 'ACCOUNT_BALANCES') $output = $this->intentLibrary->getAccountBalancesByType();
                     elseif ($intent === 'CASH_POOL_BALANCE') $output = $this->intentLibrary->getCashAndPool();
                     elseif ($intent === 'DAILY_SUMMARY') $output = $this->intentLibrary->getDailySummary($startDate, $endDate);
@@ -396,7 +399,7 @@ class AiAgentController extends Controller
                     elseif ($intent === 'AGENT_COLLECTIONS') $output = $this->intentLibrary->getAgentCollections($startDate, $endDate);
                     elseif ($intent === 'EXECUTIVE_BRIEFING') $output = $this->intelligenceService->getExecutiveBriefing($period);
                     elseif ($intent === 'DORMANT_ACCOUNTS') {
-                        if (in_array(strtolower($userContext['user']['type_name'] ?? ''), ['admin', 'manager', 'owner', 'super admin', 'god admin'])) {
+                        if ($isAdmin) {
                             $output = $this->intentLibrary->getDormantAccounts();
                         } else {
                             $output = ['ui_type' => 'text', 'ui_metadata' => [], 'caption' => 'Unauthorized: Management only.'];
