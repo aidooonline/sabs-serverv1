@@ -13,25 +13,27 @@ class SystemCronService
      */
     public function updateDormancyStatus()
     {
-        $cutoffDate = Carbon::now()->subDays(90);
-        $count = 0;
+        $cutoffDate = Carbon::now()->subDays(90)->toDateTimeString();
 
         try {
-            // Find accounts that are currently active but their last transaction was before the cutoff
-            $accountsToUpdate = DB::table('nobs_user_account_numbers')
+            // 1. Bulk Update accounts with old transactions (Much faster than loops)
+            $count1 = DB::table('nobs_user_account_numbers')
                 ->where('account_status', 'active')
+                ->whereNotNull('last_transaction_date')
                 ->where('last_transaction_date', '<', $cutoffDate)
-                ->get();
-            
-            foreach ($accountsToUpdate as $account) {
-                DB::table('nobs_user_account_numbers')
-                    ->where('id', $account->id)
-                    ->update(['account_status' => 'dormant']);
-                $count++;
-            }
+                ->update(['account_status' => 'dormant', 'updated_at' => now()]);
 
-            Log::info("Dormancy Check: Flagged $count accounts as dormant.");
-            return $count;
+            // 2. Bulk Update NEW accounts with NO transactions that are older than 90 days
+            $count2 = DB::table('nobs_user_account_numbers')
+                ->where('account_status', 'active')
+                ->whereNull('last_transaction_date')
+                ->where('created_at', '<', $cutoffDate)
+                ->update(['account_status' => 'dormant', 'updated_at' => now()]);
+
+            $total = $count1 + $count2;
+
+            Log::info("Dormancy Check: Flagged $total accounts as dormant ($count1 with old activity, $count2 never active).");
+            return $total;
 
         } catch (\Exception $e) {
             Log::error("Dormancy Check Failed: " . $e->getMessage());
