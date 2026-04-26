@@ -105,13 +105,13 @@ class AiIntelligenceService
      */
     public function getExecutiveBriefing($period = 'monthly')
     {
-        $today = Carbon::now()->endOfDay();
+        $today = Carbon::now();
         $startDate = null;
         $label = "";
 
         switch($period) {
             case 'daily':
-                $startDate = Carbon::today()->startOfDay();
+                $startDate = Carbon::today();
                 $label = "Today (" . date('d M') . ")";
                 break;
             case 'weekly':
@@ -123,7 +123,7 @@ class AiIntelligenceService
                 $label = "This Year (" . date('Y') . ")";
                 break;
             case 'alltime':
-                $startDate = Carbon::parse('2000-01-01'); // Beginning of time
+                $startDate = Carbon::parse('2000-01-01');
                 $label = "All Time";
                 break;
             case 'monthly':
@@ -133,117 +133,88 @@ class AiIntelligenceService
                 break;
         }
 
-        $startStr = $startDate->toDateTimeString();
-        $endStr = $today->toDateTimeString();
-
-        // --- 1. SYSTEM LIQUIDITY & POSITION (Improved Matching) ---
+        // --- 1. SYSTEM LIQUIDITY & POSITION (Verified Official Filters) ---
         $baseQuery = DB::table('nobs_transactions')
             ->where('comp_id', $this->compId)
-            // Removed amount limit to ensure all large transactions are captured
-            ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
-            ->where('description', 'NOT LIKE', '%reversal%');
+            ->where('is_shown', 1)
+            ->where('row_version', 2);
 
-        $totalPoolDeposits = (float)(clone $baseQuery)->where('name_of_transaction', 'LIKE', 'Deposit%')->sum('amount');
-        $totalPoolWithdrawals = (float)(clone $baseQuery)->where('name_of_transaction', 'LIKE', 'Withdraw%')->sum('amount');
-        $totalLoanRepayments = (float)(clone $baseQuery)->where('name_of_transaction', 'LIKE', 'Loan Repayment%')->sum('amount');
+        $totalPoolDeposits = (float)(clone $baseQuery)->where('name_of_transaction', 'Deposit')->sum('amount');
+        $totalPoolWithdrawals = (float)(clone $baseQuery)->where('name_of_transaction', 'Withdraw')->sum('amount');
+        $totalLoanRepayments = (float)(clone $baseQuery)->where('name_of_transaction', 'Loan Repayment')->sum('amount');
+        $totalRefunds = (float)(clone $baseQuery)->where('name_of_transaction', 'Refund')->sum('amount');
+        $totalAgentCommissions = (float)(clone $baseQuery)->where('name_of_transaction', 'Agent Commission')->sum('amount');
+        $totalSystemCommissions = (float)(clone $baseQuery)->where('name_of_transaction', 'Commission')->sum('amount');
         
         $totalFeesCharged = (float)(clone $baseQuery)->where(function($q) {
             $q->where('name_of_transaction', 'LIKE', '%fee%')
               ->orWhere('name_of_transaction', 'LIKE', '%charge%')
-              ->orWhere('name_of_transaction', 'LIKE', '%sms%')
-              ->orWhere('name_of_transaction', 'LIKE', '%maintenance%');
+              ->orWhere('name_of_transaction', 'sms')
+              ->orWhere('name_of_transaction', 'maintenance');
         })->sum('amount');
 
-        // Verified Formulas
-        $actualCashInHand = ($totalPoolDeposits + $totalLoanRepayments) - $totalPoolWithdrawals;
-        $totalSavingsLiability = $totalPoolDeposits - ($totalPoolWithdrawals + $totalFeesCharged);
+        // OFFICIAL BALANCE FORMULA
+        $actualCashInHand = $totalPoolDeposits - $totalPoolWithdrawals - $totalRefunds - $totalAgentCommissions - $totalSystemCommissions + $totalLoanRepayments;
+        $totalSavingsLiability = $totalPoolDeposits - ($totalPoolWithdrawals + $totalRefunds + $totalFeesCharged);
         $netSystemPosition = $actualCashInHand - $totalSavingsLiability;
 
         // --- 2. PERIOD PERFORMANCE ---
-        $periodDeposits = (float)(clone $baseQuery)->where('name_of_transaction', 'LIKE', 'Deposit%')->whereBetween('created_at', [$startStr, $endStr])->sum('amount');
-        $periodWithdrawals = (float)(clone $baseQuery)->where('name_of_transaction', 'LIKE', 'Withdraw%')->whereBetween('created_at', [$startStr, $endStr])->sum('amount');
-        $periodRepayments = (float)(clone $baseQuery)->where('name_of_transaction', 'LIKE', 'Loan Repayment%')->whereBetween('created_at', [$startStr, $endStr])->sum('amount');
+        $periodQuery = (clone $baseQuery)->whereBetween('created_at', [$startDate, $today]);
+        
+        $periodDeposits = (float)(clone $periodQuery)->where('name_of_transaction', 'Deposit')->sum('amount');
+        $periodWithdrawals = (float)(clone $periodQuery)->where('name_of_transaction', 'Withdraw')->sum('amount');
+        $periodRepayments = (float)(clone $periodQuery)->where('name_of_transaction', 'Loan Repayment')->sum('amount');
         
         $periodDisbursed = (float)DB::table('loan_applications')
             ->where('comp_id', $this->compId)
             ->whereIn('status', ['active', 'disbursed', 'repaid'])
-            ->whereBetween('updated_at', [$startStr, $endStr])
+            ->whereBetween('updated_at', [$startDate, $today])
             ->sum('amount');
 
-        // --- 3. TOTAL PORTFOLIO & CUSTOMERS ---
         $totalCustomers = DB::table('nobs_registration')->where('comp_id', $this->compId)->count();
         $totalPortfolioValue = DB::table('loan_applications')->where('comp_id', $this->compId)->whereIn('status', ['active', 'disbursed'])->sum('amount');
 
-        // --- 4. RISK ---
-        $arrears = DB::table('loan_repayment_schedules')
-            ->where('comp_id', $this->compId)
-            ->where('due_date', '<', date('Y-m-d'))
-            ->where('status', '!=', 'paid')
-            ->select(
-                DB::raw("COUNT(*) as count"),
-                DB::raw("SUM(principal_due + interest_due + fees_due - (principal_paid + interest_paid + fees_paid)) as total_amount")
-            )->first();
-
-        $dormantCount = DB::table('nobs_user_account_numbers')->where('comp_id', $this->compId)->where('account_status', 'dormant')->count();
-
         $fullSystemData = [
             'period_label' => $label,
-            'liquidity' => [
-                'net_system_position' => $netSystemPosition,
-                'actual_cash_on_hand' => $actualCashInHand,
-                'savings_liability' => $totalSavingsLiability
-            ],
-            'period_activity' => [
-                'deposits' => $periodDeposits,
-                'withdrawals' => $periodWithdrawals,
-                'repayments' => $periodRepayments,
-                'disbursed' => $periodDisbursed
-            ],
-            'portfolio' => [
+            'summary' => [
+                'cash_at_hand' => $actualCashInHand,
+                'net_position' => $netSystemPosition,
+                'period_deposits' => $periodDeposits,
+                'period_withdrawals' => $periodWithdrawals,
+                'period_repayments' => $periodRepayments,
+                'period_disbursements' => $periodDisbursed,
                 'total_customers' => $totalCustomers,
                 'portfolio_value' => $totalPortfolioValue
-            ],
-            'risk' => [
-                'unpaid_balance' => $arrears->total_amount,
-                'unpaid_cases' => $arrears->count,
-                'dormant_accounts' => $dormantCount
             ]
         ];
 
-        $prompt = "Act as a CFO. Analyze this bank data: " . json_encode($fullSystemData) . ". 
-        Analyze the period $label. Compare performance and risk.
-        MANDATORY: Return a JSON object with: 
-        'strategy': 3-sentence executive advice.
-        'caption': A warm conversational intro. No markdown.";
+        // MANDATORY: FULL DESCRIPTIVE PROMPT
+        $prompt = "Act as the Chief Financial Officer. Summarize this bank performance for $label.
+        DATA: " . json_encode($fullSystemData['summary']) . ".
+        TASK:
+        1. Write a 3-sentence conversational 'caption' summarizing key metrics.
+        2. Write a 3-sentence 'strategy' key providing executive advice.
+        Return JSON object with keys 'caption' and 'strategy'. No markdown.";
 
         $brief = $this->callGeminiBasic($prompt);
-        $strategyText = $brief['strategy'] ?? ($brief['content'] ?? 'Strategic review pending data synchronization.');
+        $strategyText = $brief['strategy'] ?? 'Strategic review pending data synchronization.';
         $caption = $brief['caption'] ?? "Executive Financial Intelligence Briefing for $label:";
 
         $metadata = [
+            ['Cash at Hand' => number_format($actualCashInHand, 2) . ' GHS'],
             ['Net System Position' => number_format($netSystemPosition, 2) . ' GHS'],
-            ['Actual Cash Pool' => number_format($actualCashInHand, 2) . ' GHS'],
             ['Total Customers' => (int)$totalCustomers],
             ['Portfolio Value' => number_format($totalPortfolioValue, 2) . ' GHS'],
             ["Deposits ($period)" => number_format($periodDeposits, 2) . ' GHS'],
             ["Withdrawals ($period)" => number_format($periodWithdrawals, 2) . ' GHS'],
+            ["Repayments ($period)" => number_format($periodRepayments, 2) . ' GHS'],
             ["Disbursed ($period)" => number_format($periodDisbursed, 2) . ' GHS'],
-            ['Unpaid Loans' => number_format($arrears->total_amount, 2) . ' GHS'],
-            ['Dormant Accounts' => (int)$dormantCount],
             ['Strategic Review' => $strategyText]
         ];
 
-        // Keep core liquidity and customers always, filter other zeros
-        $filteredMetadata = array_values(array_filter($metadata, function($item) {
-            $key = array_keys($item)[0];
-            $val = array_values($item)[0];
-            if ($key === 'Net System Position' || $key === 'Actual Cash Pool' || $key === 'Total Customers') return true;
-            return !($val === '0.00 GHS' || $val === 0 || $val === '0' || empty($val));
-        }));
-
         return [
             'ui_type' => 'mobile_optimized_list',
-            'ui_metadata' => $filteredMetadata,
+            'ui_metadata' => $metadata,
             'caption' => $caption
         ];
     }
@@ -255,7 +226,7 @@ class AiIntelligenceService
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$this->model}:generateContent?key={$this->apiKey}";
         $payload = [
             'contents' => [['parts' => [['text' => $prompt]]]],
-            'generationConfig' => ['temperature' => 0.7, 'topP' => 0.95, 'maxOutputTokens' => 400]
+            'generationConfig' => ['temperature' => 0.7, 'topP' => 0.95, 'maxOutputTokens' => 600]
         ];
 
         try {

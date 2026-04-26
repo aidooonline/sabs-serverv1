@@ -65,17 +65,20 @@ class AiAgentController extends Controller
             // Process with Gemini using the "Verified Toolset"
             $result = $this->processWithGemini($session, $prompt, $model, $apiKey, $compId, $userContext);
 
-            // ENFORCE CONVERSATIONAL TEXT: If Gemini provided no text, use the library's caption
+            // ENFORCE CONVERSATIONAL TEXT
             $finalText = $result['response']['candidates'][0]['content']['parts'][0]['text'] ?? '';
-            if (empty(trim($finalText)) && isset($result['ui_metadata']['caption'])) {
-                $finalText = $result['ui_metadata']['caption'];
+            // If model response is empty or generic, use the tool's caption
+            if (empty(trim($finalText)) || strlen($finalText) < 10) {
+                if (isset($result['response']['caption'])) {
+                     $finalText = $result['response']['caption'];
+                }
             }
 
             return response()->json([
                 'success' => true,
                 'session_id' => $session->id,
                 'response' => $result['response'],
-                'final_text' => $finalText, // Explicitly pass the resolved text
+                'final_text' => $finalText,
                 'ui_type' => $result['ui_type'],
                 'ui_metadata' => $result['ui_metadata']
             ]);
