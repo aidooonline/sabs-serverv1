@@ -3657,13 +3657,19 @@ class ApiUsersController extends Controller
     {
         // Check user type for permission
         if ($this->isManagement() || \Auth::user()->type == 'Agents' || \Auth::user()->type == 'Agent' || \Auth::user()->hasRole('Agent')) {
-            // Retrieve existing JSON data as an array
-            $usertransactions = AccountsTransactions::select('id', 'account_number', 'amount', 'name_of_transaction', 'balance', 'created_at', 'transaction_id','agentname')
+            
+            $query = AccountsTransactions::select('id', 'account_number', 'amount', 'name_of_transaction', 'balance', 'created_at', 'transaction_id','agentname')
                 ->where('account_number', $request->accountnumber)
                 ->where('comp_id', \Auth::user()->comp_id)
-                ->whereIn('name_of_transaction', ['Deposit', 'Withdraw', 'Commission']) // Select transactions where name_of_transaction is either "Deposit" or "Withdraw"
-                ->orderBy('id', 'desc') // Order by 'id' in descending order (assuming 'id' represents the transaction's chronological order)
-                ->take(10) // Limit the result to the last 50 transactions
+                ->whereIn('name_of_transaction', ['Deposit', 'Withdraw', 'Commission', 'Refund', 'Loan Repayment']);
+
+            // OPTIONAL: Filter by specific account type if provided (e.g. from Dormant List)
+            if ($request->has('account_type')) {
+                $query->where('det_rep_name_of_transaction', $request->account_type);
+            }
+
+            $usertransactions = $query->orderBy('id', 'desc') 
+                ->take(20) 
                 ->get()
                 ->toArray();
 

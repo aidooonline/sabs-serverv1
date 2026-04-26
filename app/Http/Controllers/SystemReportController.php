@@ -292,15 +292,22 @@ class SystemReportController extends Controller
             $query = DB::table('nobs_user_account_numbers')
                 ->leftJoin('nobs_registration', 'nobs_user_account_numbers.account_number', '=', 'nobs_registration.account_number')
                 ->select(
+                    'nobs_user_account_numbers.id', // UNIQUE ROW ID
                     DB::raw("COALESCE(nobs_registration.first_name, 'Unknown') as first_name"),
                     DB::raw("COALESCE(nobs_registration.surname, 'Customer') as surname"),
                     'nobs_registration.phone_number',
                     'nobs_user_account_numbers.account_number',
                     'nobs_user_account_numbers.account_type',
-                    'nobs_user_account_numbers.balance',
-                    // Use last_transaction_date if exists, otherwise fallback to account creation
+                    // CALCULATE BALANCE FROM TRANSACTIONS (Legacy Logic for Accuracy)
+                    DB::raw("(SELECT COALESCE(SUM(CASE WHEN name_of_transaction LIKE 'Deposit%' OR name_of_transaction = 'Loan Repayment' THEN amount 
+                                     WHEN name_of_transaction LIKE 'Withdraw%' OR name_of_transaction = 'Refund' OR name_of_transaction LIKE 'Commission%' THEN -amount 
+                                     ELSE 0 END), 0) 
+                              FROM nobs_transactions 
+                              WHERE account_number = nobs_user_account_numbers.account_number 
+                              AND det_rep_name_of_transaction = nobs_user_account_numbers.account_type
+                              AND comp_id = $compId AND is_shown = 1 AND row_version = 2) as recalculated_balance"),
+                    'nobs_user_account_numbers.balance as stored_balance',
                     DB::raw("COALESCE(nobs_user_account_numbers.last_transaction_date, nobs_user_account_numbers.created_at) as last_active_date"),
-                    // Fast SQL math for days inactive
                     DB::raw("DATEDIFF(NOW(), COALESCE(nobs_user_account_numbers.last_transaction_date, nobs_user_account_numbers.created_at)) as days_inactive")
                 )
                 ->where('nobs_user_account_numbers.comp_id', $compId)
