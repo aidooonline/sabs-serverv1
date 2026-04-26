@@ -289,36 +289,42 @@ class SystemReportController extends Controller
             $userId = auth()->id();
 
             // Fetch from the account status table directly with server-side math
-            $query = DB::table('nobs_user_account_numbers')
-                ->leftJoin('nobs_registration', 'nobs_user_account_numbers.account_number', '=', 'nobs_registration.account_number')
+            // Dual-Join Fallback: Match on primary_account_number OR specific account_number
+            // We Group By ua.id to ensure each account appears exactly once
+            $query = DB::table('nobs_user_account_numbers as ua')
+                ->leftJoin('nobs_registration as reg', function($join) {
+                    $join->on(DB::raw('TRIM(ua.primary_account_number)'), '=', DB::raw('TRIM(reg.account_number)'))
+                         ->orOn(DB::raw('TRIM(ua.account_number)'), '=', DB::raw('TRIM(reg.account_number)'));
+                })
                 ->select(
-                    'nobs_user_account_numbers.id', // UNIQUE ROW ID
-                    DB::raw("COALESCE(nobs_registration.first_name, 'Unknown') as first_name"),
-                    DB::raw("COALESCE(nobs_registration.surname, 'Customer') as surname"),
-                    'nobs_registration.phone_number',
-                    'nobs_user_account_numbers.account_number',
-                    'nobs_user_account_numbers.account_type',
+                    'ua.id', // UNIQUE ROW ID
+                    DB::raw("MAX(COALESCE(reg.first_name, 'Unknown')) as first_name"),
+                    DB::raw("MAX(COALESCE(reg.surname, 'Customer')) as surname"),
+                    DB::raw("MAX(reg.phone_number) as phone_number"),
+                    'ua.account_number',
+                    'ua.account_type',
                     // CALCULATE BALANCE FROM TRANSACTIONS (Legacy Logic for Accuracy)
                     DB::raw("(SELECT COALESCE(SUM(CASE WHEN name_of_transaction LIKE 'Deposit%' OR name_of_transaction = 'Loan Repayment' THEN amount 
                                      WHEN name_of_transaction LIKE 'Withdraw%' OR name_of_transaction = 'Refund' OR name_of_transaction LIKE 'Commission%' THEN -amount 
                                      ELSE 0 END), 0) 
                               FROM nobs_transactions 
-                              WHERE account_number = nobs_user_account_numbers.account_number 
-                              AND det_rep_name_of_transaction = nobs_user_account_numbers.account_type
+                              WHERE account_number = ua.account_number 
+                              AND det_rep_name_of_transaction = ua.account_type
                               AND comp_id = $compId AND is_shown = 1 AND row_version = 2) as recalculated_balance"),
-                    'nobs_user_account_numbers.balance as stored_balance',
-                    DB::raw("COALESCE(nobs_user_account_numbers.last_transaction_date, nobs_user_account_numbers.created_at) as last_active_date"),
-                    DB::raw("DATEDIFF(NOW(), COALESCE(nobs_user_account_numbers.last_transaction_date, nobs_user_account_numbers.created_at)) as days_inactive")
+                    'ua.balance as stored_balance',
+                    DB::raw("COALESCE(ua.last_transaction_date, ua.created_at) as last_active_date"),
+                    DB::raw("DATEDIFF(NOW(), COALESCE(ua.last_transaction_date, ua.created_at)) as days_inactive")
                 )
-                ->where('nobs_user_account_numbers.comp_id', $compId)
-                ->where('nobs_user_account_numbers.account_status', 'dormant');
+                ->where('ua.comp_id', $compId)
+                ->where('ua.account_status', 'dormant')
+                ->groupBy('ua.id', 'ua.account_number', 'ua.account_type', 'ua.balance', 'ua.last_transaction_date', 'ua.created_at');
 
             if ($isAgent) {
-                $query->where('nobs_registration.user', $userId);
+                $query->where('reg.user', $userId);
             }
 
-            $list = $query->orderBy('nobs_user_account_numbers.last_transaction_date', 'DESC')
-                          ->orderBy('nobs_user_account_numbers.created_at', 'DESC')
+            $list = $query->orderBy('ua.last_transaction_date', 'DESC')
+                          ->orderBy('ua.created_at', 'DESC')
                           ->get();
 
             return response()->json(['success' => true, 'data' => $list]);
