@@ -451,20 +451,35 @@ class SchedulerController extends Controller
             }
         }
 
-        // Execute Services
-        $loanResult = $this->loanCronService->runDailyProcess($companyId);
-        $dormancyCount = $this->systemCronService->updateDormancyStatus();
-
-        if ($loanResult['success']) {
-            // Update last run date
-            $company->loan_cron_last_run = now();
-            $company->save();
-
-            // Add dormancy count to log
-            $loanResult['log']['dormant_accounts_flagged'] = $dormancyCount;
+        $log = [];
+        
+        // 1. Run Loan Process (Safe Mode)
+        try {
+            $loanResult = $this->loanCronService->runDailyProcess($companyId);
+            $log['loan_process'] = $loanResult['message'];
+        } catch (\Exception $e) {
+            Log::error("Loan Process Failed: " . $e->getMessage());
+            $log['loan_process'] = "Failed: " . $e->getMessage();
         }
 
-        return response()->json($loanResult);
+        // 2. Run Dormancy Check (Safe Mode)
+        try {
+            $dormancyCount = $this->systemCronService->updateDormancyStatus();
+            $log['dormancy_flagged'] = $dormancyCount;
+        } catch (\Exception $e) {
+            Log::error("Dormancy Process Failed: " . $e->getMessage());
+            $log['dormancy_flagged'] = "Failed: " . $e->getMessage();
+        }
+
+        // Update last run date
+        $company->loan_cron_last_run = now();
+        $company->save();
+
+        return response()->json([
+            'success' => true, 
+            'message' => 'Process finished in Safe Mode.',
+            'log' => $log
+        ]);
     }
     
     /**

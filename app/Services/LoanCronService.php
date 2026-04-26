@@ -114,13 +114,13 @@ class LoanCronService
                 $loan->status = 'defaulted';
                 $loan->save();
 
-                // Log it
+                // Log it (Fixed columns to match schema)
                 LoanDefaultLog::create([
+                    'comp_id' => $companyId,
                     'loan_application_id' => $loan->id,
                     'action_type' => 'auto_default',
-                    'action_date' => now(),
-                    'notes' => "System marked as defaulted. Overdue schedules: $overdueSchedules",
-                    'user_id' => 1 // System user ID (or Owner)
+                    'description' => "System marked as defaulted. Overdue schedules: $overdueSchedules",
+                    'created_by' => 1 // System user
                 ]);
 
                 $count++;
@@ -160,8 +160,8 @@ class LoanCronService
                 $companyInfo = CompanyInfo::find($companyId);
                 if ($companyInfo && $companyInfo->sms_active && $companyInfo->sms_credit > 0) {
                     $res = $smsController->sendFrogMessage(
-                        'NYB', // Username (hardcoded in original controller? Ideally config)
-                        'Populaire123^', // Pass (hardcoded in original)
+                        $companyInfo->sms_username,
+                        $companyInfo->sms_password,
                         $companyInfo->sms_sender_id,
                         $msg,
                         $customer->phone_number

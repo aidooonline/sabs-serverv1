@@ -350,16 +350,13 @@ class AiIntentLibrary
         ];
     }
 
-    /**
-     * Exact Replica: Dormant Accounts (No activity for 90+ days)
-     */
     public function getDormantAccounts()
     {
         $dormant = DB::table('nobs_user_account_numbers')
-            ->join('nobs_registration', 'nobs_user_account_numbers.account_number', '=', 'nobs_registration.account_number')
+            ->leftJoin('nobs_registration', 'nobs_user_account_numbers.account_number', '=', 'nobs_registration.account_number')
             ->select(
-                'nobs_registration.first_name',
-                'nobs_registration.surname',
+                DB::raw("COALESCE(nobs_registration.first_name, 'Unknown') as first_name"),
+                DB::raw("COALESCE(nobs_registration.surname, 'Customer') as surname"),
                 'nobs_user_account_numbers.account_number',
                 'nobs_user_account_numbers.account_type',
                 'nobs_user_account_numbers.balance',
