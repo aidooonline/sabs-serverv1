@@ -288,7 +288,7 @@ class SystemReportController extends Controller
             $isAgent = $this->isAgentOnly();
             $userId = auth()->id();
 
-            // Fetch from the account status table directly
+            // Fetch from the account status table directly with server-side math
             $query = DB::table('nobs_user_account_numbers')
                 ->leftJoin('nobs_registration', 'nobs_user_account_numbers.account_number', '=', 'nobs_registration.account_number')
                 ->select(
@@ -298,7 +298,10 @@ class SystemReportController extends Controller
                     'nobs_user_account_numbers.account_number',
                     'nobs_user_account_numbers.account_type',
                     'nobs_user_account_numbers.balance',
-                    'nobs_user_account_numbers.last_transaction_date'
+                    // Use last_transaction_date if exists, otherwise fallback to account creation
+                    DB::raw("COALESCE(nobs_user_account_numbers.last_transaction_date, nobs_user_account_numbers.created_at) as last_active_date"),
+                    // Fast SQL math for days inactive
+                    DB::raw("DATEDIFF(NOW(), COALESCE(nobs_user_account_numbers.last_transaction_date, nobs_user_account_numbers.created_at)) as days_inactive")
                 )
                 ->where('nobs_user_account_numbers.comp_id', $compId)
                 ->where('nobs_user_account_numbers.account_status', 'dormant');
