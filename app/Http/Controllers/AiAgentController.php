@@ -394,7 +394,13 @@ class AiAgentController extends Controller
                     elseif ($intent === 'PENDING_LOANS') $output = $this->intentLibrary->getPendingLoans();
                     elseif ($intent === 'AGENT_COLLECTIONS') $output = $this->intentLibrary->getAgentCollections($startDate, $endDate);
                     elseif ($intent === 'EXECUTIVE_BRIEFING') $output = $this->intelligenceService->getExecutiveBriefing();
-                    elseif ($intent === 'DORMANT_ACCOUNTS') $output = $this->intentLibrary->getDormantAccounts();
+                    elseif ($intent === 'DORMANT_ACCOUNTS') {
+                        if ($isAdmin) {
+                            $output = $this->intentLibrary->getDormantAccounts();
+                        } else {
+                            $output = ['ui_type' => 'text', 'ui_metadata' => [], 'caption' => 'I am sorry, but only administrators can access dormancy reports.'];
+                        }
+                    }
                 } 
 
                 if ($output) {

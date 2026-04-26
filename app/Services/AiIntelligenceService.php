@@ -163,14 +163,21 @@ class AiIntelligenceService
             $strategyText = $brief;
         }
 
+        $company = DB::table('accounts')->where('id', $this->compId)->first();
+        $lastRun = $company->loan_cron_last_run ? Carbon::parse($company->loan_cron_last_run)->diffForHumans() : 'Never';
+
+        $dormantCount = DB::table('nobs_user_account_numbers')
+            ->where('comp_id', $this->compId)
+            ->where('account_status', 'dormant')
+            ->count();
+
         // Build metadata - CORE METRICS ALWAYS SHOWN
         $metadata = [
             ['Net Liquidity' => number_format((float)str_replace(',', '', $liquidity['ui_metadata']['value'] ?? 0), 2) . ' GHS'],
             ['Deposits Today' => number_format($data['deposits']['today'], 2) . ' GHS'],
-            ['Deposits Yesterday' => number_format($data['deposits']['yesterday'], 2) . ' GHS'],
-            ['Deposits Month' => number_format($data['deposits']['this_month'], 2) . ' GHS'],
             ['Unpaid Loans Balance' => number_format($data['arrears']['amount'], 2) . ' GHS'],
-            ['Unpaid Cases' => $data['arrears']['count']],
+            ['Dormant Accounts' => $dormantCount],
+            ['System Processed' => $lastRun],
             ['Strategic Advice' => $strategyText]
         ];
 
