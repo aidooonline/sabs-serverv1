@@ -350,6 +350,33 @@ class AiIntentLibrary
         ];
     }
 
+    /**
+     * Exact Replica: Dormant Accounts (No activity for 90+ days)
+     */
+    public function getDormantAccounts()
+    {
+        $dormant = DB::table('nobs_user_account_numbers')
+            ->join('nobs_registration', 'nobs_user_account_numbers.account_number', '=', 'nobs_registration.account_number')
+            ->select(
+                'nobs_registration.first_name',
+                'nobs_registration.surname',
+                'nobs_user_account_numbers.account_number',
+                'nobs_user_account_numbers.account_type',
+                'nobs_user_account_numbers.balance',
+                'nobs_user_account_numbers.last_transaction_date'
+            )
+            ->where('nobs_user_account_numbers.comp_id', $this->compId)
+            ->where('nobs_user_account_numbers.account_status', 'dormant')
+            ->limit(20)
+            ->get();
+
+        return [
+            'ui_type' => 'mobile_optimized_list',
+            'ui_metadata' => $dormant,
+            'caption' => "I found " . count($dormant) . " dormant account(s) (No activity for 90+ days):"
+        ];
+    }
+
     public function searchCustomers($term)
     {
         $term = trim($term);
@@ -487,6 +514,7 @@ class AiIntentLibrary
                 ['label' => '🗓️ New This Week', 'query' => 'New registrations this week'],
                 ['label' => '📊 New This Month', 'query' => 'New registrations this month'],
                 ['label' => '👥 Recent 5', 'query' => 'Show last 5 customers'],
+                ['label' => '💤 Dormant Accts', 'query' => 'Show dormant accounts'],
                 ['label' => '⬅️ Back', 'query' => 'help']
             ];
             $caption = "Customer & CRM Intelligence:";

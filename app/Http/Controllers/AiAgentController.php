@@ -105,7 +105,7 @@ class AiAgentController extends Controller
             
             // Normalized Role Check
             $role = strtolower($user->type_name ?? $user->type ?? 'Staff');
-            $isAdmin = in_array($role, ['admin', 'manager', 'super admin', 'owner', 'god admin']);
+            $isAdmin = in_array($role, ['admin', 'owner', 'super admin', 'manager', 'god admin']);
 
             if ($isAdmin && $execEnabled) {
                 return response()->json(['success' => true, 'data' => $this->intelligenceService->getExecutiveBriefing()]);
@@ -394,6 +394,7 @@ class AiAgentController extends Controller
                     elseif ($intent === 'PENDING_LOANS') $output = $this->intentLibrary->getPendingLoans();
                     elseif ($intent === 'AGENT_COLLECTIONS') $output = $this->intentLibrary->getAgentCollections($startDate, $endDate);
                     elseif ($intent === 'EXECUTIVE_BRIEFING') $output = $this->intelligenceService->getExecutiveBriefing();
+                    elseif ($intent === 'DORMANT_ACCOUNTS') $output = $this->intentLibrary->getDormantAccounts();
                 } 
 
                 if ($output) {
@@ -424,7 +425,7 @@ class AiAgentController extends Controller
                                     'AGENT_RANKING', 'PORTFOLIO_HEALTH', 'CUSTOMER_SEARCH', 'HELP_MENU',
                                     'ACCOUNT_BALANCES', 'CASH_POOL_BALANCE', 'DAILY_SUMMARY', 'RECENT_TRANSACTIONS',
                                     'NEW_REGISTRATIONS', 'RECENT_CUSTOMERS', 'EXPECTED_REPAYMENTS', 'DAILY_DISBURSEMENTS',
-                                    'PENDING_LOANS', 'AGENT_COLLECTIONS', 'EXECUTIVE_BRIEFING'
+                                    'PENDING_LOANS', 'AGENT_COLLECTIONS', 'EXECUTIVE_BRIEFING', 'DORMANT_ACCOUNTS'
                                 ]
                             ],
                             'params' => [
@@ -520,8 +521,9 @@ class AiAgentController extends Controller
         5. CUSTOMER SEARCH: Use `CUSTOMER_SEARCH`.
         6. RECENT ACTIVITY: Use `RECENT_TRANSACTIONS` or `RECENT_CUSTOMERS` (Supports range).
         7. LOAN ACTIVITY: Use `DAILY_DISBURSEMENTS` or `EXPECTED_REPAYMENTS` (Supports range).
-        8. HELP/MENUS: Use `HELP_MENU`. 
-        9. EXECUTIVE SUMMARY: Use `EXECUTIVE_BRIEFING`.
+        8. DORMANT ACCOUNTS: Use `DORMANT_ACCOUNTS` to find accounts with no activity for 90+ days.
+        9. HELP/MENUS: Use `HELP_MENU`. 
+        10. EXECUTIVE SUMMARY: Use `EXECUTIVE_BRIEFING`.
         STRICT RULES:
         - TIME RANGES: You can query for 'this month', 'last week', etc., by passing the correct `start_date` and `end_date`.
         - NEVER Hallucinate. Trust the tool outputs 100%.";
