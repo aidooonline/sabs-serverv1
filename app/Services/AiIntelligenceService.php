@@ -115,31 +115,45 @@ class AiIntelligenceService
         $today = date('Y-m-d');
         $monthStart = date('Y-m-01');
 
-        // 1. LIQUIDITY & TRUE CASH-AT-HAND (Aggregated since beginning of time)
-        $baseQuery = DB::table('nobs_transactions')->where('comp_id', $this->compId);
+        // --- VERIFIED FORMULAS FROM ReportSystemController ---
+        $baseQuery = DB::table('nobs_transactions')
+            ->where('comp_id', $this->compId)
+            ->where('amount', '<', 1000000)
+            ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
+            ->where('description', 'NOT LIKE', '%reversal%');
+
+        $totalPoolDeposits = (float)(clone $baseQuery)->where('name_of_transaction', 'Deposit')->sum('amount');
+        $totalPoolWithdrawals = (float)(clone $baseQuery)->where('name_of_transaction', 'Withdraw')->sum('amount');
+        $totalLoanRepayments = (float)(clone $baseQuery)->where('name_of_transaction', 'Loan Repayment')->sum('amount');
         
-        $totalDeposits = (float)(clone $baseQuery)->where('name_of_transaction', 'Deposit')->sum('amount');
-        $totalWithdrawals = (float)(clone $baseQuery)->where('name_of_transaction', 'Withdraw')->sum('amount');
-        $totalRepayments = (float)(clone $baseQuery)->where('name_of_transaction', 'Loan Repayment')->sum('amount');
-        $totalSystemCommissions = (float)(clone $baseQuery)->where('name_of_transaction', 'Commission')->sum('amount');
-        $totalAgentCommissions = (float)(clone $baseQuery)->where('name_of_transaction', 'Agent Commission')->sum('amount');
+        $totalFeesCharged = (float)(clone $baseQuery)->where(function($q) {
+            $q->where('name_of_transaction', 'LIKE', '%fee%')
+              ->orWhere('name_of_transaction', 'LIKE', '%charge%')
+              ->orWhere('name_of_transaction', 'sms')
+              ->orWhere('name_of_transaction', 'maintenance');
+        })->sum('amount');
 
-        // Cash-at-Hand Formula: (All Money In) - (All Money Out)
-        $cashAtHand = ($totalDeposits + $totalRepayments) - ($totalWithdrawals + $totalSystemCommissions + $totalAgentCommissions);
+        // Formula A: Physical Cash Pool = (Deposits + Repayments) - Withdrawals
+        $actualCashInHand = ($totalPoolDeposits + $totalLoanRepayments) - $totalPoolWithdrawals;
+        
+        // Formula B: Savings Liability = Deposits - (Withdrawals + Fees)
+        $totalSavingsLiability = $totalPoolDeposits - ($totalPoolWithdrawals + $totalFeesCharged);
+        
+        // Formula C: Net System Position = Money on Hand - Money Owed
+        $netSystemPosition = $actualCashInHand - $totalSavingsLiability;
 
-        // 2. MONTHLY PERFORMANCE (Current Month Velocity)
+        // --- PERIOD PERFORMANCE (MTD) ---
         $monthlyDeposits = DB::table('nobs_transactions')->where('comp_id', $this->compId)->where('name_of_transaction', 'Deposit')->where('created_at', '>=', $monthStart)->sum('amount');
         $monthlyWithdrawals = DB::table('nobs_transactions')->where('comp_id', $this->compId)->where('name_of_transaction', 'Withdraw')->where('created_at', '>=', $monthStart)->sum('amount');
         $monthlyRepayments = DB::table('nobs_transactions')->where('comp_id', $this->compId)->where('name_of_transaction', 'Loan Repayment')->where('created_at', '>=', $monthStart)->sum('amount');
         
-        // 3. LOAN DISBURSEMENT DATA
         $monthlyDisbursed = DB::table('loan_applications')
             ->where('comp_id', $this->compId)
             ->whereIn('status', ['active', 'disbursed', 'repaid'])
             ->where('updated_at', '>=', $monthStart)
             ->sum('amount');
 
-        // 4. RISK EXPOSURE
+        // --- RISK ---
         $arrears = DB::table('loan_repayment_schedules')
             ->where('comp_id', $this->compId)
             ->where('due_date', '<', $today)
@@ -151,44 +165,50 @@ class AiIntelligenceService
 
         $dormantCount = DB::table('nobs_user_account_numbers')->where('comp_id', $this->compId)->where('account_status', 'dormant')->count();
 
-        // COMPREHENSIVE DATA PACKAGE FOR AI BRAIN
         $fullSystemData = [
-            'state_of_money' => [
-                'true_cash_at_hand' => $cashAtHand,
-                'monthly_deposits' => $monthlyDeposits,
-                'monthly_withdrawals' => $monthlyWithdrawals,
-                'monthly_repayments' => $monthlyRepayments,
-                'monthly_loan_disbursements' => $monthlyDisbursed
+            'liquidity' => [
+                'net_system_position' => $netSystemPosition,
+                'actual_cash_on_hand' => $actualCashInHand,
+                'savings_liability' => $totalSavingsLiability
             ],
-            'risk_exposure' => [
-                'unpaid_loans_total' => $arrears->total_amount,
+            'performance_mtd' => [
+                'deposits' => $monthlyDeposits,
+                'withdrawals' => $monthlyWithdrawals,
+                'repayments' => $monthlyRepayments,
+                'disbursed' => $monthlyDisbursed
+            ],
+            'risk' => [
+                'unpaid_balance' => $arrears->total_amount,
                 'unpaid_cases' => $arrears->count,
                 'dormant_accounts' => $dormantCount
             ]
         ];
 
-        $prompt = "Act as a CFO. Analyze this bank performance data for the current month: " . json_encode($fullSystemData) . ". 
-        Compare Monthly Deposits vs Withdrawals. Assess if repayments (GHS " . number_format($monthlyRepayments, 2) . ") are keeping pace with disbursements (GHS " . number_format($monthlyDisbursed, 2) . ").
-        MANDATORY: Return a JSON object with one key 'strategy' containing a 3-sentence high-level summary and strategic advice. No markdown.";
+        $prompt = "Act as a CFO. Analyze this bank data: " . json_encode($fullSystemData) . ". 
+        Compare Net Position vs Unpaid Loans. Comment on monthly cash flow (Deposits vs Withdrawals).
+        MANDATORY: Return a JSON object with one key 'strategy' containing 3-sentence executive advice. No markdown.";
 
         $brief = $this->callGeminiBasic($prompt);
-        $strategyText = $brief['strategy'] ?? ($brief['content'] ?? 'Strategic review based on monthly cash flow and portfolio risk.');
+        $strategyText = $brief['strategy'] ?? ($brief['content'] ?? 'Strategic review pending data synchronization.');
 
-        // Build metadata - CORE FINANCIAL STATE (Core metrics always show, others filtered)
+        // Build metadata - Core metrics always show
         $metadata = [
-            ['Cash at Hand' => number_format($cashAtHand, 2) . ' GHS'],
+            ['Net System Position' => number_format($netSystemPosition, 2) . ' GHS'],
+            ['Actual Cash Pool' => number_format($actualCashInHand, 2) . ' GHS'],
             ['Monthly Deposits' => number_format($monthlyDeposits, 2) . ' GHS'],
             ['Monthly Withdrawals' => number_format($monthlyWithdrawals, 2) . ' GHS'],
             ['Monthly Repayments' => number_format($monthlyRepayments, 2) . ' GHS'],
-            ['MTD Disbursements' => number_format($monthlyDisbursed, 2) . ' GHS'],
-            ['Unpaid Loans Balance' => number_format($arrears->total_amount, 2) . ' GHS'],
+            ['MTD Disbursed' => number_format($monthlyDisbursed, 2) . ' GHS'],
+            ['Unpaid Loans' => number_format($arrears->total_amount, 2) . ' GHS'],
             ['Dormant Accounts' => (int)$dormantCount],
             ['Strategic Review' => $strategyText]
         ];
 
-        // Filter out zero/empty rows for clean UI
+        // Filter out zero/empty rows for clean UI (but keep core liquidity)
         $filteredMetadata = array_values(array_filter($metadata, function($item) {
+            $key = array_keys($item)[0];
             $val = array_values($item)[0];
+            if ($key === 'Net System Position' || $key === 'Actual Cash Pool') return true;
             return !($val === '0.00 GHS' || $val === 0 || $val === '0' || empty($val));
         }));
 
@@ -227,10 +247,7 @@ class AiIntelligenceService
             $text = $json['candidates'][0]['content']['parts'][0]['text'] ?? '';
             
             // SUPER ROBUST JSON EXTRACTOR
-            // 1. Remove markdown code blocks if present
             $cleanText = preg_replace('/^```json\s*|```\s*$/m', '', trim($text));
-            
-            // 2. Find the first '{' and last '}' to isolate the JSON object
             $firstBrace = strpos($cleanText, '{');
             $lastBrace = strrpos($cleanText, '}');
 
