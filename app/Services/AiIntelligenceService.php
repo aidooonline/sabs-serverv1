@@ -108,21 +108,30 @@ class AiIntelligenceService
     }
 
     /**
-     * Feature 5: Executive Briefing
+     * Feature 5: Executive Briefing - Strategic Boardroom View
      */
     public function getExecutiveBriefing()
     {
-        $liquidity = $this->intentLibrary->getSystemLiquidity();
         $today = date('Y-m-d');
         $yesterday = date('Y-m-d', strtotime('-1 day'));
         $monthStart = date('Y-m-01');
 
-        // Detailed Deposit Metrics
-        $depositsToday = DB::table('nobs_transactions')->where('comp_id', $this->compId)->where('name_of_transaction', 'Deposit')->whereDate('created_at', $today)->sum('amount');
-        $depositsYesterday = DB::table('nobs_transactions')->where('comp_id', $this->compId)->where('name_of_transaction', 'Deposit')->whereDate('created_at', $yesterday)->sum('amount');
-        $depositsMonth = DB::table('nobs_transactions')->where('comp_id', $this->compId)->where('name_of_transaction', 'Deposit')->where('created_at', '>=', $monthStart)->sum('amount');
+        // 1. LIQUIDITY & BANKING VELOCITY
+        $liquidity = $this->intentLibrary->getSystemLiquidity();
+        $cashInHand = $liquidity['ui_metadata']['details'] ?? '0.00 GHS';
+        
+        // 2. TRANSACTION VELOCITY (Enriched for AI reasoning)
+        $txStats = DB::table('nobs_transactions')
+            ->where('comp_id', $this->compId)
+            ->select(
+                DB::raw("SUM(CASE WHEN name_of_transaction = 'Deposit' AND DATE(created_at) = '$today' THEN amount ELSE 0 END) as dep_today"),
+                DB::raw("SUM(CASE WHEN name_of_transaction = 'Deposit' AND DATE(created_at) = '$yesterday' THEN amount ELSE 0 END) as dep_yesterday"),
+                DB::raw("SUM(CASE WHEN name_of_transaction = 'Deposit' AND created_at >= '$monthStart' THEN amount ELSE 0 END) as dep_month"),
+                DB::raw("SUM(CASE WHEN name_of_transaction = 'Withdraw' AND DATE(created_at) = '$today' THEN amount ELSE 0 END) as with_today"),
+                DB::raw("SUM(CASE WHEN name_of_transaction = 'Loan Repayment' AND DATE(created_at) = '$today' THEN amount ELSE 0 END) as rep_today")
+            )->first();
 
-        // Granular Arrears Data
+        // 3. LOAN & ARREARS RISK
         $arrears = DB::table('loan_repayment_schedules')
             ->where('comp_id', $this->compId)
             ->where('due_date', '<', $today)
@@ -132,59 +141,60 @@ class AiIntelligenceService
                 DB::raw("SUM(principal_due + interest_due + fees_due - (principal_paid + interest_paid + fees_paid)) as total_amount")
             )->first();
 
-        $data = [
-            'liquidity' => $liquidity['ui_metadata'],
-            'deposits' => [
-                'today' => (float)$depositsToday,
-                'yesterday' => (float)$depositsYesterday,
-                'this_month' => (float)$depositsMonth
-            ],
-            'arrears' => [
-                'count' => (int)$arrears->count,
-                'amount' => (float)$arrears->total_amount
-            ]
-        ];
-
-        $prompt = "Act as a CFO. Analyze this data: " . json_encode($data) . ". 
-        MANDATORY: Return a JSON object with one key 'strategy'. 
-        The value must be a 3-sentence strategic advice for the CEO. 
-        Focus on liquidity vs arrears risk (GHS " . number_format($data['arrears']['amount'], 2) . "). 
-        DO NOT return any other text, only the JSON object.";
-
-        $brief = $this->callGeminiBasic($prompt);
-        
-        // Final fallback if AI still fails to provide a strategy key
-        $strategyText = 'Review required.';
-        if (isset($brief['strategy']) && !empty($brief['strategy'])) {
-            $strategyText = $brief['strategy'];
-        } elseif (isset($brief['content']) && !empty($brief['content'])) {
-            $strategyText = $brief['content'];
-        } elseif (is_string($brief) && !empty($brief)) {
-            $strategyText = $brief;
-        }
-
+        // 4. GROWTH & STATUS
+        $dormantCount = DB::table('nobs_user_account_numbers')->where('comp_id', $this->compId)->where('account_status', 'dormant')->count();
+        $newRegToday = DB::table('nobs_registration')->where('comp_id', $this->compId)->whereDate('created_at', $today)->count();
         $company = DB::table('accounts')->where('id', $this->compId)->first();
         $lastRun = $company->loan_cron_last_run ? Carbon::parse($company->loan_cron_last_run)->diffForHumans() : 'Never';
 
-        $dormantCount = DB::table('nobs_user_account_numbers')
-            ->where('comp_id', $this->compId)
-            ->where('account_status', 'dormant')
-            ->count();
-
-        // Build metadata - CORE METRICS ALWAYS SHOWN
-        $metadata = [
-            ['Net Liquidity' => number_format((float)str_replace(',', '', $liquidity['ui_metadata']['value'] ?? 0), 2) . ' GHS'],
-            ['Deposits Today' => number_format($data['deposits']['today'], 2) . ' GHS'],
-            ['Unpaid Loans Balance' => number_format($data['arrears']['amount'], 2) . ' GHS'],
-            ['Dormant Accounts' => $dormantCount],
-            ['System Processed' => $lastRun],
-            ['Strategic Advice' => $strategyText]
+        // COMPREHENSIVE DATA PACKAGE FOR AI BRAIN
+        $fullSystemData = [
+            'liquidity_state' => ['net_position' => $liquidity['ui_metadata']['value'], 'cash_on_hand' => $cashInHand],
+            'transaction_performance' => [
+                'deposits_today' => $txStats->dep_today,
+                'deposits_yesterday' => $txStats->dep_yesterday,
+                'deposits_this_month' => $txStats->dep_month,
+                'withdrawals_today' => $txStats->with_today,
+                'loan_repayments_today' => $txStats->rep_today
+            ],
+            'risk_exposure' => ['unpaid_loans_total' => $arrears->total_amount, 'unpaid_cases' => $arrears->count],
+            'system_health' => ['dormant_accounts' => $dormantCount, 'new_registrations_today' => $newRegToday, 'last_process_run' => $lastRun]
         ];
+
+        $prompt = "Act as a highly experienced CFO and Product Strategist. Analyze this complete bank data package: " . json_encode($fullSystemData) . ". 
+        1. Compare Today's Deposits (GHS " . number_format($txStats->dep_today, 2) . ") vs Yesterday (GHS " . number_format($txStats->dep_yesterday, 2) . ").
+        2. Comment on the Arrears Risk vs Net Liquidity.
+        3. MANDATORY: Return a JSON object with one key 'strategy'. 
+        The value must be a professional 3-sentence executive review and advice for the CEO. Be specific with numbers. Do not use markdown.";
+
+        $brief = $this->callGeminiBasic($prompt);
+        $strategyText = $brief['strategy'] ?? ($brief['content'] ?? 'Strategic review pending data synchronization.');
+
+        // 5. OUTPUT CONSTRUCTION (2-Decimal Precision)
+        $rawMetadata = [
+            ['Net Liquidity' => number_format((float)str_replace(',', '', $liquidity['ui_metadata']['value'] ?? 0), 2) . ' GHS'],
+            ['Deposits Today' => number_format($txStats->dep_today, 2) . ' GHS'],
+            ['Deposits Yesterday' => number_format($txStats->dep_yesterday, 2) . ' GHS'],
+            ['Deposits Month' => number_format($txStats->dep_month, 2) . ' GHS'],
+            ['Withdrawals Today' => number_format($txStats->with_today, 2) . ' GHS'],
+            ['Unpaid Loans' => number_format($arrears->total_amount, 2) . ' GHS'],
+            ['Dormant Accounts' => (int)$dormantCount],
+            ['New Reg Today' => (int)$newRegToday],
+            ['System Processed' => $lastRun],
+            ['Strategic Review' => $strategyText]
+        ];
+
+        // STRICT FILTERING: Remove any row where the value is zero, 0.00, or empty
+        $filteredMetadata = array_values(array_filter($rawMetadata, function($item) {
+            $val = array_values($item)[0];
+            if ($val === '0.00 GHS' || $val === 0 || $val === '0' || empty($val)) return false;
+            return true;
+        }));
 
         return [
             'ui_type' => 'mobile_optimized_list',
-            'ui_metadata' => $metadata,
-            'caption' => 'Executive Briefing Summary:'
+            'ui_metadata' => $filteredMetadata,
+            'caption' => 'Strategic Executive Intelligence:'
         ];
     }
 
