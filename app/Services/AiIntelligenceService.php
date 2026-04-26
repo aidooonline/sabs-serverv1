@@ -113,25 +113,33 @@ class AiIntelligenceService
     public function getExecutiveBriefing()
     {
         $today = date('Y-m-d');
-        $yesterday = date('Y-m-d', strtotime('-1 day'));
         $monthStart = date('Y-m-01');
 
-        // 1. LIQUIDITY & BANKING VELOCITY
-        $liquidity = $this->intentLibrary->getSystemLiquidity();
-        $cashInHand = $liquidity['ui_metadata']['details'] ?? '0.00 GHS';
+        // 1. LIQUIDITY & TRUE CASH-AT-HAND (Aggregated since beginning of time)
+        $baseQuery = DB::table('nobs_transactions')->where('comp_id', $this->compId);
         
-        // 2. TRANSACTION VELOCITY (Enriched for AI reasoning)
-        $txStats = DB::table('nobs_transactions')
-            ->where('comp_id', $this->compId)
-            ->select(
-                DB::raw("SUM(CASE WHEN name_of_transaction = 'Deposit' AND DATE(created_at) = '$today' THEN amount ELSE 0 END) as dep_today"),
-                DB::raw("SUM(CASE WHEN name_of_transaction = 'Deposit' AND DATE(created_at) = '$yesterday' THEN amount ELSE 0 END) as dep_yesterday"),
-                DB::raw("SUM(CASE WHEN name_of_transaction = 'Deposit' AND created_at >= '$monthStart' THEN amount ELSE 0 END) as dep_month"),
-                DB::raw("SUM(CASE WHEN name_of_transaction = 'Withdraw' AND DATE(created_at) = '$today' THEN amount ELSE 0 END) as with_today"),
-                DB::raw("SUM(CASE WHEN name_of_transaction = 'Loan Repayment' AND DATE(created_at) = '$today' THEN amount ELSE 0 END) as rep_today")
-            )->first();
+        $totalDeposits = (float)(clone $baseQuery)->where('name_of_transaction', 'Deposit')->sum('amount');
+        $totalWithdrawals = (float)(clone $baseQuery)->where('name_of_transaction', 'Withdraw')->sum('amount');
+        $totalRepayments = (float)(clone $baseQuery)->where('name_of_transaction', 'Loan Repayment')->sum('amount');
+        $totalSystemCommissions = (float)(clone $baseQuery)->where('name_of_transaction', 'Commission')->sum('amount');
+        $totalAgentCommissions = (float)(clone $baseQuery)->where('name_of_transaction', 'Agent Commission')->sum('amount');
 
-        // 3. LOAN & ARREARS RISK
+        // Cash-at-Hand Formula: (All Money In) - (All Money Out)
+        $cashAtHand = ($totalDeposits + $totalRepayments) - ($totalWithdrawals + $totalSystemCommissions + $totalAgentCommissions);
+
+        // 2. MONTHLY PERFORMANCE (Current Month Velocity)
+        $monthlyDeposits = DB::table('nobs_transactions')->where('comp_id', $this->compId)->where('name_of_transaction', 'Deposit')->where('created_at', '>=', $monthStart)->sum('amount');
+        $monthlyWithdrawals = DB::table('nobs_transactions')->where('comp_id', $this->compId)->where('name_of_transaction', 'Withdraw')->where('created_at', '>=', $monthStart)->sum('amount');
+        $monthlyRepayments = DB::table('nobs_transactions')->where('comp_id', $this->compId)->where('name_of_transaction', 'Loan Repayment')->where('created_at', '>=', $monthStart)->sum('amount');
+        
+        // 3. LOAN DISBURSEMENT DATA
+        $monthlyDisbursed = DB::table('loan_applications')
+            ->where('comp_id', $this->compId)
+            ->whereIn('status', ['active', 'disbursed', 'repaid'])
+            ->where('updated_at', '>=', $monthStart)
+            ->sum('amount');
+
+        // 4. RISK EXPOSURE
         $arrears = DB::table('loan_repayment_schedules')
             ->where('comp_id', $this->compId)
             ->where('due_date', '<', $today)
@@ -141,58 +149,47 @@ class AiIntelligenceService
                 DB::raw("SUM(principal_due + interest_due + fees_due - (principal_paid + interest_paid + fees_paid)) as total_amount")
             )->first();
 
-        // 4. GROWTH & STATUS (Optimized Count)
-        $dormantCount = DB::table('nobs_user_account_numbers')
-            ->where('comp_id', $this->compId)
-            ->where('account_status', 'dormant')
-            ->count();
-            
-        $newRegToday = DB::table('nobs_registration')->where('comp_id', $this->compId)->whereDate('created_at', $today)->count();
-        $company = DB::table('accounts')->where('id', $this->compId)->first();
-        $lastRun = $company->loan_cron_last_run ? Carbon::parse($company->loan_cron_last_run)->diffForHumans() : 'Never';
+        $dormantCount = DB::table('nobs_user_account_numbers')->where('comp_id', $this->compId)->where('account_status', 'dormant')->count();
 
         // COMPREHENSIVE DATA PACKAGE FOR AI BRAIN
         $fullSystemData = [
-            'liquidity_state' => ['net_position' => $liquidity['ui_metadata']['value'], 'cash_on_hand' => $cashInHand],
-            'transaction_performance' => [
-                'deposits_today' => $txStats->dep_today,
-                'deposits_yesterday' => $txStats->dep_yesterday,
-                'deposits_this_month' => $txStats->dep_month,
-                'withdrawals_today' => $txStats->with_today,
-                'loan_repayments_today' => $txStats->rep_today
+            'state_of_money' => [
+                'true_cash_at_hand' => $cashAtHand,
+                'monthly_deposits' => $monthlyDeposits,
+                'monthly_withdrawals' => $monthlyWithdrawals,
+                'monthly_repayments' => $monthlyRepayments,
+                'monthly_loan_disbursements' => $monthlyDisbursed
             ],
-            'risk_exposure' => ['unpaid_loans_total' => $arrears->total_amount, 'unpaid_cases' => $arrears->count],
-            'system_health' => ['dormant_accounts' => $dormantCount, 'new_registrations_today' => $newRegToday, 'last_process_run' => $lastRun]
+            'risk_exposure' => [
+                'unpaid_loans_total' => $arrears->total_amount,
+                'unpaid_cases' => $arrears->count,
+                'dormant_accounts' => $dormantCount
+            ]
         ];
 
-        $prompt = "Act as a highly experienced CFO and Product Strategist. Analyze this complete bank data package: " . json_encode($fullSystemData) . ". 
-        1. Compare Today's Deposits (GHS " . number_format($txStats->dep_today, 2) . ") vs Yesterday (GHS " . number_format($txStats->dep_yesterday, 2) . ").
-        2. Comment on the Arrears Risk vs Net Liquidity.
-        3. MANDATORY: Return a JSON object with one key 'strategy'. 
-        The value must be a professional 3-sentence executive review and advice for the CEO. Be specific with numbers. Do not use markdown.";
+        $prompt = "Act as a CFO. Analyze this bank performance data for the current month: " . json_encode($fullSystemData) . ". 
+        Compare Monthly Deposits vs Withdrawals. Assess if repayments (GHS " . number_format($monthlyRepayments, 2) . ") are keeping pace with disbursements (GHS " . number_format($monthlyDisbursed, 2) . ").
+        MANDATORY: Return a JSON object with one key 'strategy' containing a 3-sentence high-level summary and strategic advice. No markdown.";
 
         $brief = $this->callGeminiBasic($prompt);
-        $strategyText = $brief['strategy'] ?? ($brief['content'] ?? 'Strategic review pending data synchronization.');
+        $strategyText = $brief['strategy'] ?? ($brief['content'] ?? 'Strategic review based on monthly cash flow and portfolio risk.');
 
-        // 5. OUTPUT CONSTRUCTION (2-Decimal Precision)
-        $rawMetadata = [
-            ['Net Liquidity' => number_format((float)str_replace(',', '', $liquidity['ui_metadata']['value'] ?? 0), 2) . ' GHS'],
-            ['Deposits Today' => number_format($txStats->dep_today, 2) . ' GHS'],
-            ['Deposits Yesterday' => number_format($txStats->dep_yesterday, 2) . ' GHS'],
-            ['Deposits Month' => number_format($txStats->dep_month, 2) . ' GHS'],
-            ['Withdrawals Today' => number_format($txStats->with_today, 2) . ' GHS'],
-            ['Unpaid Loans' => number_format($arrears->total_amount, 2) . ' GHS'],
+        // Build metadata - CORE FINANCIAL STATE (Core metrics always show, others filtered)
+        $metadata = [
+            ['Cash at Hand' => number_format($cashAtHand, 2) . ' GHS'],
+            ['Monthly Deposits' => number_format($monthlyDeposits, 2) . ' GHS'],
+            ['Monthly Withdrawals' => number_format($monthlyWithdrawals, 2) . ' GHS'],
+            ['Monthly Repayments' => number_format($monthlyRepayments, 2) . ' GHS'],
+            ['MTD Disbursements' => number_format($monthlyDisbursed, 2) . ' GHS'],
+            ['Unpaid Loans Balance' => number_format($arrears->total_amount, 2) . ' GHS'],
             ['Dormant Accounts' => (int)$dormantCount],
-            ['New Reg Today' => (int)$newRegToday],
-            ['System Processed' => $lastRun],
             ['Strategic Review' => $strategyText]
         ];
 
-        // STRICT FILTERING: Remove any row where the value is zero, 0.00, or empty
-        $filteredMetadata = array_values(array_filter($rawMetadata, function($item) {
+        // Filter out zero/empty rows for clean UI
+        $filteredMetadata = array_values(array_filter($metadata, function($item) {
             $val = array_values($item)[0];
-            if ($val === '0.00 GHS' || $val === 0 || $val === '0' || empty($val)) return false;
-            return true;
+            return !($val === '0.00 GHS' || $val === 0 || $val === '0' || empty($val));
         }));
 
         return [
