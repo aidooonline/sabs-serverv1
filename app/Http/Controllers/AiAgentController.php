@@ -69,8 +69,8 @@ class AiAgentController extends Controller
             $finalText = $result['response']['candidates'][0]['content']['parts'][0]['text'] ?? '';
             // If model response is empty or generic, use the tool's caption
             if (empty(trim($finalText)) || strlen($finalText) < 10) {
-                if (isset($result['response']['caption'])) {
-                     $finalText = $result['response']['caption'];
+                if (isset($result['caption'])) {
+                     $finalText = $result['caption'];
                 }
             }
 
@@ -303,7 +303,7 @@ class AiAgentController extends Controller
         $history = $this->getHistory($session->id);
         $tools = $this->getAvailableTools();
         
-        $maxTurns = 4; $currentTurn = 0; $lastResponse = null; $lastToolOutput = null; $activeUiType = 'text';
+        $maxTurns = 4; $currentTurn = 0; $lastResponse = null; $lastToolOutput = null; $activeUiType = 'text'; $lastCaption = null;
 
         while ($currentTurn < $maxTurns) {
             $response = $this->callGeminiApi($model, $apiKey, $history, $tools, $compId, $userContext);
@@ -336,6 +336,7 @@ class AiAgentController extends Controller
             
             if ($execution['raw_data'] !== null) $lastToolOutput = $execution['raw_data'];
             if ($execution['ui_type'] !== 'text') $activeUiType = $execution['ui_type'];
+            if (isset($execution['caption'])) $lastCaption = $execution['caption'];
             
             foreach ($toolResults as $tr) {
                 $this->storeMessage(
@@ -362,12 +363,17 @@ class AiAgentController extends Controller
             $currentTurn++;
         }
 
-        return ['response' => $lastResponse, 'ui_type' => $activeUiType, 'ui_metadata' => $lastToolOutput];
+        return [
+            'response' => $lastResponse, 
+            'ui_type' => $activeUiType, 
+            'ui_metadata' => $lastToolOutput,
+            'caption' => $lastCaption
+        ];
     }
 
     private function handleToolCalls($session, $toolCalls, $userContext = null)
     {
-        $results = []; $rawData = null; $uiType = 'text';
+        $results = []; $rawData = null; $uiType = 'text'; $caption = null;
         $user = auth('api')->user();
         $role = strtolower($user->type_name ?? $user->type ?? 'Staff');
         $isAdmin = in_array($role, ['admin', 'manager', 'owner', 'super admin', 'god admin']);
@@ -418,14 +424,16 @@ class AiAgentController extends Controller
                 } 
 
                 if ($output) {
-                    $uiType = $output['ui_type']; $rawData = $output['ui_metadata'];
-                    $results[] = ['functionResponse' => ['name' => $name, 'response' => ['result' => $output['caption'], 'data' => $output['ui_metadata']]]];
+                    $uiType = $output['ui_type']; 
+                    $rawData = $output['ui_metadata'];
+                    $caption = $output['caption'] ?? null;
+                    $results[] = ['functionResponse' => ['name' => $name, 'response' => ['result' => $output['caption'] ?? 'Task completed.', 'data' => $output['ui_metadata']]]];
                 }
             } catch (\Throwable $e) {
                 $results[] = ['functionResponse' => ['name' => $name, 'response' => ['error' => $e->getMessage()]]];
             }
         }
-        return ['results' => $results, 'raw_data' => $rawData, 'ui_type' => $uiType];
+        return ['results' => $results, 'raw_data' => $rawData, 'ui_type' => $uiType, 'caption' => $caption];
     }
 
     private function getAvailableTools()
