@@ -141,8 +141,12 @@ class AiIntelligenceService
                 DB::raw("SUM(principal_due + interest_due + fees_due - (principal_paid + interest_paid + fees_paid)) as total_amount")
             )->first();
 
-        // 4. GROWTH & STATUS
-        $dormantCount = DB::table('nobs_user_account_numbers')->where('comp_id', $this->compId)->where('account_status', 'dormant')->count();
+        // 4. GROWTH & STATUS (Optimized Count)
+        $dormantCount = DB::table('nobs_user_account_numbers')
+            ->where('comp_id', $this->compId)
+            ->where('account_status', 'dormant')
+            ->count();
+            
         $newRegToday = DB::table('nobs_registration')->where('comp_id', $this->compId)->whereDate('created_at', $today)->count();
         $company = DB::table('accounts')->where('id', $this->compId)->first();
         $lastRun = $company->loan_cron_last_run ? Carbon::parse($company->loan_cron_last_run)->diffForHumans() : 'Never';
