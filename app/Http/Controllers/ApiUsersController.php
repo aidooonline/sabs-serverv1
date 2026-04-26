@@ -3665,7 +3665,7 @@ class ApiUsersController extends Controller
 
             // OPTIONAL: Filter by specific account type if provided (e.g. from Dormant List)
             if ($request->has('account_type')) {
-                $query->where('det_rep_name_of_transaction', $request->account_type);
+                $query->where('account_type', $request->account_type);
             }
 
             $usertransactions = $query->orderBy('id', 'desc') 
