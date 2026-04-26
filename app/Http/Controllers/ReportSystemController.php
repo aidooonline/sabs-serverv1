@@ -41,14 +41,15 @@ class ReportSystemController extends Controller
             $baseQuery = DB::table('nobs_transactions')
                 ->where('comp_id', $compId)
                 ->where('created_at', '<=', $endDate)
-                ->where('amount', '<', 1000000)
-                // Always ignore reversals in all-time totals
-                ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
-                ->where('description', 'NOT LIKE', '%reversal%');
+                ->where('is_shown', 1)
+                ->where('row_version', 2);
 
             $totalPoolDeposits = (float)(clone $baseQuery)->where('name_of_transaction', 'Deposit')->sum('amount');
             $totalPoolWithdrawals = (float)(clone $baseQuery)->where('name_of_transaction', 'Withdraw')->sum('amount');
             $totalLoanRepayments = (float)(clone $baseQuery)->where('name_of_transaction', 'Loan Repayment')->sum('amount');
+            $totalRefunds = (float)(clone $baseQuery)->where('name_of_transaction', 'Refund')->sum('amount');
+            $totalAgentCommissions = (float)(clone $baseQuery)->where('name_of_transaction', 'Agent Commission')->sum('amount');
+            $totalSystemCommissions = (float)(clone $baseQuery)->where('name_of_transaction', 'Commission')->sum('amount');
             
             // Sum all internal fees/charges
             $totalFeesCharged = (float)(clone $baseQuery)->where(function($q) {
@@ -58,14 +59,13 @@ class ReportSystemController extends Controller
                   ->orWhere('name_of_transaction', 'maintenance');
             })->sum('amount');
             
-            // 1. Physical Cash Pool = (Deposits + Repayments) - Withdrawals
-            $actualCashInHand = ($totalPoolDeposits + $totalLoanRepayments) - $totalPoolWithdrawals;
+            // 1. Physical Cash Pool = (Deposits + Repayments) - (Withdrawals + Refunds + Commissions)
+            $actualCashInHand = ($totalPoolDeposits + $totalLoanRepayments) - ($totalPoolWithdrawals + $totalRefunds + $totalAgentCommissions + $totalSystemCommissions);
             
-            // 2. Savings Liability = Deposits - (Withdrawals + Fees/Charges)
-            $totalSavingsLiability = $totalPoolDeposits - ($totalPoolWithdrawals + $totalFeesCharged);
+            // 2. Savings Liability = Deposits - (Withdrawals + Refunds + Fees/Charges)
+            $totalSavingsLiability = $totalPoolDeposits - ($totalPoolWithdrawals + $totalRefunds + $totalFeesCharged);
             
             // 3. Net System Position = Money on Hand - Money Owed
-            // (Essentially: Repayments + Fees)
             $netSystemPosition = $actualCashInHand - $totalSavingsLiability;
 
             // --- 2. CUSTOMER VITALITY (HISTORICAL) ---
@@ -89,7 +89,6 @@ class ReportSystemController extends Controller
                     'nobs_registration.gender',
                     'nobs_registration.user',
                     'nobs_registration.created_at',
-                    // FIX: Joined on account_number instead of non-existent phone_number in nobs_user_account_numbers
                     DB::raw("(SELECT COALESCE(SUM(balance), 0) FROM nobs_user_account_numbers WHERE nobs_user_account_numbers.account_number = nobs_registration.account_number AND nobs_user_account_numbers.comp_id = $compId) as savings_total"),
                     DB::raw("(SELECT COALESCE(SUM(amount), 0) FROM loan_applications WHERE loan_applications.customer_id = nobs_registration.id AND loan_applications.comp_id = $compId AND loan_applications.status = 'active') as debt_total")
                 )
@@ -102,11 +101,15 @@ class ReportSystemController extends Controller
             $depositsQuery = DB::table('nobs_transactions')
                 ->where('comp_id', $compId)
                 ->where('name_of_transaction', 'Deposit')
+                ->where('is_shown', 1)
+                ->where('row_version', 2)
                 ->whereBetween('created_at', [$startDate, $endDate]);
             
             $withdrawalsQuery = DB::table('nobs_transactions')
                 ->where('comp_id', $compId)
                 ->where('name_of_transaction', 'Withdraw')
+                ->where('is_shown', 1)
+                ->where('row_version', 2)
                 ->whereBetween('created_at', [$startDate, $endDate]);
 
             $totalDepositAmt = (float)(clone $depositsQuery)->sum('amount');
@@ -168,12 +171,11 @@ class ReportSystemController extends Controller
                 ]
             ], 200);
         } catch (\Throwable $e) {
-            // Log for server diagnostics even if file log is tricky
             return response()->json([
                 'success' => false, 
                 'message' => 'Server Error: ' . $e->getMessage(),
                 'line' => $e->getLine()
-            ], 200); // Return 200 so Axios doesn't throw generic 500
+            ], 200);
         }
     }
 
@@ -220,6 +222,9 @@ class ReportSystemController extends Controller
 
         // Define Columns based on type
         switch($type) {
+            case 'summary':
+                $columns = ['Metric', 'Value'];
+                break;
             case 'customers':
                 $columns = ['Reg Date', 'Account Number', 'Customer Name', 'Phone', 'Gender', 'Agent', 'Total Savings', 'Total Debt'];
                 break;
@@ -233,7 +238,7 @@ class ReportSystemController extends Controller
                 break;
         }
 
-        $callback = function() use($type, $compId, $startDate, $endDate, $columns) {
+        $callback = function() use($type, $compId, $startDate, $endDate, $columns, $month, $year) {
             $file = fopen('php://output', 'w');
             fputcsv($file, $columns);
 
@@ -244,11 +249,64 @@ class ReportSystemController extends Controller
             $totalSavings = 0;
             $totalDebt = 0;
 
-            if ($type === 'deposits' || $type === 'withdrawals') {
+            if ($type === 'summary') {
+                // Fetch verified metrics
+                $baseQuery = DB::table('nobs_transactions')
+                    ->where('comp_id', $compId)
+                    ->where('created_at', '<=', $endDate)
+                    ->where('is_shown', 1)
+                    ->where('row_version', 2);
+
+                $totalPoolDeposits = (float)(clone $baseQuery)->where('name_of_transaction', 'Deposit')->sum('amount');
+                $totalPoolWithdrawals = (float)(clone $baseQuery)->where('name_of_transaction', 'Withdraw')->sum('amount');
+                $totalLoanRepayments = (float)(clone $baseQuery)->where('name_of_transaction', 'Loan Repayment')->sum('amount');
+                $totalRefunds = (float)(clone $baseQuery)->where('name_of_transaction', 'Refund')->sum('amount');
+                $totalAgentCommissions = (float)(clone $baseQuery)->where('name_of_transaction', 'Agent Commission')->sum('amount');
+                $totalSystemCommissions = (float)(clone $baseQuery)->where('name_of_transaction', 'Commission')->sum('amount');
+                
+                $totalFeesCharged = (float)(clone $baseQuery)->where(function($q) {
+                    $q->where('name_of_transaction', 'LIKE', '%fee%')
+                      ->orWhere('name_of_transaction', 'LIKE', '%charge%')
+                      ->orWhere('name_of_transaction', 'sms')
+                      ->orWhere('name_of_transaction', 'maintenance');
+                })->sum('amount');
+
+                $actualCashInHand = ($totalPoolDeposits + $totalLoanRepayments) - ($totalPoolWithdrawals + $totalRefunds + $totalAgentCommissions + $totalSystemCommissions);
+                $totalSavingsLiability = $totalPoolDeposits - ($totalPoolWithdrawals + $totalRefunds + $totalFeesCharged);
+                $netSystemPosition = $actualCashInHand - $totalSavingsLiability;
+
+                // Period Specific
+                $periodDeposits = DB::table('nobs_transactions')->where('comp_id', $compId)->where('is_shown', 1)->where('row_version', 2)->where('name_of_transaction', 'Deposit')->whereBetween('created_at', [$startDate, $endDate])->sum('amount');
+                $periodWithdrawals = DB::table('nobs_transactions')->where('comp_id', $compId)->where('is_shown', 1)->where('row_version', 2)->where('name_of_transaction', 'Withdraw')->whereBetween('created_at', [$startDate, $endDate])->sum('amount');
+                $periodDisbursed = DB::table('loan_applications')->where('comp_id', $compId)->whereBetween('created_at', [$startDate, $endDate])->sum('amount');
+                
+                $totalCustomers = DB::table('nobs_registration')->where('comp_id', $compId)->where('created_at', '<=', $endDate)->count();
+                $newRegs = DB::table('nobs_registration')->where('comp_id', $compId)->whereBetween('created_at', [$startDate, $endDate])->count();
+
+                $data = [
+                    ['Period', "$month / $year"],
+                    ['Total Customers', $totalCustomers],
+                    ['New Registrations', $newRegs],
+                    ['Total Deposits (Month)', number_format($periodDeposits, 2)],
+                    ['Total Withdrawals (Month)', number_format($periodWithdrawals, 2)],
+                    ['Net Cash Flow (Month)', number_format($periodDeposits - $periodWithdrawals, 2)],
+                    ['Total Loans Disbursed (Month)', number_format($periodDisbursed, 2)],
+                    ['Actual Cash Pool (All Time)', number_format($actualCashInHand, 2)],
+                    ['Total Savings Liability (All Time)', number_format($totalSavingsLiability, 2)],
+                    ['Net System Position (All Time)', number_format($netSystemPosition, 2)],
+                ];
+
+                foreach ($data as $line) {
+                    fputcsv($file, $line);
+                }
+
+            } elseif ($type === 'deposits' || $type === 'withdrawals') {
                 $transType = ($type === 'deposits') ? 'Deposit' : 'Withdraw';
                 DB::table('nobs_transactions')
                     ->where('comp_id', $compId)
                     ->where('name_of_transaction', $transType)
+                    ->where('is_shown', 1)
+                    ->where('row_version', 2)
                     ->whereBetween('created_at', [$startDate, $endDate])
                     ->orderBy('created_at', 'ASC')
                     ->chunk(500, function($rows) use($file, &$totalAmount) {
