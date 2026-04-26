@@ -80,6 +80,12 @@ class LoanRepaymentController extends Controller
             $transaction->balance = $remainingDebt; 
             $transaction->save();
 
+            // --- DORMANCY INTEGRITY: Update last activity date on primary account ---
+            DB::table('nobs_user_account_numbers')
+                ->where('account_number', $accountNumber)
+                ->where('comp_id', $compId)
+                ->update(['last_transaction_date' => now(), 'updated_at' => now()]);
+            // -----------------------------------------------------------------------
 
             // 2. Distribute Payment to Schedules (Waterfall) and Update Accounts
             $remainingPayment = $amount;

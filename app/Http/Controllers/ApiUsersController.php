@@ -137,7 +137,11 @@ class ApiUsersController extends Controller
             $account->account_status = 'active';
             $account->save();
     
-            return response()->json(['success' => true, 'message' => 'Account has been re-activated.']);
+            return response()->json([
+                'success' => true, 
+                'message' => 'Account has been re-activated.',
+                'account' => $account // Return object for instant UI sync
+            ]);
         }
     /**
      * Search for agent users by name or phone number.
