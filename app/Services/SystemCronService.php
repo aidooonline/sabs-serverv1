@@ -21,6 +21,7 @@ class SystemCronService
             $count1 = DB::table('nobs_user_account_numbers')
                 ->where('comp_id', $companyId)
                 ->where('account_status', 'active')
+                ->where('account_type', 'NOT LIKE', '%Loan%')
                 ->whereNotNull('last_transaction_date')
                 ->where('last_transaction_date', '<', $cutoffDate)
                 ->update(['account_status' => 'dormant', 'updated_at' => now()]);
@@ -29,6 +30,7 @@ class SystemCronService
             $count2 = DB::table('nobs_user_account_numbers')
                 ->where('comp_id', $companyId)
                 ->where('account_status', 'active')
+                ->where('account_type', 'NOT LIKE', '%Loan%')
                 ->whereNull('last_transaction_date')
                 ->where('created_at', '<', $cutoffDate)
                 ->update(['account_status' => 'dormant', 'updated_at' => now()]);

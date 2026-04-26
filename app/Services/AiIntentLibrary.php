@@ -367,6 +367,7 @@ class AiIntentLibrary
             )
             ->where('nobs_user_account_numbers.comp_id', $this->compId)
             ->where('nobs_user_account_numbers.account_status', 'dormant')
+            ->where('nobs_user_account_numbers.account_type', 'NOT LIKE', '%Loan%')
             ->limit(20)
             ->get();
 

@@ -73,7 +73,8 @@ class SystemReportController extends Controller
                     DB::raw("DATEDIFF(NOW(), COALESCE(ua.last_transaction_date, ua.created_at)) as days_inactive")
                 )
                 ->where('ua.comp_id', $compId)
-                ->where('ua.account_status', 'dormant');
+                ->where('ua.account_status', 'dormant')
+                ->where('ua.account_type', 'NOT LIKE', '%Loan%');
 
             if ($isAgent) {
                 // If agent, filter by registration link
