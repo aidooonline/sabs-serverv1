@@ -209,6 +209,14 @@ Route::middleware(['auth:api'])->group(function () {
     Route::get('monthlydeductions', [ApiUsersController::class, 'monthlydeductions']);
     Route::get('gen_systemreports', [ApiUsersController::class, 'gen_systemreports']);
 
+    // --- SCHEDULER & AUTOMATION ---
+    Route::group(['prefix' => 'scheduler'], function () {
+        Route::post('setup', [App\Http\Controllers\SchedulerController::class, 'setup']);
+        Route::get('status', [App\Http\Controllers\SchedulerController::class, 'status']);
+        Route::post('trigger', [App\Http\Controllers\SchedulerController::class, 'trigger']);
+        Route::post('settings', [App\Http\Controllers\SchedulerController::class, 'updateSettings']);
+    });
+
     // --- ADVANCED REPORT SYSTEM (INTERNAL) ---
     Route::get('report-system/live', 'ReportSystemController@getLiveReport');
     Route::post('report-system/snapshot', 'ReportSystemController@saveSnapshot');
