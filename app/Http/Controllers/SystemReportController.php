@@ -279,7 +279,42 @@ class SystemReportController extends Controller
      */
     public function getDormantList()
     {
-        // ... (existing getDormantList logic)
+        if (!$this->isManagement()) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        try {
+            $compId = auth()->user()->comp_id;
+            $isAgent = $this->isAgentOnly();
+            $userId = auth()->id();
+
+            // Fetch from the account status table directly
+            $query = DB::table('nobs_user_account_numbers')
+                ->leftJoin('nobs_registration', 'nobs_user_account_numbers.account_number', '=', 'nobs_registration.account_number')
+                ->select(
+                    DB::raw("COALESCE(nobs_registration.first_name, 'Unknown') as first_name"),
+                    DB::raw("COALESCE(nobs_registration.surname, 'Customer') as surname"),
+                    'nobs_registration.phone_number',
+                    'nobs_user_account_numbers.account_number',
+                    'nobs_user_account_numbers.account_type',
+                    'nobs_user_account_numbers.balance',
+                    'nobs_user_account_numbers.last_transaction_date'
+                )
+                ->where('nobs_user_account_numbers.comp_id', $compId)
+                ->where('nobs_user_account_numbers.account_status', 'dormant');
+
+            if ($isAgent) {
+                $query->where('nobs_registration.user', $userId);
+            }
+
+            $list = $query->orderBy('nobs_user_account_numbers.last_transaction_date', 'DESC')
+                          ->orderBy('nobs_user_account_numbers.created_at', 'DESC')
+                          ->get();
+
+            return response()->json(['success' => true, 'data' => $list]);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
     }
 
     /**
