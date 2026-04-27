@@ -52,14 +52,15 @@ class AccountsTransactionObserver
             $destType = '';
             $txType = '';
 
-            if ($type == 'Deposit') {
+            if ($type == 'Deposit' || $type == 'Loan Repayment') {
                 // Customer gives Cash to Agent -> Agent Pouch Balance Increases
                 $pouch->current_balance += $amount;
                 $sourceType = 'customer_deposit';
                 $destType = 'agent_pouch';
                 $txType = 'deposit';
-            } elseif ($type == 'Withdraw') {
-                // Agent gives Cash to Customer -> Agent Pouch Balance Decreases
+            } elseif ($type == 'Withdraw' || $type == 'Refund') {
+                // Agent gives Cash to Customer (Withdrawal) OR Agent returns money (Refund/Reversal of Deposit)
+                // In both cases, the cash physically LEAVES the Agent's pouch.
                 $pouch->current_balance -= $amount;
                 $sourceType = 'agent_pouch';
                 $destType = 'customer_withdrawal';

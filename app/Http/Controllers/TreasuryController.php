@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\AgentPouchLedger;
 use App\TreasuryAccount;
 use App\TreasuryTransaction;
+use App\BusinessExpense;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -291,17 +292,17 @@ class TreasuryController extends Controller
         return response()->json([
             'date' => $today,
             'wallets' => [
-                'office_safe' => (float)$safeBalance,
-                'bank_accounts' => (float)$bankBalance,
-                'liquid_total' => (float)$netLiquidCash
+                'office_safe' => round($safeBalance, 2),
+                'bank_accounts' => round($bankBalance, 2),
+                'liquid_total' => round($netLiquidCash, 2)
             ],
             'field_assets' => [
-                'outstanding_agent_debt' => (float)$totalFieldDebt
+                'outstanding_agent_debt' => round($totalFieldDebt, 2)
             ],
             'daily_stats' => [
-                'expenses_today' => (float)$todayExpenses
+                'expenses_today' => round($todayExpenses, 2)
             ],
-            'total_position' => (float)$totalCompanyValue
+            'total_position' => round($totalCompanyValue, 2)
         ]);
     }
 }
