@@ -126,6 +126,16 @@ Route::middleware(['auth:api'])->group(function () {
         Route::post('fix-negative-balances', [App\Http\Controllers\MaintenanceController::class, 'fixNegativeBalances']);
     });
 
+    // --- TREASURY & EXPENSE MODULE ---
+    Route::group(['prefix' => 'treasury'], function () {
+        Route::get('overview', [App\Http\Controllers\TreasuryController::class, 'getTreasuryOverview']);
+        Route::post('initialize-wallet', [App\Http\Controllers\TreasuryController::class, 'initializeWallet']);
+        Route::post('close-agent-day', [App\Http\Controllers\TreasuryController::class, 'closeAgentDay']);
+        Route::post('record-expense', [App\Http\Controllers\TreasuryController::class, 'recordExpense']);
+        Route::post('transfer-funds', [App\Http\Controllers\TreasuryController::class, 'transferFunds']);
+        Route::get('executive-summary', [App\Http\Controllers\TreasuryController::class, 'getExecutiveSummary']);
+    });
+
     Route::post('roles/assign', [App\Http\Controllers\RoleSetupController::class, 'assignRole']);
     Route::get('roles', [App\Http\Controllers\RoleSetupController::class, 'getRoles']);
 
