@@ -52,8 +52,8 @@ class TreasuryController extends Controller
                 return response()->json(['success' => false, 'message' => 'Office Safe not found.'], 404);
             }
 
-            $safe->balance += $cashReceived;
-            $safe->save();
+            // ATOMIC UPDATE to prevent race conditions
+            $safe->update(['balance' => DB::raw("balance + $cashReceived")]);
 
             // 3. Update Pouch Balance
             // The pouch balance now becomes the shortfall (debt) that carries over
@@ -132,18 +132,19 @@ class TreasuryController extends Controller
     public function initializeWallet(Request $request)
     {
         $request->validate([
-            'account_type' => 'required|string',
+            'account_type' => 'required|string|in:safe,bank,investor_vault,loan_pool',
             'account_name' => 'required|string',
             'opening_balance' => 'required|numeric|min:0'
         ]);
 
         $compId = Auth::user()->comp_id;
 
+        // Force comp_id from Auth for security
         $wallet = TreasuryAccount::create([
             'comp_id' => $compId,
             'account_type' => $request->account_type,
             'account_name' => $request->account_name,
-            'balance' => $request->opening_balance,
+            'balance' => round($request->opening_balance, 2),
             'created_by' => Auth::user()->id
         ]);
 
@@ -154,7 +155,7 @@ class TreasuryController extends Controller
             'source_type' => 'opening_balance',
             'destination_type' => 'treasury_account',
             'destination_id' => $wallet->id,
-            'amount' => $request->opening_balance,
+            'amount' => round($request->opening_balance, 2),
             'transaction_type' => 'deposit',
             'description' => "Initial wallet setup for " . $request->account_name,
             'status' => 'completed',
@@ -179,25 +180,26 @@ class TreasuryController extends Controller
 
         return DB::transaction(function () use ($request) {
             $compId = Auth::user()->comp_id;
+            $amount = round($request->amount, 2);
 
             $wallet = TreasuryAccount::where('id', $request->treasury_account_id)
                 ->where('comp_id', $compId)
+                ->lockForUpdate() // Lock to prevent overdraft during race conditions
                 ->first();
 
-            if ($wallet->balance < $request->amount) {
-                return response()->json(['success' => false, 'message' => 'Insufficient funds in wallet.'], 400);
+            if (!$wallet || $wallet->balance < $amount) {
+                return response()->json(['success' => false, 'message' => 'Insufficient funds in wallet or wallet not found.'], 400);
             }
 
-            // 1. Deduct from wallet
-            $wallet->balance -= $request->amount;
-            $wallet->save();
+            // 1. Deduct from wallet (Atomic)
+            $wallet->decrement('balance', $amount);
 
             // 2. Create Expense Record
-            $expense = \App\BusinessExpense::create([
+            $expense = BusinessExpense::create([
                 'comp_id' => $compId,
                 'treasury_account_id' => $wallet->id,
                 'category' => $request->category,
-                'amount' => $request->amount,
+                'amount' => $amount,
                 'description' => $request->description,
                 'expense_date' => $request->expense_date,
                 'recorded_by' => Auth::user()->id
@@ -210,14 +212,14 @@ class TreasuryController extends Controller
                 'source_type' => 'treasury_account',
                 'source_id' => $wallet->id,
                 'destination_type' => 'business_expense',
-                'amount' => $request->amount,
+                'amount' => $amount,
                 'transaction_type' => 'withdrawal',
                 'description' => "Expense: " . $request->category . " - " . ($request->description ?? ''),
                 'status' => 'completed',
                 'performed_by' => Auth::user()->id
             ]);
 
-            return response()->json(['success' => true, 'expense' => $expense, 'new_balance' => $wallet->balance]);
+            return response()->json(['success' => true, 'expense' => $expense, 'new_balance' => round($wallet->fresh()->balance, 2)]);
         });
     }
 
@@ -235,19 +237,21 @@ class TreasuryController extends Controller
 
         return DB::transaction(function () use ($request) {
             $compId = Auth::user()->comp_id;
+            $amount = round($request->amount, 2);
 
-            $from = TreasuryAccount::where('id', $request->from_account_id)->where('comp_id', $compId)->first();
-            $to = TreasuryAccount::where('id', $request->to_account_id)->where('comp_id', $compId)->first();
+            $from = TreasuryAccount::where('id', $request->from_account_id)->where('comp_id', $compId)->lockForUpdate()->first();
+            $to = TreasuryAccount::where('id', $request->to_account_id)->where('comp_id', $compId)->lockForUpdate()->first();
 
-            if ($from->balance < $request->amount) {
+            if (!$from || $from->balance < $amount) {
                 return response()->json(['success' => false, 'message' => 'Insufficient funds in source wallet.'], 400);
             }
 
-            $from->balance -= $request->amount;
-            $to->balance += $request->amount;
+            if (!$to) {
+                return response()->json(['success' => false, 'message' => 'Destination wallet not found.'], 404);
+            }
 
-            $from->save();
-            $to->save();
+            $from->decrement('balance', $amount);
+            $to->increment('balance', $amount);
 
             TreasuryTransaction::create([
                 'comp_id' => $compId,
@@ -256,14 +260,14 @@ class TreasuryController extends Controller
                 'source_id' => $from->id,
                 'destination_type' => 'treasury_account',
                 'destination_id' => $to->id,
-                'amount' => $request->amount,
+                'amount' => $amount,
                 'transaction_type' => 'transfer',
                 'description' => "Internal Transfer: " . ($request->notes ?? ''),
                 'status' => 'completed',
                 'performed_by' => Auth::user()->id
             ]);
 
-            return response()->json(['success' => true, 'from_balance' => $from->balance, 'to_balance' => $to->balance]);
+            return response()->json(['success' => true, 'from_balance' => round($from->fresh()->balance, 2), 'to_balance' => round($to->fresh()->balance, 2)]);
         });
     }
 

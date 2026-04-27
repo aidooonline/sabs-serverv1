@@ -22,67 +22,96 @@ class AccountsTransactionObserver
     public function created(AccountsTransactions $transaction)
     {
         try {
-            // 1. Identify the Agent (The user currently performing the action)
+            // 1. Identify the Performer
             $user = Auth::user();
-            
-            // If it's a system-generated transaction (e.g. cron) or no user is logged in,
-            // we don't update a pouch.
             if (!$user) {
-                return;
-            }
-
-            // Only process for Agents
-            $isAgent = ($user->type == 'Agents' || $user->type == 'Agent' || $user->hasRole('Agent'));
-            if (!$isAgent) {
+                // If no user (e.g. system cron), we skip automatic treasury routing 
+                // as there's no physical cash movement involved.
                 return;
             }
 
             $amount = $transaction->amount;
-            $type = $transaction->name_of_transaction; // 'Deposit', 'Withdraw'
+            $type = $transaction->name_of_transaction; // 'Deposit', 'Withdraw', 'Loan Repayment', 'Refund'
             $compId = $transaction->comp_id;
 
-            // 2. Find or Create the Agent's Digital Pouch
-            // This pouch tracks the cash the agent physically holds.
-            $pouch = AgentPouchLedger::firstOrCreate(
-                ['agent_id' => $user->id, 'comp_id' => $compId]
-            );
-
-            // 3. Logic for updating Pouch Balance based on Transaction Type
+            // 2. SMART ROUTING LOGIC
+            // If Agent: Cash goes to their Pouch (Debt to office).
+            // If Manager/Admin: Cash goes directly to the Office Safe.
+            
+            $isAgent = ($user->type == 'Agents' || $user->type == 'Agent' || $user->hasRole('Agent'));
+            
             $sourceType = '';
             $destType = '';
+            $sourceId = null;
+            $destId = null;
             $txType = '';
 
-            if ($type == 'Deposit' || $type == 'Loan Repayment') {
-                // Customer gives Cash to Agent -> Agent Pouch Balance Increases
-                $pouch->current_balance += $amount;
-                $sourceType = 'customer_deposit';
-                $destType = 'agent_pouch';
-                $txType = 'deposit';
-            } elseif ($type == 'Withdraw' || $type == 'Refund') {
-                // Agent gives Cash to Customer (Withdrawal) OR Agent returns money (Refund/Reversal of Deposit)
-                // In both cases, the cash physically LEAVES the Agent's pouch.
-                $pouch->current_balance -= $amount;
-                $sourceType = 'agent_pouch';
-                $destType = 'customer_withdrawal';
-                $txType = 'withdrawal';
+            if ($isAgent) {
+                // --- AGENT ROUTING ---
+                $pouch = AgentPouchLedger::firstOrCreate(
+                    ['agent_id' => $user->id, 'comp_id' => $compId]
+                );
+
+                if ($type == 'Deposit' || $type == 'Loan Repayment') {
+                    $pouch->current_balance += $amount;
+                    $sourceType = 'customer_deposit';
+                    $destType = 'agent_pouch';
+                    $destId = $pouch->id;
+                    $txType = 'deposit';
+                } elseif ($type == 'Withdraw' || $type == 'Refund') {
+                    $pouch->current_balance -= $amount;
+                    $sourceType = 'agent_pouch';
+                    $sourceId = $pouch->id;
+                    $destType = 'customer_withdrawal';
+                    $txType = 'withdrawal';
+                } else {
+                    return; // Ignore other types
+                }
+                $pouch->save();
             } else {
-                // Other transaction types (like internal adjustments) are ignored for now.
-                return;
+                // --- MANAGEMENT ROUTING (Direct to Safe) ---
+                // Find the primary safe for this company
+                $safe = TreasuryAccount::where('comp_id', $compId)
+                    ->where('account_type', 'safe')
+                    ->where('is_active', 1)
+                    ->first();
+
+                if (!$safe) {
+                    // Safety: If no safe is setup yet, log it and skip.
+                    // We don't want to crash the app just because treasury isn't configured.
+                    Log::warning("Treasury: No active safe found for Company $compId during Management transaction.");
+                    return;
+                }
+
+                if ($type == 'Deposit' || $type == 'Loan Repayment') {
+                    $safe->balance += $amount;
+                    $sourceType = 'customer_deposit';
+                    $destType = 'treasury_account';
+                    $destId = $safe->id;
+                    $txType = 'deposit';
+                } elseif ($type == 'Withdraw' || $type == 'Refund') {
+                    $safe->balance -= $amount;
+                    $sourceType = 'treasury_account';
+                    $sourceId = $safe->id;
+                    $destType = 'customer_withdrawal';
+                    $txType = 'withdrawal';
+                } else {
+                    return;
+                }
+                $safe->save();
             }
 
-            $pouch->save();
-
-            // 4. Record the movement in the Treasury Ledger
+            // 3. Record the movement in the Treasury Ledger
             TreasuryTransaction::create([
                 'comp_id' => $compId,
                 'transaction_code' => 'BRIDGE-' . Str::upper(Str::random(12)),
                 'source_type' => $sourceType,
-                'source_id' => ($sourceType == 'agent_pouch' ? $pouch->id : null),
+                'source_id' => $sourceId,
                 'destination_type' => $destType,
-                'destination_id' => ($destType == 'agent_pouch' ? $pouch->id : null),
+                'destination_id' => $destId,
                 'amount' => $amount,
                 'transaction_type' => $txType,
-                'description' => "Bridge Entry: " . $type . " by agent " . $user->name,
+                'description' => "Bridge Entry: $type by " . $user->name . ($isAgent ? " (Agent)" : " (Management)"),
                 'related_legacy_tx_id' => $transaction->__id__,
                 'status' => 'completed',
                 'performed_by' => $user->id
@@ -90,10 +119,7 @@ class AccountsTransactionObserver
 
         } catch (\Throwable $e) {
             // STRICT ZERO-CRASH POLICY
-            // We log the error so we can fix it, but we MUST NOT stop the legacy app.
-            Log::error('Treasury Bridge Error for Tx ' . ($transaction->__id__ ?? 'NEW') . ': ' . $e->getMessage(), [
-                'trace' => $e->getTraceAsString()
-            ]);
+            Log::error('Treasury Bridge Error for Tx ' . ($transaction->__id__ ?? 'NEW') . ': ' . $e->getMessage());
         }
     }
 }
