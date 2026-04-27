@@ -25,14 +25,17 @@ class AccountsTransactionObserver
             // 1. Identify the Performer
             $user = Auth::user();
             if (!$user) {
-                // If no user (e.g. system cron), we skip automatic treasury routing 
-                // as there's no physical cash movement involved.
+                // System cron or automated task
                 return;
             }
 
             $amount = $transaction->amount;
             $type = $transaction->name_of_transaction; // 'Deposit', 'Withdraw', 'Loan Repayment', 'Refund'
             $compId = $transaction->comp_id;
+            
+            // LOGIC CONTEXT: Identify if this is a reversal/adjustment based on description
+            $desc = strtolower($transaction->description ?? '');
+            $isReversal = (strpos($desc, 'reversal') !== false || strpos($desc, 'refund') !== false || strpos($desc, 'adjustment') !== false);
 
             // 2. SMART ROUTING LOGIC
             // If Agent: Cash goes to their Pouch (Debt to office).
@@ -53,52 +56,47 @@ class AccountsTransactionObserver
                 );
 
                 if ($type == 'Deposit' || $type == 'Loan Repayment') {
-                    $pouch->current_balance += $amount;
+                    $pouch->increment('current_balance', $amount);
                     $sourceType = 'customer_deposit';
                     $destType = 'agent_pouch';
                     $destId = $pouch->id;
-                    $txType = 'deposit';
+                    $txType = $isReversal ? 'reversal' : 'deposit';
                 } elseif ($type == 'Withdraw' || $type == 'Refund') {
-                    $pouch->current_balance -= $amount;
+                    $pouch->decrement('current_balance', $amount);
                     $sourceType = 'agent_pouch';
                     $sourceId = $pouch->id;
                     $destType = 'customer_withdrawal';
-                    $txType = 'withdrawal';
+                    $txType = $isReversal ? 'reversal' : 'withdrawal';
                 } else {
                     return; // Ignore other types
                 }
-                $pouch->save();
             } else {
                 // --- MANAGEMENT ROUTING (Direct to Safe) ---
-                // Find the primary safe for this company
                 $safe = TreasuryAccount::where('comp_id', $compId)
                     ->where('account_type', 'safe')
                     ->where('is_active', 1)
                     ->first();
 
                 if (!$safe) {
-                    // Safety: If no safe is setup yet, log it and skip.
-                    // We don't want to crash the app just because treasury isn't configured.
                     Log::warning("Treasury: No active safe found for Company $compId during Management transaction.");
                     return;
                 }
 
                 if ($type == 'Deposit' || $type == 'Loan Repayment') {
-                    $safe->balance += $amount;
+                    $safe->increment('balance', $amount);
                     $sourceType = 'customer_deposit';
                     $destType = 'treasury_account';
                     $destId = $safe->id;
-                    $txType = 'deposit';
+                    $txType = $isReversal ? 'reversal' : 'deposit';
                 } elseif ($type == 'Withdraw' || $type == 'Refund') {
-                    $safe->balance -= $amount;
+                    $safe->decrement('balance', $amount);
                     $sourceType = 'treasury_account';
                     $sourceId = $safe->id;
                     $destType = 'customer_withdrawal';
-                    $txType = 'withdrawal';
+                    $txType = $isReversal ? 'reversal' : 'withdrawal';
                 } else {
                     return;
                 }
-                $safe->save();
             }
 
             // 3. Record the movement in the Treasury Ledger
@@ -111,7 +109,7 @@ class AccountsTransactionObserver
                 'destination_id' => $destId,
                 'amount' => $amount,
                 'transaction_type' => $txType,
-                'description' => "Bridge Entry: $type by " . $user->name . ($isAgent ? " (Agent)" : " (Management)"),
+                'description' => "Bridge Entry: $type by " . $user->name . ($isReversal ? " (REVERSAL)" : ""),
                 'related_legacy_tx_id' => $transaction->__id__,
                 'status' => 'completed',
                 'performed_by' => $user->id
@@ -119,7 +117,7 @@ class AccountsTransactionObserver
 
         } catch (\Throwable $e) {
             // STRICT ZERO-CRASH POLICY
-            Log::error('Treasury Bridge Error for Tx ' . ($transaction->__id__ ?? 'NEW') . ': ' . $e->getMessage());
+            Log::error('Treasury Bridge Error: ' . $e->getMessage());
         }
     }
 }
