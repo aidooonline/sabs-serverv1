@@ -137,32 +137,44 @@ class TreasuryController extends Controller
             'opening_balance' => 'required|numeric|min:0'
         ]);
 
-        $compId = Auth::user()->comp_id;
+        return DB::transaction(function () use ($request) {
+            $compId = Auth::user()->comp_id;
+            $amount = round($request->opening_balance, 2);
 
-        // Force comp_id from Auth for security
-        $wallet = TreasuryAccount::create([
-            'comp_id' => $compId,
-            'account_type' => $request->account_type,
-            'account_name' => $request->account_name,
-            'balance' => round($request->opening_balance, 2),
-            'created_by' => Auth::user()->id
-        ]);
+            // 1. DUPLICATE GUARD: Prevent creating multiple wallets with the same name for the same company
+            $exists = TreasuryAccount::where('comp_id', $compId)
+                ->where('account_name', $request->account_name)
+                ->exists();
 
-        // Record opening transaction
-        TreasuryTransaction::create([
-            'comp_id' => $compId,
-            'transaction_code' => 'OPN-' . Str::upper(Str::random(12)),
-            'source_type' => 'opening_balance',
-            'destination_type' => 'treasury_account',
-            'destination_id' => $wallet->id,
-            'amount' => round($request->opening_balance, 2),
-            'transaction_type' => 'deposit',
-            'description' => "Initial wallet setup for " . $request->account_name,
-            'status' => 'completed',
-            'performed_by' => Auth::user()->id
-        ]);
+            if ($exists) {
+                return response()->json(['success' => false, 'message' => 'A wallet with this name already exists.'], 422);
+            }
 
-        return response()->json(['success' => true, 'wallet' => $wallet]);
+            // 2. Create the Wallet
+            $wallet = TreasuryAccount::create([
+                'comp_id' => $compId,
+                'account_type' => $request->account_type,
+                'account_name' => $request->account_name,
+                'balance' => $amount,
+                'created_by' => Auth::user()->id
+            ]);
+
+            // 3. Record opening transaction for audit trail
+            TreasuryTransaction::create([
+                'comp_id' => $compId,
+                'transaction_code' => 'OPN-' . Str::upper(Str::random(12)),
+                'source_type' => 'opening_balance',
+                'destination_type' => 'treasury_account',
+                'destination_id' => $wallet->id,
+                'amount' => $amount,
+                'transaction_type' => 'deposit',
+                'description' => "Initial wallet setup for " . $request->account_name,
+                'status' => 'completed',
+                'performed_by' => Auth::user()->id
+            ]);
+
+            return response()->json(['success' => true, 'wallet' => $wallet]);
+        });
     }
 
     /**
@@ -286,12 +298,17 @@ class TreasuryController extends Controller
         // 2. Agent Field Debt
         $totalFieldDebt = AgentPouchLedger::where('comp_id', $compId)->where('current_balance', '>', 0)->sum('current_balance');
         
-        // 3. Today's Expenses
-        $todayExpenses = \App\BusinessExpense::where('comp_id', $compId)->where('expense_date', $today)->sum('amount');
+        // 3. Investor Capital Position
+        $totalInvestorCapital = \App\InvestorLedger::where('comp_id', $compId)->sum('current_balance');
+        $totalRoiPaid = \App\InvestorLedger::where('comp_id', $compId)->sum('total_roi_paid');
 
-        // 4. Calculate Net Position
+        // 4. Today's Expenses
+        $todayExpenses = BusinessExpense::where('comp_id', $compId)->where('expense_date', $today)->sum('amount');
+
+        // 5. Calculate Net Position
         $netLiquidCash = $safeBalance + $bankBalance;
-        $totalCompanyValue = $netLiquidCash + $totalFieldDebt;
+        $totalCompanyAssets = $netLiquidCash + $totalFieldDebt;
+        $netWorth = $totalCompanyAssets - $totalInvestorCapital;
 
         return response()->json([
             'date' => $today,
@@ -303,10 +320,17 @@ class TreasuryController extends Controller
             'field_assets' => [
                 'outstanding_agent_debt' => round($totalFieldDebt, 2)
             ],
+            'investor_position' => [
+                'total_investor_capital' => round($totalInvestorCapital, 2),
+                'total_roi_paid_to_date' => round($totalRoiPaid, 2)
+            ],
             'daily_stats' => [
                 'expenses_today' => round($todayExpenses, 2)
             ],
-            'total_position' => round($totalCompanyValue, 2)
+            'total_valuation' => [
+                'gross_assets' => round($totalCompanyAssets, 2),
+                'net_company_worth' => round($netWorth, 2)
+            ]
         ]);
     }
 }
