@@ -6,14 +6,32 @@
 require_once 'config.php';
 session_start();
 
-// Security: Check Authentication
+// Security: Check Authentication & CSRF Token
 if (!($_SESSION['rescue_auth'] ?? false)) {
     die(json_encode(['status' => 'error', 'message' => 'Unauthorized']));
 }
 
+// Simple CSRF Check
+$token = $_POST['token'] ?? '';
+if (!$token || $token !== ($_SESSION['rescue_token'] ?? '')) {
+    die(json_encode(['status' => 'error', 'message' => 'Security token mismatch']));
+}
+
 header('Content-Type: application/json');
 
-function connect() {
+// --- CONCURRENCY LOCK CHECK ---
+$lockFile = BACKUP_DIR . '/backup_in_progress.lock';
+$action = $_POST['action'] ?? '';
+
+if ($action === 'init_file') {
+    if (file_exists($lockFile) && (time() - filemtime($lockFile) < 3600)) {
+        die(json_encode(['status' => 'error', 'message' => 'Another backup is already in progress.']));
+    }
+    file_put_contents($lockFile, time());
+}
+if ($action === 'finalize') {
+    if (file_exists($lockFile)) unlink($lockFile);
+}
     return new PDO("mysql:host=".DB_HOST.";dbname=".DB_NAME.";charset=utf8mb4", DB_USER, DB_PASS, [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,

@@ -10,6 +10,12 @@ if (!($_SESSION['rescue_auth'] ?? false)) {
     die(json_encode(['status' => 'error', 'message' => 'Unauthorized']));
 }
 
+// Simple CSRF Check
+$token = $_POST['token'] ?? '';
+if (!$token || $token !== ($_SESSION['rescue_token'] ?? '')) {
+    die(json_encode(['status' => 'error', 'message' => 'Security token mismatch']));
+}
+
 header('Content-Type: application/json');
 
 $tokenPath = __DIR__ . '/google_token.json';

@@ -10,6 +10,12 @@ if (!($_SESSION['rescue_auth'] ?? false)) {
     die(json_encode(['status' => 'error', 'message' => 'Unauthorized']));
 }
 
+// Simple CSRF Check
+$token = $_POST['token'] ?? '';
+if (!$token || $token !== ($_SESSION['rescue_token'] ?? '')) {
+    die(json_encode(['status' => 'error', 'message' => 'Security token mismatch']));
+}
+
 header('Content-Type: application/json');
 
 function connect() {
@@ -87,7 +93,8 @@ try {
         fclose($handle);
 
         if ($isFinished) {
-            // Clean up: Optional, keeping it for now for safety
+            // Clean up: Delete unzipped SQL file after successful restore
+            unlink($filepath);
         }
 
         echo json_encode([

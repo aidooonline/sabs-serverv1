@@ -17,12 +17,14 @@ $error = '';
 if (isset($_POST['password'])) {
     if (password_verify($_POST['password'], RESCUE_MASTER_PASSWORD)) {
         $_SESSION['rescue_auth'] = true;
+        $_SESSION['rescue_token'] = bin2hex(random_bytes(32)); // Standalone CSRF Protection
     } else {
         $error = 'Invalid Master Password';
     }
 }
 
 $isAuthenticated = $_SESSION['rescue_auth'] ?? false;
+$rescueToken = $_SESSION['rescue_token'] ?? '';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -288,6 +290,7 @@ $isAuthenticated = $_SESSION['rescue_auth'] ?? false;
 
     async function api(endpoint, action, data = {}, retries = 3) {
         data.action = action;
+        data.token = '<?php echo $rescueToken; ?>'; // Inject standalone security token
         return new Promise((resolve, reject) => {
             const attempt = (remaining) => {
                 $.ajax({
