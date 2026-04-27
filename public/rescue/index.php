@@ -286,19 +286,29 @@ $isAuthenticated = $_SESSION['rescue_auth'] ?? false;
         }
     });
 
-    async function api(endpoint, action, data = {}) {
+    async function api(endpoint, action, data = {}, retries = 3) {
         data.action = action;
         return new Promise((resolve, reject) => {
-            $.ajax({
-                url: endpoint,
-                method: 'POST',
-                data: data,
-                success: function(res) {
-                    if(res.status === 'success') resolve(res);
-                    else reject(res.message);
-                },
-                error: function() { reject('Network or Server Error'); }
-            });
+            const attempt = (remaining) => {
+                $.ajax({
+                    url: endpoint,
+                    method: 'POST',
+                    data: data,
+                    success: function(res) {
+                        if(res.status === 'success') resolve(res);
+                        else reject(res.message);
+                    },
+                    error: function() { 
+                        if (remaining > 0) {
+                            addLog('<span class="text-warning">Network glitch. Retrying... (' + remaining + ' left)</span>');
+                            setTimeout(() => attempt(remaining - 1), 2000);
+                        } else {
+                            reject('Network or Server Error after multiple attempts.'); 
+                        }
+                    }
+                });
+            };
+            attempt(retries);
         });
     }
 
