@@ -1,7 +1,7 @@
 <?php
 /**
  * SABS Rescue Portal - Google Drive Integration
- * Handles Resumable Uploads and OAuth2 via raw cURL.
+ * Handles Resumable Uploads and OAuth2 via raw cURL with memory-safe streaming.
  */
 require_once 'config.php';
 session_start();
@@ -55,7 +55,7 @@ function getAccessToken() {
 $action = $_POST['action'] ?? '';
 
 try {
-    // 1. UPLOAD TO DRIVE (Resumable)
+    // 1. UPLOAD TO DRIVE (Resumable & Streaming)
     if ($action === 'upload_to_drive') {
         $filename = $_POST['filename'] ?? '';
         $filepath = BACKUP_DIR . '/' . $filename;
@@ -89,18 +89,18 @@ try {
 
         if (!$uploadUrl) throw new Exception("Failed to get upload URL from Google.");
 
-        // B. Perform actual upload in chunks
+        // B. Perform actual upload using STREAMING (Memory Safe)
         $fileSize = filesize($filepath);
         $fileHandle = fopen($filepath, 'rb');
         
         $ch = curl_init($uploadUrl);
+        curl_setopt($ch, CURLOPT_PUT, true);
+        curl_setopt($ch, CURLOPT_INFILE, $fileHandle);
+        curl_setopt($ch, CURLOPT_INFILESIZE, $fileSize);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            "Content-Length: $fileSize",
             "Content-Type: application/zip"
         ]);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, fread($fileHandle, $fileSize));
         
         $res = curl_exec($ch);
         $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);

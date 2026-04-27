@@ -40,6 +40,7 @@ try {
         $filepath = BACKUP_DIR . '/' . $filename;
         
         $sql = "-- SABS Database Backup\n-- Date: " . date('Y-m-d H:i:s') . "\n";
+        $sql .= "SET NAMES utf8mb4;\n";
         $sql .= "SET FOREIGN_KEY_CHECKS=0;\n\n";
         
         file_put_contents($filepath, $sql);

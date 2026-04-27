@@ -58,7 +58,8 @@ try {
         $tempQuery = '';
         $maxQueriesPerRequest = 200; // Small batches to prevent timeouts
 
-        while ($queryCount < $maxQueriesPerRequest && ($line = fgets($handle)) !== false) {
+        // Added 1MB buffer to handle extremely long single lines (e.g. large blobs/multi-inserts)
+        while ($queryCount < $maxQueriesPerRequest && ($line = fgets($handle, 1048576)) !== false) {
             $trimmedLine = trim($line);
             
             // Skip comments and empty lines
