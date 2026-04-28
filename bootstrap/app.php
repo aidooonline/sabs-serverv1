@@ -15,6 +15,11 @@ $app = new Illuminate\Foundation\Application(
     $_ENV['APP_BASE_PATH'] ?? dirname(__DIR__)
 );
 
+// PHP 8.1+ Compatibility Patch
+if (PHP_VERSION_ID >= 80100) {
+    error_reporting(E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED);
+}
+
 /*
 |--------------------------------------------------------------------------
 | Bind Important Interfaces
