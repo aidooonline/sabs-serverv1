@@ -36,6 +36,15 @@ class Handler extends ExceptionHandler
      */
     public function report(Throwable $exception)
     {
+        // EMERGENCY RAW LOGGING (Bypasses Laravel Logger)
+        try {
+            $logPath = storage_path('logs/emergency_debug.log');
+            $msg = "[" . date('Y-m-d H:i:s') . "] " . $exception->getMessage() . " in " . $exception->getFile() . ":" . $exception->getLine() . "\n";
+            file_put_contents($logPath, $msg, FILE_APPEND);
+        } catch (\Exception $e) {
+            // Do nothing if we can't even write to a file
+        }
+
         parent::report($exception);
     }
 
