@@ -43,9 +43,14 @@ class SystemReportController extends Controller
         }
 
         try {
-            $compId = (int)auth()->user()->comp_id;
+            $user = auth()->user();
+            if (!$user) return response()->json(['success' => false, 'message' => 'Session expired'], 401);
+
+            $compId = (int)$user->comp_id;
             $isAgent = $this->isAgentOnly();
             $userId = auth()->id();
+
+            if (!$compId) return response()->json(['success' => false, 'message' => 'Company context missing'], 400);
 
             // --- HIGH-PRECISION INTEGRITY QUERY ---
             $query = DB::table('nobs_user_account_numbers as ua')
