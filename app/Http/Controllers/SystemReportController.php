@@ -43,26 +43,24 @@ class SystemReportController extends Controller
         }
 
         try {
-            $compId = auth()->user()->comp_id;
+            $compId = (int)auth()->user()->comp_id;
             $isAgent = $this->isAgentOnly();
             $userId = auth()->id();
 
             // --- HIGH-PRECISION INTEGRITY QUERY ---
-            // We use subqueries for everything related to external tables to ensure 'ua' remains the anchor.
-            // This prevents duplicate rows from registration joins and matches history popup balances.
             $query = DB::table('nobs_user_account_numbers as ua')
                 ->select(
                     'ua.id', 
                     'ua.account_number',
                     'ua.account_type',
-                    // Name Lookup via Subquery (prevents join duplicates)
+                    // Name Lookup via Subquery (properly bound compId)
                     DB::raw("(SELECT COALESCE(first_name, 'Unknown') FROM nobs_registration 
                               WHERE account_number = ua.primary_account_number AND comp_id = $compId LIMIT 1) as first_name"),
                     DB::raw("(SELECT COALESCE(surname, 'Customer') FROM nobs_registration 
                               WHERE account_number = ua.primary_account_number AND comp_id = $compId LIMIT 1) as surname"),
                     DB::raw("(SELECT phone_number FROM nobs_registration 
                               WHERE account_number = ua.primary_account_number AND comp_id = $compId LIMIT 1) as phone_number"),
-                    // THE SOURCE OF TRUTH: Get balance from the most recent transaction entry
+                    // THE SOURCE OF TRUTH
                     DB::raw("(SELECT balance FROM nobs_transactions 
                               WHERE account_number = ua.account_number 
                               AND account_type = ua.account_type 
