@@ -31,9 +31,10 @@ class TreasuryController extends Controller
             $agentId = $request->agent_id;
             $cashReceived = $request->physical_cash_received;
             
-            // 1. Get Agent Pouch
+            // 1. Get Agent Pouch with LOCK to prevent race conditions
             $pouch = AgentPouchLedger::where('agent_id', $agentId)
                 ->where('comp_id', $compId)
+                ->lockForUpdate()
                 ->first();
 
             if (!$pouch) {

@@ -48,6 +48,19 @@ class AccountsTransactionObserver
             $sourceId = null;
             $destId = null;
             $txType = '';
+            $relatedTx = null;
+
+            // 2.1 ATTEMPT TO FIND ORIGINAL BRIDGE ENTRY FOR REVERSALS
+            if ($isReversal) {
+                // Try to find the original transaction this is reversing
+                // Usually reversals have 'Reversal of Tx #123' or similar in description
+                preg_match('/#(\d+)/', $desc, $matches);
+                $originalId = $matches[1] ?? null;
+                
+                if ($originalId) {
+                    $relatedTx = TreasuryTransaction::where('related_legacy_tx_id', $originalId)->first();
+                }
+            }
 
             if ($isAgent) {
                 // --- AGENT ROUTING ---
@@ -62,23 +75,31 @@ class AccountsTransactionObserver
                     $destId = $pouch->id;
                     $txType = $isReversal ? 'reversal' : 'deposit';
                 } elseif ($type == 'Withdraw' || $type == 'Refund') {
-                    $pouch->decrement('current_balance', $amount);
+                    // If it's a reversal of a withdrawal, we are putting money BACK in the pouch
+                    $pouch->increment('current_balance', $isReversal ? $amount : -$amount);
                     $sourceType = 'agent_pouch';
                     $sourceId = $pouch->id;
                     $destType = 'customer_withdrawal';
                     $txType = $isReversal ? 'reversal' : 'withdrawal';
                 } else {
-                    return; // Ignore other types
+                    return;
                 }
             } else {
-                // --- MANAGEMENT ROUTING (Direct to Safe) ---
-                $safe = TreasuryAccount::where('comp_id', $compId)
-                    ->where('account_type', 'safe')
-                    ->where('is_active', 1)
-                    ->first();
+                // --- MANAGEMENT ROUTING (Safe) ---
+                // If we found the original transaction, we use its destination as our source (and vice versa)
+                if ($relatedTx && $relatedTx->destination_type == 'treasury_account') {
+                    $safe = TreasuryAccount::find($relatedTx->destination_id);
+                }
+
+                if (!isset($safe) || !$safe) {
+                    $safe = TreasuryAccount::where('comp_id', $compId)
+                        ->where('account_type', 'safe')
+                        ->where('is_active', 1)
+                        ->first() ?: TreasuryAccount::where('comp_id', $compId)->where('account_type', 'safe')->first();
+                }
 
                 if (!$safe) {
-                    Log::warning("Treasury: No active safe found for Company $compId during Management transaction.");
+                    Log::critical("TREASURY CRITICAL: No safe found for Company $compId. Tx: {$transaction->__id__}");
                     return;
                 }
 
