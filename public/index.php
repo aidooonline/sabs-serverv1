@@ -9,6 +9,11 @@
 
 define('LARAVEL_START', microtime(true));
 
+// PHP 8.1+ Compatibility Patch for Laravel 7
+if (PHP_VERSION_ID >= 80100) {
+    error_reporting(E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED);
+}
+
 /*
 |--------------------------------------------------------------------------
 | Register The Auto Loader
