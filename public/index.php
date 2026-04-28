@@ -9,7 +9,20 @@
 
 define('LARAVEL_START', microtime(true));
 
-// PHP 8.1+ Compatibility Nuclear Suppression
+/**
+ * PHP 8.1+ Stick-Fix for Legacy Laravel
+ * This forces PHP to ignore the "ReturnTypeWillChange" and "ArrayAccess" notices
+ * that cause the framework to crash on boot.
+ */
+function php81_compatibility_handler($errno, $errstr) {
+    if (strpos($errstr, 'ReturnTypeWillChange') !== false || 
+        strpos($errstr, 'ArrayAccess') !== false || 
+        strpos($errstr, 'offsetExists') !== false) {
+        return true; // Ignore this error
+    }
+    return false; // Let Laravel handle everything else
+}
+set_error_handler('php81_compatibility_handler', E_DEPRECATED | E_USER_DEPRECATED);
 error_reporting(E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED);
 ini_set('display_errors', '0');
 
