@@ -17,6 +17,20 @@ class Kernel extends ConsoleKernel
     ];
 
     /**
+     * Bootstrap the application for artisan commands.
+     *
+     * @return void
+     */
+    public function bootstrap()
+    {
+        parent::bootstrap();
+
+        if (PHP_VERSION_ID >= 80100) {
+            error_reporting(E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED);
+        }
+    }
+
+    /**
      * Define the application's command schedule.
      *
      * @param  \Illuminate\Console\Scheduling\Schedule  $schedule

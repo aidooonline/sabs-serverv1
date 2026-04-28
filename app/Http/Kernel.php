@@ -7,6 +7,20 @@ use Illuminate\Foundation\Http\Kernel as HttpKernel;
 class Kernel extends HttpKernel
 {
     /**
+     * Bootstrap the application for HTTP requests.
+     *
+     * @return void
+     */
+    public function bootstrap()
+    {
+        parent::bootstrap();
+
+        if (PHP_VERSION_ID >= 80100) {
+            error_reporting(E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED);
+        }
+    }
+
+    /**
      * The application's global HTTP middleware stack.
      *
      * These middleware are run during every request to your application.
