@@ -8,6 +8,7 @@
         Deny from all
     </Files>
 
+    DirectoryIndex index.php
     RewriteEngine On
     RewriteBase /sabs-serverv3/
 
