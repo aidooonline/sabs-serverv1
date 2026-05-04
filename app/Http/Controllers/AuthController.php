@@ -12,6 +12,11 @@ use Spatie\Permission\Models\Role;
 
 class AuthController extends Controller
 {
+    public function loginStatus()
+    {
+        return response()->json(['status' => 'Ready', 'message' => 'Auth controller is reachable'], 200);
+    }
+
     public function login(Request $request)
     {
         $validatedData = $request->validate([

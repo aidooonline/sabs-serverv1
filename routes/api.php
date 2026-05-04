@@ -237,6 +237,7 @@ Route::middleware(['auth:api'])->group(function () {
 Route::get('report-system/export', 'ReportSystemController@exportCsv');
 
 // Public
-Route::post('/login', [AuthController::class, 'login']);
+Route::get('/login-status', [AuthController.class, 'loginStatus']);
+Route::post('/login', [AuthController.class, 'login']);
 Route::get('insertcompanyinfo', [ApiUsersController::class, 'insertcompanyinfo']);
 Route::get('mymtn', [ApiUsersController::class, 'mymtn']);
