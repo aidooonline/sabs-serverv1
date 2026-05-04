@@ -449,7 +449,8 @@ class AiAgentController extends Controller
                             'intent_name' => [
                                 'type' => 'string', 
                                 'enum' => [
-                                    'TOTAL_DEPOSITS', 'TOTAL_WITHDRAWALS', 'BANK_LIQUIDITY', 'ARREARS_REPORT', 
+                                    'TOTAL_DEPOSITS', 'TOTAL_WITHDRAWALS', 'BANK_LIQUIDITY', 'TREASURY_POSITION',
+                                    'AGENT_LIABILITY', 'EXPENSE_REPORT', 'ARREARS_REPORT', 
                                     'AGENT_RANKING', 'PORTFOLIO_HEALTH', 'CUSTOMER_SEARCH', 'HELP_MENU',
                                     'ACCOUNT_BALANCES', 'CASH_POOL_BALANCE', 'DAILY_SUMMARY', 'RECENT_TRANSACTIONS',
                                     'NEW_REGISTRATIONS', 'RECENT_CUSTOMERS', 'EXPECTED_REPAYMENTS', 'DAILY_DISBURSEMENTS',

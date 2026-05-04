@@ -133,37 +133,46 @@ class AiIntelligenceService
                 break;
         }
 
-        // --- 1. SYSTEM LIQUIDITY & POSITION (Verified Official Filters) ---
-        $baseQuery = DB::table('nobs_transactions')
+        // --- 1. PHYSICAL ASSETS (Unified Financial Pipeline) ---
+        $officeCash = (float)DB::table('treasury_accounts')->where('comp_id', $this->compId)->where('account_type', 'safe')->sum('balance');
+        $bankReserves = (float)DB::table('treasury_accounts')->where('comp_id', $this->compId)->where('account_type', 'bank')->sum('balance');
+        $agentFieldCash = (float)DB::table('agent_pouch_ledger')->where('comp_id', $this->compId)->sum('current_balance');
+        
+        $totalPhysicalCash = $officeCash + $bankReserves + $agentFieldCash;
+
+        // --- 2. DIGITAL LIABILITIES (Customer Savings) ---
+        $totalPoolDeposits = (float)DB::table('nobs_transactions')
             ->where('comp_id', $this->compId)
-            ->where('is_shown', 1)
-            ->where('row_version', 2);
+            ->where('name_of_transaction', 'LIKE', 'Deposit%')
+            ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
+            ->sum('amount');
+            
+        $totalPoolWithdrawals = (float)DB::table('nobs_transactions')
+            ->where('comp_id', $this->compId)
+            ->where('name_of_transaction', 'LIKE', 'Withdraw%')
+            ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
+            ->sum('amount');
 
-        $totalPoolDeposits = (float)(clone $baseQuery)->where('name_of_transaction', 'Deposit')->sum('amount');
-        $totalPoolWithdrawals = (float)(clone $baseQuery)->where('name_of_transaction', 'Withdraw')->sum('amount');
-        $totalLoanRepayments = (float)(clone $baseQuery)->where('name_of_transaction', 'Loan Repayment')->sum('amount');
-        $totalRefunds = (float)(clone $baseQuery)->where('name_of_transaction', 'Refund')->sum('amount');
-        $totalAgentCommissions = (float)(clone $baseQuery)->where('name_of_transaction', 'Agent Commission')->sum('amount');
-        $totalSystemCommissions = (float)(clone $baseQuery)->where('name_of_transaction', 'Commission')->sum('amount');
+        $totalFees = (float)DB::table('nobs_transactions')
+            ->where('comp_id', $this->compId)
+            ->where(function($q) {
+                $q->where('name_of_transaction', 'LIKE', '%fee%')
+                  ->orWhere('name_of_transaction', 'LIKE', '%charge%')
+                  ->orWhere('name_of_transaction', 'LIKE', '%sms%')
+                  ->orWhere('name_of_transaction', 'LIKE', '%maintenance%');
+            })->sum('amount');
+
+        $totalSavingsLiability = $totalPoolDeposits - ($totalPoolWithdrawals + $totalFees);
+        $netSystemPosition = $totalPhysicalCash - $totalSavingsLiability;
+
+        // --- 3. PERIOD PERFORMANCE ---
+        $periodQuery = DB::table('nobs_transactions')
+            ->where('comp_id', $this->compId)
+            ->whereBetween('created_at', [$startDate, $today]);
         
-        $totalFeesCharged = (float)(clone $baseQuery)->where(function($q) {
-            $q->where('name_of_transaction', 'LIKE', '%fee%')
-              ->orWhere('name_of_transaction', 'LIKE', '%charge%')
-              ->orWhere('name_of_transaction', 'sms')
-              ->orWhere('name_of_transaction', 'maintenance');
-        })->sum('amount');
-
-        // OFFICIAL BALANCE FORMULA
-        $actualCashInHand = $totalPoolDeposits - $totalPoolWithdrawals - $totalRefunds - $totalAgentCommissions - $totalSystemCommissions + $totalLoanRepayments;
-        $totalSavingsLiability = $totalPoolDeposits - ($totalPoolWithdrawals + $totalRefunds + $totalFeesCharged);
-        $netSystemPosition = $actualCashInHand - $totalSavingsLiability;
-
-        // --- 2. PERIOD PERFORMANCE ---
-        $periodQuery = (clone $baseQuery)->whereBetween('created_at', [$startDate, $today]);
-        
-        $periodDeposits = (float)(clone $periodQuery)->where('name_of_transaction', 'Deposit')->sum('amount');
-        $periodWithdrawals = (float)(clone $periodQuery)->where('name_of_transaction', 'Withdraw')->sum('amount');
-        $periodRepayments = (float)(clone $periodQuery)->where('name_of_transaction', 'Loan Repayment')->sum('amount');
+        $periodDeposits = (float)(clone $periodQuery)->where('name_of_transaction', 'LIKE', 'Deposit%')->sum('amount');
+        $periodWithdrawals = (float)(clone $periodQuery)->where('name_of_transaction', 'LIKE', 'Withdraw%')->sum('amount');
+        $periodRepayments = (float)(clone $periodQuery)->where('name_of_transaction', 'LIKE', 'Loan Repayment%')->sum('amount');
         
         $periodDisbursed = (float)DB::table('loan_applications')
             ->where('comp_id', $this->compId)
@@ -177,8 +186,10 @@ class AiIntelligenceService
         $fullSystemData = [
             'period_label' => $label,
             'summary' => [
-                'cash_at_hand' => $actualCashInHand,
-                'net_position' => $netSystemPosition,
+                'liquid_cash_reserves' => $officeCash + $bankReserves,
+                'agent_field_debt' => $agentFieldCash,
+                'customer_savings_liability' => $totalSavingsLiability,
+                'true_net_position' => $netSystemPosition,
                 'period_deposits' => $periodDeposits,
                 'period_withdrawals' => $periodWithdrawals,
                 'period_repayments' => $periodRepayments,
@@ -192,8 +203,8 @@ class AiIntelligenceService
         $prompt = "Act as the Chief Financial Officer. Summarize this bank performance for $label.
         DATA: " . json_encode($fullSystemData['summary']) . ".
         TASK:
-        1. Write a 3-sentence conversational 'caption' summarizing key metrics.
-        2. Write a 3-sentence 'strategy' key providing executive advice.
+        1. Write a 3-sentence conversational 'caption' summarizing key metrics. Focus on the relationship between Liquid Cash, Field Debt, and Savings Liability.
+        2. Write a 3-sentence 'strategy' key providing executive advice on liquidity management.
         Return JSON object with keys 'caption' and 'strategy'. No markdown.";
 
         $brief = $this->callGeminiBasic($prompt);
@@ -201,10 +212,12 @@ class AiIntelligenceService
         $caption = $brief['caption'] ?? "Executive Financial Intelligence Briefing for $label:";
 
         $metadata = [
-            ['Cash at Hand' => number_format($actualCashInHand, 2) . ' GHS'],
-            ['Net System Position' => number_format($netSystemPosition, 2) . ' GHS'],
-            ['Total Customers' => (int)$totalCustomers],
+            ['Office/Bank Reserves' => number_format($officeCash + $bankReserves, 2) . ' GHS'],
+            ['Agent Field Cash' => number_format($agentFieldCash, 2) . ' GHS'],
+            ['Savings Liability' => number_format($totalSavingsLiability, 2) . ' GHS'],
+            ['True Net Position' => number_format($netSystemPosition, 2) . ' GHS'],
             ['Portfolio Value' => number_format($totalPortfolioValue, 2) . ' GHS'],
+            ['Total Customers' => (int)$totalCustomers],
             ["Deposits ($period)" => number_format($periodDeposits, 2) . ' GHS'],
             ["Withdrawals ($period)" => number_format($periodWithdrawals, 2) . ' GHS'],
             ["Repayments ($period)" => number_format($periodRepayments, 2) . ' GHS'],

@@ -41,39 +41,117 @@ class AiIntentLibrary
     }
 
     /**
-     * Exact Replica: Net System Position (from ReportSystemController)
+     * Unified Financial Pipeline: Real-time Treasury Position
+     */
+    public function getTreasuryPosition()
+    {
+        $wallets = DB::table('treasury_accounts')
+            ->where('comp_id', $this->compId)
+            ->where('is_active', 1)
+            ->select('account_name', 'account_type', 'balance')
+            ->get();
+
+        $totalLiquid = $wallets->sum('balance');
+
+        return [
+            'ui_type' => 'mobile_optimized_list',
+            'ui_metadata' => $wallets,
+            'caption' => "Current Treasury Position (Total Liquid: " . number_format($totalLiquid, 2) . " GHS):"
+        ];
+    }
+
+    /**
+     * Unified Financial Pipeline: Agent Field Liability (Pouches)
+     */
+    public function getAgentFieldLiability()
+    {
+        $pouches = DB::table('agent_pouch_ledger')
+            ->join('users', 'agent_pouch_ledger.agent_id', '=', 'users.id')
+            ->where('agent_pouch_ledger.comp_id', $this->compId)
+            ->where('agent_pouch_ledger.current_balance', '!=', 0)
+            ->select('users.name as agent_name', 'agent_pouch_ledger.current_balance as cash_held', 'agent_pouch_ledger.last_closing_date')
+            ->orderBy('agent_pouch_ledger.current_balance', 'DESC')
+            ->get();
+
+        $totalInField = $pouches->sum('cash_held');
+
+        return [
+            'ui_type' => 'mobile_optimized_list',
+            'ui_metadata' => $pouches,
+            'caption' => "Field Collections Currently Held by Agents (Total: " . number_format($totalInField, 2) . " GHS):"
+        ];
+    }
+
+    /**
+     * Unified Financial Pipeline: Business Expense Analysis
+     */
+    public function getExpenseAnalysis($startDate = null, $endDate = null)
+    {
+        $query = DB::table('bank_expenses')
+            ->select('category', DB::raw('SUM(amount) as total_amount'), DB::raw('COUNT(*) as count'))
+            ->where('comp_id', $this->compId);
+        
+        $expenses = $this->applyDateRange($query, $startDate, $endDate, 'expense_date')
+            ->groupBy('category')
+            ->orderBy('total_amount', 'DESC')
+            ->get();
+
+        $total = $expenses->sum('total_amount');
+        $label = $this->getLabel($startDate, $endDate);
+
+        return [
+            'ui_type' => 'mobile_optimized_list',
+            'ui_metadata' => $expenses,
+            'caption' => "Expense Breakdown $label (Total: " . number_format($total, 2) . " GHS):"
+        ];
+    }
+
+    /**
+     * Exact Replica: Net System Position (Enhanced with Treasury Data)
      */
     public function getSystemLiquidity()
     {
-        $baseQuery = DB::table('nobs_transactions')
+        // 1. Digital Balances (What we owe customers)
+        $totalPoolDeposits = (float)DB::table('nobs_transactions')
             ->where('comp_id', $this->compId)
+            ->where('name_of_transaction', 'LIKE', 'Deposit%')
             ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
-            ->where('description', 'NOT LIKE', '%reversal%');
+            ->sum('amount');
+            
+        $totalPoolWithdrawals = (float)DB::table('nobs_transactions')
+            ->where('comp_id', $this->compId)
+            ->where('name_of_transaction', 'LIKE', 'Withdraw%')
+            ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
+            ->sum('amount');
 
-        $totalPoolDeposits = (float)(clone $baseQuery)->where('name_of_transaction', 'LIKE', 'Deposit%')->sum('amount');
-        $totalPoolWithdrawals = (float)(clone $baseQuery)->where('name_of_transaction', 'LIKE', 'Withdraw%')->sum('amount');
-        $totalLoanRepayments = (float)(clone $baseQuery)->where('name_of_transaction', 'LIKE', 'Loan Repayment%')->sum('amount');
-        
-        $totalFeesCharged = (float)(clone $baseQuery)->where(function($q) {
-            $q->where('name_of_transaction', 'LIKE', '%fee%')
-              ->orWhere('name_of_transaction', 'LIKE', '%charge%')
-              ->orWhere('name_of_transaction', 'LIKE', '%sms%')
-              ->orWhere('name_of_transaction', 'LIKE', '%maintenance%');
-        })->sum('amount');
+        $totalFees = (float)DB::table('nobs_transactions')
+            ->where('comp_id', $this->compId)
+            ->where(function($q) {
+                $q->where('name_of_transaction', 'LIKE', '%fee%')
+                  ->orWhere('name_of_transaction', 'LIKE', '%charge%')
+                  ->orWhere('name_of_transaction', 'LIKE', '%sms%')
+                  ->orWhere('name_of_transaction', 'LIKE', '%maintenance%');
+            })->sum('amount');
 
-        $actualCashInHand = ($totalPoolDeposits + $totalLoanRepayments) - $totalPoolWithdrawals;
-        $totalSavingsLiability = $totalPoolDeposits - ($totalPoolWithdrawals + $totalFeesCharged);
-        $netSystemPosition = $actualCashInHand - $totalSavingsLiability;
+        $customerLiability = $totalPoolDeposits - ($totalPoolWithdrawals + $totalFees);
+
+        // 2. Physical Assets (What we actually have)
+        $officeCash = (float)DB::table('treasury_accounts')->where('comp_id', $this->compId)->where('account_type', 'safe')->sum('balance');
+        $bankReserves = (float)DB::table('treasury_accounts')->where('comp_id', $this->compId)->where('account_type', 'bank')->sum('balance');
+        $agentFieldCash = (float)DB::table('agent_pouch_ledger')->where('comp_id', $this->compId)->sum('current_balance');
+
+        $totalPhysicalCash = $officeCash + $bankReserves + $agentFieldCash;
+        $netPosition = $totalPhysicalCash - $customerLiability;
 
         return [
             'ui_type' => 'summary_stat_card',
             'ui_metadata' => [
-                'title' => "Net System Position",
-                'value' => number_format($netSystemPosition, 2),
+                'title' => "True Net Position",
+                'value' => number_format($netPosition, 2),
                 'suffix' => 'GHS',
-                'details' => "Cash in Pool: " . number_format($actualCashInHand, 2)
+                'details' => "Liquid: " . number_format($officeCash + $bankReserves, 2) . " | Field: " . number_format($agentFieldCash, 2)
             ],
-            'caption' => "Your net system position is GHS " . number_format($netSystemPosition, 2) . "."
+            'caption' => "The True Net Position (Cash vs Liability) is GHS " . number_format($netPosition, 2) . "."
         ];
     }
 
