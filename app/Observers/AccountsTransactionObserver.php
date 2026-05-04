@@ -23,7 +23,9 @@ class AccountsTransactionObserver
     {
         try {
             // 1. Identify the Performer
-            $user = Auth::user();
+            // In API requests, Auth::user() might be null if not checked via the api guard
+            $user = Auth::user() ?: Auth::guard('api')->user();
+            
             if (!$user) {
                 // System cron or automated task
                 return;
@@ -34,7 +36,8 @@ class AccountsTransactionObserver
             $compId = $transaction->comp_id;
             
             // LOGIC CONTEXT: Identify if this is a reversal/adjustment based on description
-            $desc = strtolower($transaction->description ?? '');
+            $descriptionRaw = $transaction->description ? $transaction->description : '';
+            $desc = strtolower($descriptionRaw);
             $isReversal = (strpos($desc, 'reversal') !== false || strpos($desc, 'refund') !== false || strpos($desc, 'adjustment') !== false);
 
             // 2. SMART ROUTING LOGIC
@@ -54,10 +57,8 @@ class AccountsTransactionObserver
             if ($isReversal) {
                 // Try to find the original transaction this is reversing
                 // Usually reversals have 'Reversal of Tx #123' or similar in description
-                preg_match('/#(\d+)/', $desc, $matches);
-                $originalId = $matches[1] ?? null;
-                
-                if ($originalId) {
+                if (preg_match('/#(\d+)/', $desc, $matches)) {
+                    $originalId = $matches[1];
                     $relatedTx = TreasuryTransaction::where('related_legacy_tx_id', $originalId)->first();
                 }
             }
@@ -68,13 +69,18 @@ class AccountsTransactionObserver
                     ['agent_id' => $user->id, 'comp_id' => $compId]
                 );
 
-                if ($type == 'Deposit' || $type == 'Loan Repayment') {
+                if ($type == 'Deposit' || $type == 'Loan Repayment' || $type == 'Susu Deposit') {
                     $pouch->increment('current_balance', $amount);
                     $sourceType = 'customer_deposit';
                     $destType = 'agent_pouch';
                     $destId = $pouch->id;
                     $txType = $isReversal ? 'reversal' : 'deposit';
-                } elseif ($type == 'Withdraw' || $type == 'Refund') {
+                } elseif ($type == 'Withdraw' || $type == 'Refund' || $type == 'Withdrawal Request') {
+                    // For Withdrawal Request, we only track if it's immediately marked as paid (is_paid = 1)
+                    if ($type == 'Withdrawal Request' && $transaction->is_paid != 1) {
+                        return;
+                    }
+
                     // If it's a reversal of a withdrawal, we are putting money BACK in the pouch
                     $pouch->increment('current_balance', $isReversal ? $amount : -$amount);
                     $sourceType = 'agent_pouch';
@@ -87,15 +93,20 @@ class AccountsTransactionObserver
             } else {
                 // --- MANAGEMENT ROUTING (Safe) ---
                 // If we found the original transaction, we use its destination as our source (and vice versa)
+                $safe = null;
                 if ($relatedTx && $relatedTx->destination_type == 'treasury_account') {
                     $safe = TreasuryAccount::find($relatedTx->destination_id);
                 }
 
-                if (!isset($safe) || !$safe) {
+                if (!$safe) {
                     $safe = TreasuryAccount::where('comp_id', $compId)
                         ->where('account_type', 'safe')
                         ->where('is_active', 1)
-                        ->first() ?: TreasuryAccount::where('comp_id', $compId)->where('account_type', 'safe')->first();
+                        ->first();
+                    
+                    if (!$safe) {
+                        $safe = TreasuryAccount::where('comp_id', $compId)->where('account_type', 'safe')->first();
+                    }
                 }
 
                 if (!$safe) {
@@ -103,13 +114,17 @@ class AccountsTransactionObserver
                     return;
                 }
 
-                if ($type == 'Deposit' || $type == 'Loan Repayment') {
+                if ($type == 'Deposit' || $type == 'Loan Repayment' || $type == 'Susu Deposit') {
                     $safe->increment('balance', $amount);
                     $sourceType = 'customer_deposit';
                     $destType = 'treasury_account';
                     $destId = $safe->id;
                     $txType = $isReversal ? 'reversal' : 'deposit';
-                } elseif ($type == 'Withdraw' || $type == 'Refund') {
+                } elseif ($type == 'Withdraw' || $type == 'Refund' || $type == 'Withdrawal Request') {
+                    if ($type == 'Withdrawal Request' && $transaction->is_paid != 1) {
+                        return;
+                    }
+
                     $safe->decrement('balance', $amount);
                     $sourceType = 'treasury_account';
                     $sourceId = $safe->id;
