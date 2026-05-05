@@ -30,6 +30,7 @@ class User extends Authenticatable
         'gender',
         'type',
         'is_active',
+        'is_disabled',
         'roles',
         'password',
         'avatar',

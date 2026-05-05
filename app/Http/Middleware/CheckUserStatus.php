@@ -19,7 +19,9 @@ class CheckUserStatus
         // Use the API guard explicitly to get the user from the token
         $user = auth('api')->user();
 
-        if ($user && $user->is_disabled) {
+        // Robust check: Block if is_disabled is true OR is_active is false
+        // This ensures sync between different admin panels.
+        if ($user && ($user->is_disabled || $user->is_active == 0)) {
             // Revoke Passport token if applicable
             if (method_exists($user, 'token') && $user->token()) {
                 $user->token()->revoke();
@@ -32,7 +34,7 @@ class CheckUserStatus
             return response()->json([
                 'success' => false,
                 'error' => 'account_disabled',
-                'message' => 'Your account has been disabled. Access denied.'
+                'message' => 'Your account has been disabled or deactivated. Access denied.'
             ], 403);
         }
 

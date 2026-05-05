@@ -48,14 +48,21 @@ class ApiUsersController extends Controller
             return response()->json(['success' => false, 'message' => 'User not found'], 404);
         }
 
-        // Toggle the is_disabled status
-        $user->is_disabled = !$user->is_disabled;
+        // Toggle the is_disabled status and sync with is_active
+        $newStatus = !$user->is_disabled;
+        $user->is_disabled = $newStatus;
+        $user->is_active = $newStatus ? 0 : 1; // if disabled=true, active=0. if disabled=false, active=1.
+        
+        // Instant Logout: Clear token so the next request fails immediately
+        $user->api_token = null;
+        
         $user->save();
 
         return response()->json([
             'success' => true, 
-            'message' => 'User status updated successfully.',
-            'is_disabled' => $user->is_disabled
+            'message' => 'User status updated successfully and tokens invalidated.',
+            'is_disabled' => $user->is_disabled,
+            'is_active' => $user->is_active
         ]);
     }
 
