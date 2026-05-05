@@ -52,6 +52,7 @@ class Kernel extends HttpKernel
         'api' => [
             'throttle:60,1',
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
+            \App\Http\Middleware\CheckUserStatus::class,
         ],
     ];
 
@@ -75,5 +76,6 @@ class Kernel extends HttpKernel
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'XSS' => \App\Http\Middleware\XSS::class,
         'cron.secret' => \App\Http\Middleware\VerifyCronSecret::class, // Custom middleware for cron security
+        'checkStatus' => \App\Http\Middleware\CheckUserStatus::class,
     ];
 }

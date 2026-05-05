@@ -26,6 +26,13 @@ class AuthController extends Controller
 
         if (Auth::attempt($validatedData)) {
             $user = Auth::user();
+
+            // Check if user is disabled
+            if ($user->is_disabled) {
+                Auth::logout();
+                return response()->json(['error' => 'Your account has been disabled. Please contact the administrator.'], 403);
+            }
+
             $customToken = $this->createCustomToken($user->id, 'mysecretkey');
             $user->api_token = $customToken;
             $user->save();
