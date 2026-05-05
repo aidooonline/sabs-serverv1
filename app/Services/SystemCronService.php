@@ -17,13 +17,15 @@ class SystemCronService
         $cutoffDate = Carbon::now()->subDays(90)->toDateTimeString();
 
         try {
-            // 1. RECOVERY: Automatically activate any LOAN accounts that might have been marked dormant by mistake
-            DB::table('nobs_user_account_numbers')
+            // 1. RECOVERY & INTEGRITY: Automatically activate any accounts (including LOANS) that have recent activity or are currently dormant but fresh
+            $recovered = DB::table('nobs_user_account_numbers')
                 ->where('comp_id', $companyId)
                 ->where('account_status', 'dormant')
-                ->where(function($q) {
+                ->where(function($q) use ($cutoffDate) {
+                    // Rule: If it's a Loan OR it's had a transaction in the last 90 days
                     $q->where('account_type', 'LIKE', '%Loan%')
-                      ->orWhere('account_type', 'LIKE', '%Repayment%');
+                      ->orWhere('account_type', 'LIKE', '%Repayment%')
+                      ->orWhere('last_transaction_date', '>=', $cutoffDate);
                 })
                 ->update(['account_status' => 'active', 'updated_at' => now()]);
 

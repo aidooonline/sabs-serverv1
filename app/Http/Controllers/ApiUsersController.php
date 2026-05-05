@@ -140,6 +140,7 @@ class ApiUsersController extends Controller
             }
     
             $account->account_status = 'active';
+            $account->last_transaction_date = now();
             $account->save();
     
             return response()->json([
