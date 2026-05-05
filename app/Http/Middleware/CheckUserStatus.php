@@ -16,19 +16,21 @@ class CheckUserStatus
      */
     public function handle($request, Closure $next)
     {
-        $user = Auth::user();
+        // Use the API guard explicitly to get the user from the token
+        $user = auth('api')->user();
 
         if ($user && $user->is_disabled) {
-            // Log the user out if they are disabled while having an active session/token
-            if (method_exists($user, 'token')) {
+            // Revoke Passport token if applicable
+            if (method_exists($user, 'token') && $user->token()) {
                 $user->token()->revoke();
             }
             
-            // Clear API token to force re-auth
+            // Clear custom API token and save
             $user->api_token = null;
             $user->save();
 
             return response()->json([
+                'success' => false,
                 'error' => 'account_disabled',
                 'message' => 'Your account has been disabled. Access denied.'
             ], 403);
