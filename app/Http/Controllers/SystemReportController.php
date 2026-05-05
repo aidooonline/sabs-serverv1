@@ -166,24 +166,25 @@ class SystemReportController extends Controller
 
     private function isManagement()
     {
-        $user = auth()->user();
+        $user = \Auth::user() ?: \Auth::guard('api')->user();
         if (!$user) return false;
         
-        $role = strtolower($user->type_name ?? $user->type ?? 'Staff');
-        $mgmtRoles = ['admin', 'manager', 'owner', 'super admin', 'god admin'];
+        $role = strtolower($user->type_name ?: $user->type ?: 'Staff');
+        $managementRoles = ['admin', 'manager', 'owner', 'super admin', 'god admin'];
         
-        return in_array($role, $mgmtRoles);
+        // Check against type string OR Spatie role if available
+        $hasMgmtType = in_array($role, $managementRoles);
+        $hasMgmtRole = method_exists($user, 'hasAnyRole') && $user->hasAnyRole(['Admin', 'Owner', 'super admin', 'Manager', 'God Admin']);
+
+        return $hasMgmtType || $hasMgmtRole;
     }
 
     private function isAgentOnly()
     {
-        $user = auth()->user();
+        $user = \Auth::user() ?: \Auth::guard('api')->user();
         if (!$user) return false;
         
-        $role = strtolower($user->type_name ?? $user->type ?? 'Staff');
-        $mgmtRoles = ['admin', 'manager', 'owner', 'super admin', 'god admin'];
-        
-        // They are an Agent ONLY if they don't have management roles but have the Agent type/role
-        return !in_array($role, $mgmtRoles) && ($role === 'agent' || $role === 'staff');
+        // They are an Agent ONLY if they don't have management privileges
+        return !$this->isManagement();
     }
 }

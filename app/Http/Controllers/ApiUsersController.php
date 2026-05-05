@@ -110,15 +110,20 @@ class ApiUsersController extends Controller
         }
     }
 
-        private function isManagement()
-            {            $user = \Auth::user();
-            if (!$user) return false;
-    
-            $managementTypes = ['Admin', 'owner', 'super admin', 'God Admin', 'Manager'];
-            $managementRoles = ['Admin', 'Owner', 'super admin', 'Manager'];
-    
-            return in_array($user->type, $managementTypes) || $user->hasRole($managementRoles);
-        }
+    private function isManagement()
+    {
+        $user = \Auth::user() ?: \Auth::guard('api')->user();
+        if (!$user) return false;
+
+        $role = strtolower($user->type_name ?: $user->type ?: 'Staff');
+        $managementRoles = ['admin', 'owner', 'super admin', 'god admin', 'manager'];
+
+        // Check against type string OR Spatie role if available
+        $hasMgmtType = in_array($role, $managementRoles);
+        $hasMgmtRole = method_exists($user, 'hasAnyRole') && $user->hasAnyRole(['Admin', 'Owner', 'super admin', 'Manager', 'God Admin']);
+
+        return $hasMgmtType || $hasMgmtRole;
+    }
     
         public function reactivateAccount(Request $request)
         {
