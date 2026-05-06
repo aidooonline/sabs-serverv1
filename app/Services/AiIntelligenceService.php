@@ -141,13 +141,28 @@ class AiIntelligenceService
         $totalPhysicalCash = $officeCash + $bankReserves + $agentFieldCash;
 
         // --- 2. DIGITAL LIABILITIES (Customer Savings) ---
-        // CRITICAL FIX: Use the actual balances from nobs_user_account_numbers instead of summing history.
-        // History summing is prone to errors (LIKE 'Deposit%', reversals, historical missing data).
-        $totalSavingsLiability = (float)DB::table('nobs_user_account_numbers')
+        $totalPoolDeposits = (float)DB::table('nobs_transactions')
             ->where('comp_id', $this->compId)
-            ->where('account_type', 'NOT LIKE', '%Loan%')
-            ->sum('balance');
+            ->where('name_of_transaction', 'LIKE', 'Deposit%')
+            ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
+            ->sum('amount');
+            
+        $totalPoolWithdrawals = (float)DB::table('nobs_transactions')
+            ->where('comp_id', $this->compId)
+            ->where('name_of_transaction', 'LIKE', 'Withdraw%')
+            ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
+            ->sum('amount');
 
+        $totalFees = (float)DB::table('nobs_transactions')
+            ->where('comp_id', $this->compId)
+            ->where(function($q) {
+                $q->where('name_of_transaction', 'LIKE', '%fee%')
+                  ->orWhere('name_of_transaction', 'LIKE', '%charge%')
+                  ->orWhere('name_of_transaction', 'LIKE', '%sms%')
+                  ->orWhere('name_of_transaction', 'LIKE', '%maintenance%');
+            })->sum('amount');
+
+        $totalSavingsLiability = $totalPoolDeposits - ($totalPoolWithdrawals + $totalFees);
         $netSystemPosition = $totalPhysicalCash - $totalSavingsLiability;
 
         // --- 3. PERIOD PERFORMANCE ---

@@ -112,11 +112,28 @@ class AiIntentLibrary
     public function getSystemLiquidity()
     {
         // 1. Digital Balances (What we owe customers)
-        // CRITICAL FIX: Use actual balances from nobs_user_account_numbers
-        $customerLiability = (float)DB::table('nobs_user_account_numbers')
+        $totalPoolDeposits = (float)DB::table('nobs_transactions')
             ->where('comp_id', $this->compId)
-            ->where('account_type', 'NOT LIKE', '%Loan%')
-            ->sum('balance');
+            ->where('name_of_transaction', 'LIKE', 'Deposit%')
+            ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
+            ->sum('amount');
+            
+        $totalPoolWithdrawals = (float)DB::table('nobs_transactions')
+            ->where('comp_id', $this->compId)
+            ->where('name_of_transaction', 'LIKE', 'Withdraw%')
+            ->where('name_of_transaction', 'NOT LIKE', '%reversal%')
+            ->sum('amount');
+
+        $totalFees = (float)DB::table('nobs_transactions')
+            ->where('comp_id', $this->compId)
+            ->where(function($q) {
+                $q->where('name_of_transaction', 'LIKE', '%fee%')
+                  ->orWhere('name_of_transaction', 'LIKE', '%charge%')
+                  ->orWhere('name_of_transaction', 'LIKE', '%sms%')
+                  ->orWhere('name_of_transaction', 'LIKE', '%maintenance%');
+            })->sum('amount');
+
+        $customerLiability = $totalPoolDeposits - ($totalPoolWithdrawals + $totalFees);
 
         // 2. Physical Assets (What we actually have)
         $officeCash = (float)DB::table('treasury_accounts')->where('comp_id', $this->compId)->where('account_type', 'safe')->sum('balance');

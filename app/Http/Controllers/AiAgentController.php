@@ -47,8 +47,7 @@ class AiAgentController extends Controller
 
             $requestApiKey = $request->input('api_key');
             $apiKey = $requestApiKey ?: env('GOOGLE_AI_API_KEY');
-            // DEFAULT TO STABLE FLASH 1.5 instead of 3-flash-preview which is hitting 503 limits
-            $model = $request->input('model', 'gemini-1.5-flash');
+            $model = $request->input('model', 'gemini-3-flash-preview');
             
             $this->initServices($compId, $apiKey, $model);
             
