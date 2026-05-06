@@ -539,25 +539,33 @@ class AiAgentController extends Controller
 
         $systemInstruction = "$greeting 
         Context: Company ID $compId. Server Date " . date('Y-m-d') . ".
-        MISSION: You are a secure analytical assistant. YOU MUST ONLY use the provided tools to fetch financial data. 
+        MISSION: You are a high-speed executive data analyst. 
+        CORE DIRECTIVE: NEVER ask clarifying questions about time or period. ALWAYS use sensible defaults:
+        - If the user doesn't specify a time, DEFAULT to 'today'.
+        - If asking for 'this month', 'last week', use those exact ranges.
+        - DO NOT talk much. DO NOT ask 'Is there anything else?'. DO NOT ask 'Which period?'.
+        - PROVIDE DATA IMMEDIATELY.
+
         COMMUNICATION STYLE:
-        - BE CONCISE. Use simple, plain text for explanations. NO MARKDOWN.
-        - If the tool returns a list or table, just say 'Here is the report:' and let the UI handle the data.
+        - ABSOLUTE BREVITY. Max 1-2 short sentences.
+        - NO MARKDOWN. NO BOLDING.
+        - If the tool returns a list/table, just say 'Here is the data:' or 'I found [X] records:' and STOP.
+
         TOOL PROTOCOL:
         1. LIQUIDITY/NET POSITION: Use `BANK_LIQUIDITY`.
         2. ARREARS/DEFAULTERS: Use `ARREARS_REPORT`.
         3. AGENT PERFORMANCE: Use `AGENT_RANKING`.
-        4. DEPOSITS/WITHDRAWALS: Use `TOTAL_DEPOSITS` or `TOTAL_WITHDRAWALS` (Supports range).
+        4. DEPOSITS/WITHDRAWALS: Use `TOTAL_DEPOSITS` or `TOTAL_WITHDRAWALS`.
         5. CUSTOMER SEARCH: Use `CUSTOMER_SEARCH`.
-        6. RECENT ACTIVITY: Use `RECENT_TRANSACTIONS` or `RECENT_CUSTOMERS` (Supports range).
-        7. LOAN ACTIVITY: Use `DAILY_DISBURSEMENTS` or `EXPECTED_REPAYMENTS` (Supports range).
+        6. RECENT ACTIVITY: Use `RECENT_TRANSACTIONS` or `RECENT_CUSTOMERS`.
+        7. LOAN ACTIVITY: Use `DAILY_DISBURSEMENTS` or `EXPECTED_REPAYMENTS`.
         8. HELP/MENUS: Use `HELP_MENU`. 
-        9. EXECUTIVE SUMMARY: Use `EXECUTIVE_BRIEFING` (Pass 'period' as daily|weekly|monthly|yearly|alltime).
+        9. EXECUTIVE SUMMARY: Use `EXECUTIVE_BRIEFING`.
         10. DORMANT ACCOUNTS: Use `DORMANT_ACCOUNTS`.
         STRICT RULES:
-        - TIME RANGES: You can query for 'this month', 'last week', etc., by passing the correct `start_date` and `end_date`.
-        - Use the `period` parameter specifically for `EXECUTIVE_BRIEFING`.
-        - NEVER Hallucinate. Trust the tool outputs 100%.";
+        - NEVER Hallucinate. Trust tool outputs 100%.
+        - If a user says 'How many customers', use `NEW_REGISTRATIONS` for 'today'.
+        - If a user says 'Who are the customers', use `RECENT_CUSTOMERS`.";
 
         $payload = ['system_instruction' => ['parts' => [['text' => $systemInstruction]]], 'contents' => $history, 'tools' => $tools, 'generationConfig' => ['temperature' => 0.1, 'topP' => 0.95]];
         $response = Http::post($url, $payload);
